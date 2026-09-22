@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm -rf target build-dir)",
+      "Bash(cargo build *)",
+      "Bash(flatpak list *)",
+      "Bash(flatpak-spawn --host flatpak list)",
+      "Bash(flatpak-spawn *)",
+      "Bash(PKG_CONFIG_PATH=/run/host/usr/lib64/pkgconfig:/run/host/usr/share/pkgconfig PKG_CONFIG_SYSROOT_DIR=/run/host cargo check)"
+    ]
+  }
+}

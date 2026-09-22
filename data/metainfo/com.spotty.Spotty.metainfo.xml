@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.spotty.Spotty</id>
+  <name>Spotty</name>
+  <summary>Fast launcher for apps, files, clipboard history, and system actions</summary>
+  <developer id="com.spotty">
+    <name>Spotty</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Spotty is a keyboard-driven launcher for GNOME desktops. It runs in the background and provides quick access to applications, indexed files, clipboard history, calculations, web searches, settings panels, and power actions.</p>
+  </description>
+  <launchable type="desktop-id">com.spotty.Spotty.desktop</launchable>
+  <url type="homepage">https://github.com/spotty/spotty</url>
+  <branding>
+    <color type="primary" scheme_preference="light">#1c71d8</color>
+    <color type="primary" scheme_preference="dark">#99c1f1</color>
+  </branding>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.6.0" date="2026-06-01" />
+  </releases>
+</component>

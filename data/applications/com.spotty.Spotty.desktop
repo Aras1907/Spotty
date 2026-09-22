@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Spotty
+GenericName=Launcher
+Comment=Search apps, files, clipboard history, calculations, and system actions
+Exec=spotty
+Icon=com.spotty.Spotty
+Terminal=false
+Categories=Utility;GTK;
+Keywords=launcher;search;raycast;files;clipboard;
+StartupNotify=false

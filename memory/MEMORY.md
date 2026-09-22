@@ -1,0 +1,1 @@
+- [Flatpak build & deploy](flatpak-build-deploy.md) — how to build/install/restart Spotty from this sandboxed session via flatpak-spawn --host

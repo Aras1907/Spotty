@@ -1,0 +1,7 @@
+{
+  "name": "Spotty",
+  "description": "Global shortcuts for the Spotty launcher",
+  "uuid": "spotty@spotty",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "url": ""
+}

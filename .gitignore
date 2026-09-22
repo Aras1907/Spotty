@@ -1,0 +1,9 @@
+# Build artifacts
+target/
+*.tmp
+*.bak
+
+# Flatpak build cache (large, regenerated)
+build-dir/
+.flatpak-builder/
+triggers-repo

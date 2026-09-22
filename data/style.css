@@ -1,0 +1,254 @@
+window.spotty-window {
+    background-color: @window_bg_color;
+    color: @window_fg_color;
+    border-radius: 14px;
+}
+window.spotty-window > * {
+    border-radius: 14px;
+}
+.spotty-outer {
+    background-color: @window_bg_color;
+    color: @window_fg_color;
+    border-radius: 14px;
+    border: 2px solid @borders;
+}
+.spotty-entry {
+    background: transparent;
+    color: @window_fg_color;
+    border: none;
+    box-shadow: none;
+    outline: none;
+    padding: 4px 0;
+    caret-color: @accent_color;
+    font-size: 1.1em;
+}
+.spotty-entry:focus {
+    background: transparent;
+    color: @window_fg_color;
+    box-shadow: none;
+    outline: none;
+}
+.spotty-entry text {
+    color: @window_fg_color;
+    background: transparent;
+}
+.spotty-gear {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 4px;
+}
+.spotty-list {
+    background: transparent;
+}
+/* Keep the results list scrollable (wheel/touch/keys) but hide the
+   scrollbar widget itself. */
+.spotty-results-scroll scrollbar {
+    opacity: 0;
+    min-width: 0;
+    min-height: 0;
+    background: transparent;
+}
+.spotty-list row {
+    border-radius: 8px;
+    margin: 2px 6px;
+    padding: 2px 0;
+    color: @window_fg_color;
+}
+.spotty-list row:selected {
+    background-color: @accent_bg_color;
+    color: @accent_fg_color;
+}
+.spotty-list row:selected .dim-label {
+    opacity: 0.75;
+}
+.result-badge {
+    background-color: alpha(currentColor, 0.08);
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 0.75em;
+}
+.preview-pane {
+    background-color: @view_bg_color;
+    color: @view_fg_color;
+    padding: 8px;
+}
+
+
+.spotty-entry selection {
+    background-color: alpha(@accent_color, 0.35);
+    color: @window_fg_color;
+}
+
+/* Raycast-style mode chip shown before the search cursor */
+.spotty-mode-chip {
+    background: alpha(@accent_color, 0.18);
+    border-radius: 8px;
+    padding: 3px 10px 3px 8px;
+    margin-right: 2px;
+}
+.spotty-mode-chip label {
+    font-weight: 700;
+    color: @accent_color;
+}
+
+/* Pulsing highlight on rows tied to a running background operation. */
+@keyframes op-pulse-kf {
+    0%   { background-color: alpha(@accent_color, 0.05); }
+    50%  { background-color: alpha(@accent_color, 0.22); }
+    100% { background-color: alpha(@accent_color, 0.05); }
+}
+.op-pulse {
+    border-radius: 8px;
+    animation: op-pulse-kf 1.6s ease-in-out infinite;
+}
+
+/* Running-operation row: soft accent card that fades + slides into view. */
+@keyframes op-row-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+.op-row {
+    border-radius: 10px;
+    background-color: alpha(@accent_color, 0.10);
+    animation: op-row-in 260ms ease-out;
+}
+.op-progressbar {
+    min-height: 6px;
+}
+
+/* Pin/trash row-action buttons: hidden by default, smoothly fade in on hover. */
+.row-action-btn {
+    opacity: 0;
+    transition: opacity 150ms ease-in-out;
+}
+.row-action-btn.row-action-visible {
+    opacity: 1;
+}
+
+/* Brief click-feedback flash for pin/unpin/delete actions. */
+@keyframes action-pulse-kf {
+    0%   { background-color: alpha(@accent_color, 0.5); }
+    100% { background-color: transparent; }
+}
+.action-pulse {
+    border-radius: 999px;
+    animation: action-pulse-kf 350ms ease-out;
+}
+.op-progressbar trough {
+    min-height: 6px;
+    border-radius: 999px;
+    background-color: alpha(@accent_color, 0.15);
+}
+.op-progressbar progress {
+    min-height: 6px;
+    border-radius: 999px;
+    background-color: @accent_color;
+}
+
+/* Scrub bar in the now-playing card: slim slider that looks like a progress
+   bar but is draggable to seek. */
+.spotty-scrub {
+    min-height: 8px;
+}
+.spotty-scrub trough {
+    min-height: 6px;
+    border-radius: 999px;
+    background-color: alpha(@accent_color, 0.15);
+}
+.spotty-scrub highlight {
+    min-height: 6px;
+    border-radius: 999px;
+    background-color: @accent_color;
+}
+.spotty-scrub slider {
+    min-width: 14px;
+    min-height: 14px;
+    margin: -5px;
+    border-radius: 999px;
+    background-color: @accent_color;
+    box-shadow: 0 1px 4px alpha(black, 0.4);
+}
+.spotty-scrub slider:disabled {
+    background-color: @accent_color;
+}
+
+/* Uninstall confirmation dialog: make the focused Yes/No button clearly
+   stand out, and keep the ring visible even on mouse-opened dialogs. */
+.spotty-confirm-btn {
+    min-width: 64px;
+}
+.spotty-confirm-btn:focus,
+.spotty-confirm-btn:focus-visible {
+    outline: 2px solid @accent_color;
+    outline-offset: 2px;
+    box-shadow: 0 0 0 2px alpha(@accent_color, 0.35);
+}
+
+/* Reset buttons: red text to signal "revert to default". */
+.spotty-reset {
+    color: @error_color;
+}
+
+/* ── Music: source badge + cover art ── */
+.music-badge-yt {
+    color: #fff;
+    background: #cc0000;
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-size: 0.72em;
+    font-weight: bold;
+}
+.music-badge-local {
+    color: @window_fg_color;
+    background: alpha(@window_fg_color, 0.12);
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-size: 0.72em;
+    font-weight: bold;
+}
+.music-cover {
+    border-radius: 6px;
+}
+.music-cover-large {
+    border-radius: 10px;
+    box-shadow: 0 4px 16px alpha(black, 0.35);
+}
+
+/* Inline music undo bar shown inside the Operations popover. */
+.ops-undo-bar {
+    border-radius: 10px;
+    background-color: alpha(@window_fg_color, 0.06);
+    margin-bottom: 4px;
+}
+
+/* Add-ons window lists: no card plate, no row tint — rows blend fully with
+   the window background; only a hover highlight separates them.
+   NOTE: adw::ActionRow extends gtk::ListBoxRow, so inner rows must be
+   neutralized or every row paints two hover layers. */
+.spotty-flat-list {
+    background: transparent;
+}
+.spotty-flat-list > row {
+    border-radius: 12px;
+    margin: 2px 0;
+    background: transparent;
+}
+.spotty-flat-list > row:hover {
+    background-color: alpha(@window_fg_color, 0.10);
+}
+.spotty-flat-list > row row {
+    background: transparent;
+}
+.spotty-flat-list > row row:hover {
+    background: transparent;
+}
+
+/* Expanded dictionary definition card in the search results. */
+.spotty-dict-row {
+    border-radius: 10px;
+    background-color: alpha(@accent_color, 0.10);
+    animation: op-row-in 260ms ease-out;
+}
+.spotty-dict-row label {
+    color: @window_fg_color;
+}

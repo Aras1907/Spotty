@@ -1,0 +1,116 @@
+# Flatpak manifest for Spotty.
+#
+# Design notes:
+#   • Spotty runs sandboxed; it does NOT call host binaries via flatpak-spawn.
+#   • The preview helper tools (poppler/pdftoppm, ffmpeg/ffmpegthumbnailer) are
+#     BUNDLED into /app/bin, which Spotty's resolve_tool() checks first.
+#   • Office previews need NO external tool — Spotty extracts the preview image
+#     embedded inside .pptx/.docx/.xlsx/ODF files directly (pure-Rust zip read).
+#   • The shared thumbnail cache (~/.cache/thumbnails) is granted so previews
+#     interoperate with the host file manager.
+#
+# Build: flatpak-builder --user --install --force-clean build-dir flatpak/com.spotty.Spotty.yaml
+
+app-id: com.spotty.Spotty
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: spotty
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=home
+  - --filesystem=xdg-cache/thumbnails:create
+  - --filesystem=/usr/share/applications:ro
+  - --filesystem=/usr/local/share/applications:ro
+  - --filesystem=/var/lib/flatpak/exports/share/applications:ro
+  - --filesystem=/var/lib/snapd/desktop/applications:ro
+  - --talk-name=org.freedesktop.Flatpak
+  - --talk-name=org.gnome.Shell
+  - --talk-name=org.gnome.Shell.Extensions
+  - --talk-name=org.freedesktop.Notifications
+  - --own-name=com.spotty.Spotty
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+
+modules:
+  # ---- Bundled preview tools -------------------------------------------
+  - name: poppler
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DENABLE_QT5=OFF
+      - -DENABLE_QT6=OFF
+      - -DBUILD_GTK_TESTS=OFF
+      - -DENABLE_BOOST=OFF
+      - -DENABLE_UTILS=ON
+    sources:
+      - type: archive
+        url: https://poppler.freedesktop.org/poppler-24.02.0.tar.xz
+        sha256: 19187a3fdd05f33e7d604c4799c183de5ca0118640c88b370ddcf3136343222e
+
+  - name: ffmpeg
+    buildsystem: autotools
+    config-opts:
+      - --disable-doc
+      - --disable-static
+      - --enable-shared
+      - --disable-programs
+      - --enable-ffmpeg
+    sources:
+      - type: archive
+        url: https://ffmpeg.org/releases/ffmpeg-7.0.tar.xz
+        sha256: 4426a94dd2c814945456600c8adfc402bee65ec14a70e8c531ec9a2cd651da7b
+
+  # ---- Tesseract OCR engine --------------------------------------------
+  - name: leptonica
+    buildsystem: autotools
+    sources:
+      - type: archive
+        url: https://github.com/DanBloomberg/leptonica/releases/download/1.85.0/leptonica-1.85.0.tar.gz
+        sha256: a0aa2b1b6d4af6084b72c69559a9ab3eae6d72e4b3c66b207062c45b2b451d02
+
+  - name: tesseract
+    buildsystem: autotools
+    config-opts:
+      - --disable-doc
+      - --disable-graphics
+      - --disable-opencl
+    sources:
+      - type: archive
+        url: https://github.com/tesseract-ocr/tesseract/archive/5.5.0.tar.gz
+        sha256: 38c54ec6ddb2768d5b70eeb36fc637809471f487af153d59a1efec49409eaff7
+      - type: file
+        url: https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
+        sha256: b8fe3e0a7a5e7b28c1798c6a6cdd0f817c96c5c40c1a37309c4b9c5ca109b7a3
+        dest: /app/share/tessdata
+
+  # ---- AV1 decoder for AVIF images -------------------------------------
+  - name: dav1d
+    buildsystem: meson
+    config-opts:
+      - -Ddefault_library=shared
+    sources:
+      - type: archive
+        url: https://code.videolan.org/videolan/dav1d/-/archive/1.5.0/dav1d-1.5.0.tar.gz
+        sha256: 14a1ab4cba1df8375fe2243c7b1e7e4c87b6e667216f87f4d546b8c35ffa2f9b
+
+  # ---- Spotty itself ----------------------------------------------------
+  - name: spotty
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+    build-commands:
+      - cargo build --release
+      - install -Dm755 target/release/spotty /app/bin/spotty
+      - install -Dm644 data/applications/com.spotty.Spotty.desktop /app/share/applications/com.spotty.Spotty.desktop
+      - install -Dm644 data/metainfo/com.spotty.Spotty.metainfo.xml /app/share/metainfo/com.spotty.Spotty.metainfo.xml
+      - install -Dm644 data/icons/hicolor/512x512/apps/com.spotty.Spotty.png /app/share/icons/hicolor/512x512/apps/com.spotty.Spotty.png
+    sources:
+      - type: dir
+        path: ..
