@@ -33,9 +33,6 @@ mod imageinfo;
 mod index;
 mod keysynth;
 mod md5;
-mod mpris;
-mod music;
-mod music_operations;
 mod operations;
 mod preview;
 mod recent_paths;
@@ -43,8 +40,6 @@ mod search;
 mod keybindings;
 mod ocr;
 mod ui;
-mod youtube_auth;
-mod youtube_music;
 fn main() -> glib::ExitCode {
     let args: Vec<String> = std::env::args().collect();
 

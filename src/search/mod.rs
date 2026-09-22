@@ -16,10 +16,8 @@ pub mod dictionary;
 pub mod emoji;
 pub mod files;
 pub mod jobs;
-pub mod music;
 pub mod run;
 pub mod settings_panels;
-pub mod store;
 pub mod system;
 pub mod typo;
 pub mod uninstall;
@@ -95,11 +93,6 @@ pub enum Action {
         /// Icon name / app-id shown on the operation's progress row.
         icon: String,
         args: Vec<String>,
-    },
-    /// Play a music track (local or YouTube Music).
-    PlayMusic {
-        source: String, // Serialized MusicSource
-        title: String,
     },
     /// Bluetooth control (bt trigger). `op` ∈ connect/disconnect/pair/scan/
     /// power_on/power_off; `mac` is empty for the scan/power/check actions.
@@ -347,33 +340,6 @@ pub fn search_mode(
         // definition) instead of a plain web search.
         if kw.id == "dictionary" {
             return dictionary::results(rest);
-        }
-        if kw.id == "music" {
-            let mut results = Vec::new();
-            if let Some(music_row) = crate::music_operations::music_result_row() {
-                results.push(music_row);
-            }
-            if rest.is_empty() {
-                // Default list: recently played first, then local library A–Z
-                // (YouTube Music recs only when that integration is enabled).
-                results.extend(music::recommendations(
-                    &config.music_library_paths,
-                    config.enable_youtube_music,
-                ));
-            } else {
-                results.extend(music::search_local(rest, &config.music_library_paths));
-                if config.enable_youtube_music {
-                    let auth_token = if config.youtube_music_token.is_empty() {
-                        None
-                    } else {
-                        Some(config.youtube_music_token.as_str())
-                    };
-                    results.extend(music::search_youtube_music(rest, auth_token));
-                }
-            }
-            results.truncate(20);
-            let results = merge_pinned(results, &rl, pinned);
-            return results;
         }
         if kw.id == "bluetooth" {
             return bluetooth::search(rest);

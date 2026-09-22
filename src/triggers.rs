@@ -334,7 +334,7 @@ pub struct MarketEntry {
 }
 
 /// Fetch a URL via curl (flatpak-spawn aware on the host) — the same
-/// pattern youtube_music.rs uses for downloads. Works with http(s) and
+/// pattern used for downloads. Works with http(s) and
 /// file:// URLs, so a local copy of the triggers repo can be tested without
 /// pushing to GitHub.
 pub fn fetch_text(url: &str) -> Result<String, String> {

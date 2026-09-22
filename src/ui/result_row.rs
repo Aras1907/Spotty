@@ -35,10 +35,6 @@ impl ResultRow {
         if r.icon.as_deref() == Some("op-progress") {
             return Self::build_progress(r);
         }
-        // Now-playing music row: cover art + transport controls + progress.
-        if r.icon.as_deref() == Some("music-row") {
-            return Self::build_music(r);
-        }
         // Dictionary definition: expanded multi-line card below the results.
         if r.icon.as_deref() == Some("dict-def") {
             return Self::build_definition(r);
@@ -364,160 +360,6 @@ impl ResultRow {
         }
     }
 
-    // The now-playing music row: cover art, title/artist + a source badge,
-    // a progress bar, and transport controls (previous / play-pause / next /
-    // stop). Hints are carried in the action sentinel:
-    //   "__music__␟<frac>␟<state>␟<yt>␟<has_prev>␟<has_next>␟<cover_path>"
-    fn build_music(r: &SearchResult) -> Self {
-        let (frac, state, is_yt, has_prev, has_next, cover) = parse_music_hints(&r.action);
-
-        let c = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
-            .spacing(12)
-            .margin_start(12)
-            .margin_end(12)
-            .margin_top(8)
-            .margin_bottom(8)
-            .build();
-        c.add_css_class("op-row");
-
-        // Cover art (or a generic music glyph until it loads / for local files).
-        let cover_img = gtk::Image::builder().pixel_size(44).build();
-        match &cover {
-            Some(path) if std::path::Path::new(path).exists() => {
-                cover_img.set_from_file(Some(path));
-            }
-            _ => cover_img.set_icon_name(Some("audio-x-generic-symbolic")),
-        }
-        cover_img.add_css_class("music-cover");
-        c.append(&cover_img);
-
-        let tb = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .spacing(4)
-            .hexpand(true)
-            .valign(gtk::Align::Center)
-            .build();
-
-        // Title + a small source badge (YouTube Music / Local file).
-        let title_row = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
-            .spacing(8)
-            .build();
-        title_row.append(
-            &gtk::Label::builder()
-                .label(&r.title)
-                .halign(gtk::Align::Start)
-                .ellipsize(pango::EllipsizeMode::End)
-                .max_width_chars(50)
-                .build(),
-        );
-        let badge = gtk::Label::builder()
-            .label(if is_yt { "YouTube Music" } else { "Local" })
-            .css_classes(["caption"])
-            .build();
-        badge.add_css_class(if is_yt {
-            "music-badge-yt"
-        } else {
-            "music-badge-local"
-        });
-        title_row.append(&badge);
-        tb.append(&title_row);
-
-        let bar = gtk::ProgressBar::builder().hexpand(true).build();
-        bar.add_css_class("op-progressbar");
-        bar.set_fraction(frac.clamp(0.0, 1.0));
-        tb.append(&bar);
-
-        let sub_label = gtk::Label::builder()
-            .label(r.subtitle.as_deref().unwrap_or(""))
-            .halign(gtk::Align::Start)
-            .ellipsize(pango::EllipsizeMode::End)
-            .max_width_chars(80)
-            .css_classes(["caption", "dim-label"])
-            .build();
-        tb.append(&sub_label);
-        c.append(&tb);
-
-        // Advance the progress bar + elapsed text smoothly without rebuilding
-        // the whole results list. Self-cancels when the row is dropped.
-        if state == "playing" {
-            let bar_weak = bar.downgrade();
-            let lbl_weak = sub_label.downgrade();
-            gtk::glib::timeout_add_local(std::time::Duration::from_millis(500), move || {
-                let (Some(bar), Some(lbl)) = (bar_weak.upgrade(), lbl_weak.upgrade()) else {
-                    return gtk::glib::ControlFlow::Break;
-                };
-                match crate::music_operations::current() {
-                    Some(op) => {
-                        let f = if op.duration_ms > 0 {
-                            (op.elapsed_ms as f64 / op.duration_ms as f64).clamp(0.0, 1.0)
-                        } else {
-                            0.0
-                        };
-                        bar.set_fraction(f);
-                        if let Some(t) = op.current_track() {
-                            let artist = if t.artist.is_empty() {
-                                t.source_label().to_string()
-                            } else {
-                                t.artist.clone()
-                            };
-                            lbl.set_label(&format!(
-                                "{} · {} / {} · {}",
-                                artist,
-                                fmt_dur(op.elapsed_ms),
-                                fmt_dur(op.duration_ms),
-                                t.source_label(),
-                            ));
-                        }
-                        gtk::glib::ControlFlow::Continue
-                    }
-                    None => gtk::glib::ControlFlow::Break,
-                }
-            });
-        }
-
-        // Transport controls.
-        let controls = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
-            .spacing(2)
-            .valign(gtk::Align::Center)
-            .build();
-
-        let prev_btn = transport_button("media-skip-backward-symbolic", "Previous");
-        prev_btn.set_sensitive(has_prev);
-        prev_btn.connect_clicked(|_| crate::music_operations::previous());
-        controls.append(&prev_btn);
-
-        let (play_icon, play_tip) = if state == "playing" {
-            ("media-playback-pause-symbolic", "Pause")
-        } else {
-            ("media-playback-start-symbolic", "Play")
-        };
-        let play_btn = transport_button(play_icon, play_tip);
-        play_btn.connect_clicked(|_| crate::music_operations::toggle());
-        controls.append(&play_btn);
-
-        let next_btn = transport_button("media-skip-forward-symbolic", "Next");
-        next_btn.set_sensitive(has_next);
-        next_btn.connect_clicked(|_| crate::music_operations::next());
-        controls.append(&next_btn);
-
-        let stop_btn = transport_button("media-playback-stop-symbolic", "Stop");
-        // Dismiss (pause + hide) rather than fully stop, so it can be resumed
-        // from where it left off via Ctrl+Z or the Operations undo bar.
-        stop_btn.connect_clicked(|_| crate::music_operations::dismiss(1.0));
-        controls.append(&stop_btn);
-
-        c.append(&controls);
-
-        Self {
-            container: c,
-            trash_button: None,
-            pin_button: None,
-        }
-    }
-
     /// Expanded dictionary card: word title + wrapped multi-line definition
     /// (the dict trigger's live lookup), on a soft accent background.
     fn build_definition(r: &SearchResult) -> Self {
@@ -565,37 +407,9 @@ impl ResultRow {
         }
     }
 }
-
 fn fmt_dur(ms: u64) -> String {
     let secs = ms / 1000;
     format!("{}:{:02}", secs / 60, secs % 60)
-}
-
-fn transport_button(icon: &str, tip: &str) -> gtk::Button {
-    gtk::Button::builder()
-        .icon_name(icon)
-        .css_classes(["flat", "circular"])
-        .valign(gtk::Align::Center)
-        .tooltip_text(tip)
-        .build()
-}
-
-// Parse "__music__␟<frac>␟<state>␟<yt>␟<has_prev>␟<has_next>␟<cover_path>".
-fn parse_music_hints(
-    action: &crate::search::Action,
-) -> (f64, String, bool, bool, bool, Option<String>) {
-    if let crate::search::Action::EnterMode(s) = action {
-        let mut p = s.split('\u{1f}');
-        let _tag = p.next();
-        let frac = p.next().and_then(|f| f.parse::<f64>().ok()).unwrap_or(0.0);
-        let state = p.next().unwrap_or("stopped").to_string();
-        let is_yt = p.next() == Some("1");
-        let has_prev = p.next() == Some("1");
-        let has_next = p.next() == Some("1");
-        let cover = p.next().filter(|s| !s.is_empty()).map(|s| s.to_string());
-        return (frac, state, is_yt, has_prev, has_next, cover);
-    }
-    (0.0, "stopped".to_string(), false, false, false, None)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

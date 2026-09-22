@@ -238,161 +238,6 @@ eg.add(&custom_web);
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Music library settings (folders + YouTube Music toggle)
-// ──────────────────────────────────────────────────────────────────────
-/// A self-contained "Local folder" picker for the music trigger: one row per
-/// folder in `music_library_paths` (trash to remove) plus an Add Folder row.
-/// Shared by the trigger edit dialog and the marketplace installed-music row.
-pub(crate) fn music_folders_editor(
-    window: &gtk::Window,
-    config: &Rc<RefCell<Config>>,
-) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::builder()
-        .title("Music library folders")
-        .description("Folders searched for local music")
-        .build();
-
-    let rows: Rc<RefCell<Vec<adw::ActionRow>>> = Rc::new(RefCell::new(Vec::new()));
-    let rebuild_holder: Rc<RefCell<Option<Rc<dyn Fn()>>>> = Rc::new(RefCell::new(None));
-    let rebuild: Rc<dyn Fn()> = {
-        let cfg = config.clone();
-        let g = group.clone();
-        let holder = rebuild_holder.clone();
-        let rows = rows.clone();
-        Rc::new(move || {
-            for r in rows.borrow().iter() {
-                g.remove(r);
-            }
-            rows.borrow_mut().clear();
-            let paths: Vec<std::path::PathBuf> = cfg.borrow().music_library_paths.clone();
-            if paths.is_empty() {
-                let empty = adw::ActionRow::builder()
-                    .title("No folders yet")
-                    .subtitle("Add a folder to search")
-                    .build();
-                g.add(&empty);
-                rows.borrow_mut().push(empty);
-                return;
-            }
-            for p in &paths {
-                let row = adw::ActionRow::builder().title(&p.display().to_string()).build();
-                let del = gtk::Button::builder()
-                    .icon_name("user-trash-symbolic")
-                    .css_classes(["flat", "circular"])
-                    .tooltip_text("Remove folder")
-                    .build();
-                let cfg_d = cfg.clone();
-                let holder_d = holder.clone();
-                let path = p.clone();
-                del.connect_clicked(move |_| {
-                    cfg_d.borrow_mut().music_library_paths.retain(|x| x != &path);
-                    cfg_d.borrow().save();
-                    if let Some(rb) = holder_d.borrow().as_ref() {
-                        rb();
-                    }
-                });
-                row.add_suffix(&del);
-                g.add(&row);
-                rows.borrow_mut().push(row);
-            }
-        })
-    };
-    *rebuild_holder.borrow_mut() = Some(rebuild.clone());
-
-    // Compact "+" header button to add a folder (replaces a full "Add
-    // Folder" row that took up too much space).
-    let add_btn = gtk::Button::builder()
-        .icon_name("list-add-symbolic")
-        .css_classes(["flat"])
-        .valign(gtk::Align::Center)
-        .tooltip_text("Add a music folder")
-        .build();
-    {
-        let win = window.clone();
-        let cfg = config.clone();
-        let holder = rebuild_holder.clone();
-        add_btn.connect_clicked(move |_| {
-            let fd = gtk::FileDialog::builder().title("Pick a music folder").build();
-            let window_ref = win.clone();
-            let cfg2 = cfg.clone();
-            let holder_ref = holder.clone();
-            fd.select_folder(Some(&window_ref), None::<&gio::Cancellable>, move |res| {
-                use gtk::prelude::*;
-                if let Ok(f) = res {
-                    if let Some(p) = f.path() {
-                        cfg2.borrow_mut().music_library_paths.push(p);
-                        cfg2.borrow().save();
-                        if let Some(rb) = holder_ref.borrow().as_ref() {
-                            rb();
-                        }
-                    }
-                }
-            });
-        });
-    }
-    group.set_header_suffix(Some(&add_btn));
-    rebuild();
-
-    group
-}
-
-/// Open a compact "Music Settings" window from the marketplace window:
-/// YouTube Music toggle + library folder editor, saved immediately.
-pub(crate) fn open_music_settings_dialog(parent: &impl IsA<gtk::Window>, config: &Rc<RefCell<Config>>) {
-    let dialog = adw::Window::builder()
-        .transient_for(parent)
-        .modal(true)
-        .title("Music Settings")
-        .default_width(640)
-        .default_height(600)
-        .build();
-
-    let toolbar = adw::ToolbarView::new();
-    let header = adw::HeaderBar::builder()
-        .title_widget(&adw::WindowTitle::new("Music Settings", ""))
-        .build();
-    let close_btn = gtk::Button::with_label("Close");
-    header.pack_end(&close_btn);
-    toolbar.add_top_bar(&header);
-
-    let content = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(12)
-        .margin_top(12)
-        .margin_bottom(12)
-        .margin_start(6)
-        .margin_end(6)
-        .build();
-
-    let music_group = adw::PreferencesGroup::new();
-    let enabled_ym = adw::SwitchRow::builder()
-        .title("YouTube Music")
-        .subtitle("Also search and play from YouTube Music")
-        .active(config.borrow().enable_youtube_music)
-        .build();
-    {
-        let cfg = config.clone();
-        enabled_ym.connect_active_notify(move |r| {
-            cfg.borrow_mut().enable_youtube_music = r.is_active();
-            cfg.borrow().save();
-        });
-    }
-    music_group.add(&enabled_ym);
-    content.append(&music_group);
-
-    content.append(&music_folders_editor(dialog.upcast_ref(), config));
-    toolbar.set_content(Some(&content));
-    dialog.set_content(Some(&toolbar));
-
-    close_btn.connect_clicked({
-        let dialog = dialog.clone();
-        move |_| dialog.close()
-    });
-
-    dialog.present();
-}
-
-// ──────────────────────────────────────────────────────────────────────
 // Trigger page - remap trigger words, add your own, delete installed ones
 // ──────────────────────────────────────────────────────────────────────
 /// One row in the trigger list: a built-in keyword or an installed trigger.
@@ -848,7 +693,6 @@ fn edit_trigger_dialog(
 ) {
     let id = id.to_string();
     let is_clipboard = id == "clipboard";
-    let is_music = id == "music";
     let is_find = id == "files";
     let (name, word, shortcut, enabled, description): (String, String, String, bool, String) =
         if is_installed {
@@ -1118,27 +962,6 @@ fn edit_trigger_dialog(
             &Config::default().clipboard_pin_shortcut,
         );
         clip_group.add(&_pin_row);
-    }
-
-    if is_music {
-        let music_group = adw::PreferencesGroup::builder().title("Music").build();
-        content.append(&music_group);
-
-        let enabled_ym = adw::SwitchRow::builder()
-            .title("YouTube Music")
-            .subtitle("Also search and play from YouTube Music")
-            .active(config.borrow().enable_youtube_music)
-            .build();
-        {
-            let cfg = config.clone();
-            enabled_ym.connect_active_notify(move |r| {
-                cfg.borrow_mut().enable_youtube_music = r.is_active();
-                cfg.borrow().save();
-            });
-        }
-        music_group.add(&enabled_ym);
-
-        content.append(&music_folders_editor(dialog.upcast_ref(), config));
     }
 
     if is_find {

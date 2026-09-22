@@ -189,32 +189,7 @@ window.spotty-window > * {
     color: @error_color;
 }
 
-/* ── Music: source badge + cover art ── */
-.music-badge-yt {
-    color: #fff;
-    background: #cc0000;
-    border-radius: 6px;
-    padding: 1px 6px;
-    font-size: 0.72em;
-    font-weight: bold;
-}
-.music-badge-local {
-    color: @window_fg_color;
-    background: alpha(@window_fg_color, 0.12);
-    border-radius: 6px;
-    padding: 1px 6px;
-    font-size: 0.72em;
-    font-weight: bold;
-}
-.music-cover {
-    border-radius: 6px;
-}
-.music-cover-large {
-    border-radius: 10px;
-    box-shadow: 0 4px 16px alpha(black, 0.35);
-}
-
-/* Inline music undo bar shown inside the Operations popover. */
+/* Inline undo bar shown inside the Operations popover. */
 .ops-undo-bar {
     border-radius: 10px;
     background-color: alpha(@window_fg_color, 0.06);

@@ -291,21 +291,8 @@ impl TriggersWindow {
             uninstall.connect_clicked(move |_| w.uninstall(&id));
         }
         action.add_suffix(&uninstall);
-        {
-            let w = self.self_rc();
-            let id = a.id.clone();
-            action.connect_activated(move |_| {
-                if id == "music" {
-                    w.open_music_settings();
-                }
-            });
-        }
         row.set_child(Some(&action));
         row
-    }
-
-    fn open_music_settings(&self) {
-        crate::ui::settings_window::open_music_settings_dialog(&self.window, &self.config);
     }
 
     // ── Marketplace ─────────────────────────────────────────────────────

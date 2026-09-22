@@ -250,7 +250,6 @@ pub struct Config {
     /// Pinned copied files/folders, by path — always shown first in clip mode.
     #[serde(default)]
     pub pinned_clipboard_files: Vec<String>,
-    /// Keyboard shortcut (GTK accelerator string) to pin/unpin the selected
     /// clipboard entry from the clipboard manager.
     #[serde(default = "default_pin_shortcut")]
     pub clipboard_pin_shortcut: String,
@@ -302,15 +301,6 @@ pub struct Config {
     /// Which package manager(s) to use in the cmd trigger for install/uninstall/search.
     #[serde(default)]
     pub package_manager: PackageManager,
-    /// Music library paths to scan (in addition to ~/Music)
-    #[serde(default = "default_music_paths")]
-    pub music_library_paths: Vec<PathBuf>,
-    /// YouTube Music OAuth token for authentication
-    #[serde(default)]
-    pub youtube_music_token: String,
-    /// Enable YouTube Music integration
-    #[serde(default = "dt")]
-    pub enable_youtube_music: bool,
     /// Also surface installable apps (Flatpak / distro) in the default search,
     /// so the user finds apps to install without typing the "install" verb.
     #[serde(default = "dt")]
@@ -336,13 +326,6 @@ fn dc() -> usize {
 }
 fn dm() -> usize {
     50_000
-}
-fn default_music_paths() -> Vec<PathBuf> {
-    if let Some(home) = dirs::home_dir() {
-        vec![home.join("Music")]
-    } else {
-        vec![]
-    }
 }
 fn default_pin_shortcut() -> String {
     "<Control>p".into()
@@ -424,9 +407,6 @@ impl Default for Config {
             command_keywords: default_command_keywords(),
             clipboard_shortcut: String::new(),
             package_manager: PackageManager::default(),
-            music_library_paths: default_music_paths(),
-            youtube_music_token: String::new(),
-            enable_youtube_music: true,
             enable_new_apps: true,
             trigger_repo_url: String::new(),
         }
@@ -443,10 +423,20 @@ impl Config {
     /// at startup; hot path for every other access is the `Rc` clone, not
     /// this.
     pub fn load() -> Self {
-        let mut cfg: Config = fs::read_to_string(Self::config_path())
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        // Pre-filter: drop pinned_results entries referencing the removed
+        // `PlayMusic` action so old configs don't fail to deserialize.
+        let raw = fs::read_to_string(Self::config_path()).ok();
+        let mut cfg: Config = raw.as_deref().and_then(|s| {
+            let mut v: serde_json::Value = serde_json::from_str(s).ok()?;
+            if let Some(arr) = v.get_mut("pinned_results").and_then(|x| x.as_array_mut()) {
+                arr.retain(|r| {
+                    r.get("action")
+                        .and_then(|a| a.get("PlayMusic"))
+                        .is_none()
+                });
+            }
+            serde_json::from_value(v).ok()
+        }).unwrap_or_default();
         let before = serde_json::to_string(&cfg).unwrap_or_default();
         cfg.migrate_keywords();
         cfg.migrate_resource_defaults();

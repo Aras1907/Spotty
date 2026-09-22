@@ -57,7 +57,6 @@ pub struct AppState {
     pub config: Rc<RefCell<Config>>,
     pub indexer: Rc<Indexer>,
     pub clipboard: Rc<RefCell<ClipboardHistory>>,
-    pub music_player: std::sync::Arc<crate::music::MusicPlayer>,
     pub search_win: RefCell<Option<SearchWindow>>,
     pub settings_win: RefCell<Option<SettingsWindow>>,
     pub triggers_win: RefCell<Option<Rc<TriggersWindow>>>,
@@ -643,13 +642,11 @@ pub fn on_startup(app: &adw::Application) {
             log::info!("ocr-sweep: done");
         });
     }
-    let music_player = std::sync::Arc::new(crate::music::MusicPlayer::default());
     STATE.with(|s| {
         *s.borrow_mut() = Some(AppState {
             config: config.clone(),
             indexer,
             clipboard,
-            music_player,
             search_win: RefCell::new(None),
             settings_win: RefCell::new(None),
             triggers_win: RefCell::new(None),
@@ -688,8 +685,6 @@ pub fn on_startup(app: &adw::Application) {
         });
     }
     HOLD.with(|h| *h.borrow_mut() = Some(app.hold()));
-    // Expose now-playing media to GNOME (MPRIS) for the system media controls.
-    crate::mpris::init(app);
     install_actions(app, &config.borrow());
 
     // Install SIGUSR1 handler for fast keyboard-shortcut toggle
