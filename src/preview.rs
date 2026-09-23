@@ -2045,7 +2045,7 @@ fn thumb_cache_path(path: &Path) -> PathBuf {
 
 /// Bump this when the office/pptx RENDER code changes, so old cached renders are
 /// invalidated and regenerated instead of being served stale forever.
-const RENDER_VERSION: u32 = 20;
+const RENDER_VERSION: u32 = 21;
 const PPTX_RENDER_VERSION: u32 = 5;
 
 /// A Spotty-private cache path for thumbnails Spotty RENDERS itself (office docs,
@@ -4717,10 +4717,506 @@ fn legacy_ppt_slide_texts(bytes: &[u8]) -> Vec<Vec<String>> {
 /// Slide count of a legacy binary .ppt — one per legible slide, at least 1.
 fn legacy_ppt_slide_count(doc: &Path) -> Option<usize> {
     let bytes = legacy_ppt_stream(doc)?;
+    // Raw slide-record count first: stays correct even for decks where no
+    // slide carries legible text (the text walk then collapses to one blob).
+    let mut payloads = Vec::new();
+    collect_ppt_slide_payloads(&bytes, &mut payloads, 0);
+    if !payloads.is_empty() {
+        return Some(payloads.len().max(1));
+    }
     Some(legacy_ppt_slide_texts(&bytes).len().max(1))
 }
 
+// ---------------------------------------------------------------------------
+// Structured legacy .ppt parse (stage 1): decode a slide's escher Drawing
+// (PPDrawing, record 1036) into the shared pptx render model so binary .ppt
+// decks reuse `render_slide_layout`. Pictures, master backgrounds and
+// per-run formatting arrive in later stages; until then those shapes are
+// skipped and callers fall back to the text/blue-wave renderer when nothing
+// parses at all.
+// ---------------------------------------------------------------------------
+
+/// Master unit → EMU: PowerPoint stores slide coordinates in 1/100" units
+/// (5760 units = 10" = 9_144_000 EMU).
+const PPT_MU_EMU: f64 = 1587.5;
+
+/// Header of the MS-PPT record at `pos`: (version, instance, type, payload,
+/// offset of the next record). None when truncated.
+fn legacy_ppt_hdr(bytes: &[u8], pos: usize) -> Option<(u16, u16, u16, &[u8], usize)> {
+    if pos + 8 > bytes.len() {
+        return None;
+    }
+    let info = u16::from_le_bytes([bytes[pos], bytes[pos + 1]]);
+    let rec_type = u16::from_le_bytes([bytes[pos + 2], bytes[pos + 3]]);
+    let len =
+        u32::from_le_bytes([bytes[pos + 4], bytes[pos + 5], bytes[pos + 6], bytes[pos + 7]]) as usize;
+    let end = pos.checked_add(8)?.checked_add(len)?;
+    if end > bytes.len() {
+        return None;
+    }
+    Some((info & 0x000f, info >> 4, rec_type, &bytes[pos + 8..end], end))
+}
+
+/// First payload of record type `rec_type`, descending into containers.
+fn legacy_ppt_find(bytes: &[u8], rec_type: u16, depth: usize) -> Option<&[u8]> {
+    if depth > 12 {
+        return None;
+    }
+    let mut pos = 0usize;
+    while pos + 8 <= bytes.len() {
+        let Some((ver, _, ty, payload, next)) = legacy_ppt_hdr(bytes, pos) else {
+            break;
+        };
+        if ty == rec_type {
+            return Some(payload);
+        }
+        if ver == 0x0f {
+            if let Some(found) = legacy_ppt_find(payload, rec_type, depth + 1) {
+                return Some(found);
+            }
+        }
+        pos = next;
+    }
+    None
+}
+
+/// Slide size in EMUs from the DocumentAtom (record 1001): its first two
+/// u32s are width/height in master units. Falls back to PowerPoint's
+/// default 4:3 size when the atom is missing or implausible.
+fn legacy_ppt_slide_size(bytes: &[u8]) -> (f64, f64) {
+    let default = (9_144_000.0, 6_858_000.0);
+    let Some(pay) = legacy_ppt_find(bytes, 1001, 0) else {
+        return default;
+    };
+    if pay.len() < 8 {
+        return default;
+    }
+    let w = u32::from_le_bytes([pay[0], pay[1], pay[2], pay[3]]) as f64;
+    let h = u32::from_le_bytes([pay[4], pay[5], pay[6], pay[7]]) as f64;
+    if !(1_000.0..=60_000.0).contains(&w) || !(1_000.0..=60_000.0).contains(&h) {
+        return default;
+    }
+    (w * PPT_MU_EMU, h * PPT_MU_EMU)
+}
+
+/// The slide's 8-entry color scheme (background, textAndLines, shadows,
+/// titleText, fills, accent, accent/hyperlink, accent/following) from its
+/// first ColorSchemeAtom (2032), or the classic Office defaults when the
+/// atom is absent.
+fn legacy_ppt_scheme(slide: &[u8]) -> [(f64, f64, f64); 8] {
+    let default = [
+        (1.0, 1.0, 1.0),        // background
+        (0.0, 0.0, 0.0),        // textAndLines
+        (0.933, 0.925, 0.882),  // shadows
+        (0.122, 0.286, 0.490),  // titleText (#1F497D)
+        (0.310, 0.506, 0.741),  // fills
+        (0.753, 0.314, 0.302),  // accent
+        (0.0, 0.0, 1.0),        // accent/hyperlink
+        (0.502, 0.0, 0.502),    // accent/following
+    ];
+    let Some(pay) = legacy_ppt_find(slide, 2032, 0) else {
+        return default;
+    };
+    if pay.len() < 32 {
+        return default;
+    }
+    let mut out = default;
+    for (i, slot) in out.iter_mut().enumerate() {
+        let v = u32::from_le_bytes([pay[i * 4], pay[i * 4 + 1], pay[i * 4 + 2], pay[i * 4 + 3]]);
+        // COLORREF: low byte = red.
+        *slot = (
+            (v & 0xff) as f64 / 255.0,
+            ((v >> 8) & 0xff) as f64 / 255.0,
+            ((v >> 16) & 0xff) as f64 / 255.0,
+        );
+    }
+    out
+}
+
+/// Resolve one shape-property color word: scheme colors carry 0x08 in the
+/// top byte (scheme index low), plain colors are COLORREFs (R, G, B from
+/// the low bytes).
+fn legacy_ppt_rgb(v: u32, scheme: &[(f64, f64, f64); 8]) -> (f64, f64, f64) {
+    if v & 0xff00_0000 == 0x0800_0000 {
+        return scheme[(v & 0xff).min(7) as usize];
+    }
+    (
+        (v & 0xff) as f64 / 255.0,
+        ((v >> 8) & 0xff) as f64 / 255.0,
+        ((v >> 16) & 0xff) as f64 / 255.0,
+    )
+}
+
+/// Simple values of one shape property list (OfficeArtFOPT): fixed 6-byte
+/// headers (u16 opid [+0x8000 = complex] + u32 value/length) run first, the
+/// variable-length blobs follow all headers, each padded to 4 bytes. Only
+/// the simple values are needed here; the blobs' total length marks where
+/// the header run ends.
+fn legacy_ppt_props(pay: &[u8]) -> Vec<(u16, u32)> {
+    let mut out = Vec::new();
+    let mut pos = 0usize;
+    let mut blobs = 0usize;
+    while pos + 6 <= pay.len() {
+        let op = u16::from_le_bytes([pay[pos], pay[pos + 1]]);
+        let v = u32::from_le_bytes([pay[pos + 2], pay[pos + 3], pay[pos + 4], pay[pos + 5]]);
+        pos += 6;
+        if op & 0x8000 != 0 {
+            blobs += (v as usize + 3) & !3;
+            if pos + blobs == pay.len() {
+                break;
+            }
+        } else {
+            out.push((op & 0x3fff, v));
+        }
+    }
+    out
+}
+
+/// Plain text of one client-textbox record (F00D): concatenates its
+/// TextChars (4000) / TextBytes (4008) / CString (4026) atoms in order,
+/// preserving every line — unlike the cleaned heuristic extractor below.
+fn legacy_ppt_box_text(bytes: &[u8], out: &mut String, depth: usize) {
+    if depth > 8 {
+        return;
+    }
+    let mut pos = 0usize;
+    while pos + 8 <= bytes.len() {
+        let Some((ver, _, rec_type, payload, next)) = legacy_ppt_hdr(bytes, pos) else {
+            break;
+        };
+        match rec_type {
+            4000 | 4026 => out.push_str(&decode_utf16le_lossy(payload)),
+            4008 => out.push_str(&decode_ppt_8bit_text(payload)),
+            _ => {}
+        }
+        if ver == 0x0f {
+            legacy_ppt_box_text(payload, out, depth + 1);
+        }
+        pos = next;
+    }
+}
+
+/// Map PowerPoint's paragraph/line separators (\r, VT, FF) onto '\n' and
+/// drop stray control characters.
+fn legacy_ppt_normalize_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\r' => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                out.push('\n');
+            }
+            '\u{b}' | '\u{c}' => out.push('\n'),
+            c if c != '\n' && c.is_control() => out.push(' '),
+            c => out.push(c),
+        }
+    }
+    out.trim().to_string()
+}
+
+/// Every shape container (F004) payload under `bytes`, in document order;
+/// containers are descended so shapes nested in groups (F009) surface too.
+fn legacy_ppt_collect_shapes<'a>(bytes: &'a [u8], out: &mut Vec<&'a [u8]>, depth: usize) {
+    if depth > 12 {
+        return;
+    }
+    let mut pos = 0usize;
+    while pos + 8 <= bytes.len() {
+        let Some((ver, _, rec_type, payload, next)) = legacy_ppt_hdr(bytes, pos) else {
+            break;
+        };
+        if rec_type == 0xf004 {
+            out.push(payload);
+        }
+        if ver == 0x0f {
+            legacy_ppt_collect_shapes(payload, out, depth + 1);
+        }
+        pos = next;
+    }
+}
+
+/// Shape rect in master units from a client anchor: F00F carries 4×i32
+/// (x1, y1, x2, y2); F010 packs the same rect as four signed u16s
+/// (y1, x1, x2, y2). Normalized to min/max per axis — both encodings of
+/// the same rect decode identically (byte-verified against decks).
+fn legacy_ppt_anchor_rect(payload: &[u8]) -> Option<(f64, f64, f64, f64)> {
+    let s16 = |v: u16| if v > 32767 { v as f64 - 65_536.0 } else { v as f64 };
+    let (x1, y1, x2, y2) = if payload.len() >= 16 {
+        (
+            i32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]) as f64,
+            i32::from_le_bytes([payload[4], payload[5], payload[6], payload[7]]) as f64,
+            i32::from_le_bytes([payload[8], payload[9], payload[10], payload[11]]) as f64,
+            i32::from_le_bytes([payload[12], payload[13], payload[14], payload[15]]) as f64,
+        )
+    } else if payload.len() >= 8 {
+        let h = [
+            u16::from_le_bytes([payload[0], payload[1]]),
+            u16::from_le_bytes([payload[2], payload[3]]),
+            u16::from_le_bytes([payload[4], payload[5]]),
+            u16::from_le_bytes([payload[6], payload[7]]),
+        ];
+        (s16(h[1]), s16(h[0]), s16(h[2]), s16(h[3]))
+    } else {
+        return None;
+    };
+    Some((x1.min(x2), y1.min(y2), x1.max(x2), y1.max(y2)))
+}
+
+/// Stage-1 font size for a plain-text box: fit the text (honouring hard
+/// line breaks) into the box with PowerPoint's ~0.5em average glyph width.
+/// Real run sizes arrive with StyleTextPropAtom in a later stage.
+fn legacy_ppt_estimate_pt(w: f64, h: f64, text: &str) -> f64 {
+    let w_pt = (w / 12_700.0).max(1.0);
+    let h_pt = (h / 12_700.0).max(1.0);
+    let mut pt = 18.0f64;
+    for _ in 0..8 {
+        let cpl = (w_pt / (0.5 * pt)).max(1.0);
+        let lines = text
+            .split('\n')
+            .map(|seg| ((seg.chars().count() as f64 / cpl).ceil()).max(1.0))
+            .sum::<f64>();
+        let fit = (h_pt * 0.85 / lines).clamp(8.0, 60.0);
+        if (fit - pt).abs() < 0.5 {
+            return fit;
+        }
+        pt = fit;
+    }
+    pt
+}
+
+/// Decode one shape container (F004) payload: its fill/outline become a
+/// `DrawShape` drawn behind its client text (a `SlideBox`). Pictures
+/// (pib / shape type 75) wait for stage 2; groups (type 0) render through
+/// their child containers, which the collector surfaces on their own.
+fn legacy_ppt_push_shape(
+    sp_container: &[u8],
+    scheme: &[(f64, f64, f64); 8],
+    out: &mut Vec<SlideElement>,
+) {
+    let mut shape_type = 0u16;
+    let mut flags = 0u16;
+    let mut have_sp = false;
+    let mut props: Vec<(u16, u32)> = Vec::new();
+    let mut rect = None;
+    let mut textbox: Option<&[u8]> = None;
+
+    let mut pos = 0usize;
+    while pos + 8 <= sp_container.len() {
+        let Some((_, inst, rec_type, payload, next)) = legacy_ppt_hdr(sp_container, pos) else {
+            break;
+        };
+        match rec_type {
+            0xf00a if payload.len() >= 6 => {
+                shape_type = inst; // F00A's instance field is the shape type
+                flags = u16::from_le_bytes([payload[4], payload[5]]);
+                have_sp = true;
+            }
+            0xf00b => props = legacy_ppt_props(payload),
+            0xf00f | 0xf010 => {
+                if rect.is_none() {
+                    rect = legacy_ppt_anchor_rect(payload);
+                }
+            }
+            0xf00d => {
+                if textbox.is_none() {
+                    textbox = Some(payload);
+                }
+            }
+            _ => {}
+        }
+        pos = next;
+    }
+
+    if !have_sp || shape_type == 0 {
+        return;
+    }
+    if props.iter().any(|(op, _)| *op == 0x0104) || shape_type == 75 {
+        return; // picture: stage 2
+    }
+    let Some((mx1, my1, mx2, my2)) = rect else {
+        return;
+    };
+    let mut x = mx1 * PPT_MU_EMU;
+    let mut y = my1 * PPT_MU_EMU;
+    let mut w = (mx2 - mx1) * PPT_MU_EMU;
+    let mut h = (my2 - my1) * PPT_MU_EMU;
+
+    // Rules (type 20) and connectors (CONNECTOR flag) stroke between the
+    // rect corners; their zero-width/height slivers must stay drawable.
+    let is_line = shape_type == 20 || flags & 0x0100 != 0;
+    if is_line {
+        if w <= 0.0 {
+            w = 1.0;
+        }
+        if h <= 0.0 {
+            h = 1.0;
+        }
+    } else if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let prst = match shape_type {
+        3 => "ellipse",
+        2 => "roundRect",
+        _ if is_line => "line",
+        _ => "rect",
+    };
+
+    let opt = |op: u16, default: f64| {
+        props
+            .iter()
+            .find(|(o, _)| *o == op)
+            .map(|(_, v)| *v as f64)
+            .unwrap_or(default)
+    };
+    let fill = if is_line {
+        None
+    } else {
+        props
+            .iter()
+            .find(|(op, _)| *op == 0x0181)
+            .map(|(_, v)| FillKind::Solid(legacy_ppt_rgb(*v, scheme), 1.0))
+    };
+    let line = props
+        .iter()
+        .find(|(op, _)| *op == 0x01c0)
+        .map(|(_, v)| LineSpec {
+            color: legacy_ppt_rgb(*v, scheme),
+            alpha: 1.0,
+            width_emu: opt(0x01cb, 9_525.0),
+        });
+
+    if fill.is_some() || line.is_some() {
+        out.push(SlideElement::Shape(DrawShape {
+            x,
+            y,
+            w,
+            h,
+            prst: prst.into(),
+            fill,
+            line,
+            rot: (opt(0x0004, 0.0) / 65_536.0).to_radians(),
+            flip_h: flags & 0x0040 != 0,
+            flip_v: flags & 0x0080 != 0,
+            freeform: None,
+        }));
+    }
+
+    let Some(text) = textbox
+        .map(|tb| {
+            let mut raw = String::new();
+            legacy_ppt_box_text(tb, &mut raw, 0);
+            legacy_ppt_normalize_text(&raw)
+        })
+        .filter(|t| !t.is_empty())
+    else {
+        return;
+    };
+    let font_pt = legacy_ppt_estimate_pt(w, h, &text);
+    out.push(SlideElement::Text(SlideBox {
+        x,
+        y,
+        w,
+        h,
+        text,
+        is_title: false,
+        centered: false,
+        font_pt: Some(font_pt),
+        has_xfrm: true,
+        ph_type: "body".into(),
+        color: None,
+        paras: None,
+        anchor: opt(0x0087, 0.0).clamp(0.0, 2.0) as u8,
+        insets: [
+            opt(0x0081, 91_440.0),
+            opt(0x0082, 45_720.0),
+            opt(0x0083, 91_440.0),
+            opt(0x0084, 45_720.0),
+        ],
+        autofit_scale: 1.0,
+    }));
+}
+
+/// Title pass + scheme colors: the shortest text box in the top half of the
+/// slide wins (titles are short, bodies are not — textType codes are
+/// overwhelmingly OTHER in binary decks, so position/length is what
+/// survives), with the topmost box as fallback.
+fn legacy_ppt_finish_boxes(
+    elements: &mut [SlideElement],
+    scheme: &[(f64, f64, f64); 8],
+    slide_h: f64,
+) {
+    let half = slide_h * 0.5;
+    let candidates: Vec<(usize, f64, usize)> = elements
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| match e {
+            SlideElement::Text(b) if !b.text.trim().is_empty() => {
+                Some((i, b.y, b.text.trim().chars().count()))
+            }
+            _ => None,
+        })
+        .collect();
+    let title = candidates
+        .iter()
+        .filter(|(_, y, _)| *y < half)
+        .min_by_key(|(_, y, len)| (*len, *y as i64))
+        .or_else(|| candidates.iter().min_by_key(|(_, y, _)| *y as i64))
+        .map(|(i, _, _)| *i);
+    for (i, e) in elements.iter_mut().enumerate() {
+        let SlideElement::Text(b) = e else { continue };
+        if Some(i) == title {
+            b.is_title = true;
+            b.ph_type = "title".into();
+            b.color = Some(scheme[3]);
+        } else {
+            b.color = Some(scheme[1]);
+        }
+    }
+}
+
+/// Structured parse of slide `slide` (1-based) into the shared pptx render
+/// model. None when the stream, the slide or its Drawing can't be read, or
+/// the Drawing yields no positioned shapes/text — callers then fall back to
+/// the legacy text/blue-wave renderer.
+fn legacy_ppt_structured_layout(doc: &Path, slide: usize) -> Option<SlideLayout> {
+    let bytes = legacy_ppt_stream(doc)?;
+    let (slide_w, slide_h) = legacy_ppt_slide_size(&bytes);
+    let mut payloads = Vec::new();
+    collect_ppt_slide_payloads(&bytes, &mut payloads, 0);
+    let payload = *payloads.get(slide.saturating_sub(1))?;
+    let scheme = legacy_ppt_scheme(payload);
+    let drawing = legacy_ppt_find(payload, 1036, 0)?;
+    let mut shapes = Vec::new();
+    legacy_ppt_collect_shapes(drawing, &mut shapes, 0);
+    let mut elements = Vec::new();
+    for sp in &shapes {
+        legacy_ppt_push_shape(sp, &scheme, &mut elements);
+    }
+    if elements.is_empty() {
+        return None;
+    }
+    legacy_ppt_finish_boxes(&mut elements, &scheme, slide_h);
+    Some(SlideLayout {
+        slide_w,
+        slide_h,
+        background: Some(SlideBackground::Solid(
+            scheme[0].0,
+            scheme[0].1,
+            scheme[0].2,
+        )),
+        elements,
+    })
+}
+
 fn parse_legacy_ppt_layout(doc: &Path, slide: usize) -> Option<SlideLayout> {
+    // Structured escher parse first; the text heuristic below stays as the
+    // fallback for streams it can't read.
+    if let Some(layout) = legacy_ppt_structured_layout(doc, slide) {
+        return Some(layout);
+    }
     let bytes = legacy_ppt_stream(doc)?;
     let slides = legacy_ppt_slide_texts(&bytes);
     let lines = slides
@@ -4789,6 +5285,13 @@ fn parse_legacy_ppt_layout(doc: &Path, slide: usize) -> Option<SlideLayout> {
 fn render_legacy_ppt_slide(doc: &Path, slide: usize) -> Option<Vec<u8>> {
     use gtk::cairo;
 
+    // Structured escher render first (shared pptx pipeline); the blue-wave
+    // text card below stays as the fallback for streams it can't read.
+    if let Some(layout) = legacy_ppt_structured_layout(doc, slide) {
+        if let Some(png) = render_slide_layout(&layout) {
+            return Some(png);
+        }
+    }
     let layout =
         parse_legacy_ppt_layout(doc, slide).unwrap_or_else(|| fallback_ppt_layout(doc));
     const W: i32 = 1280;
@@ -8849,6 +9352,129 @@ line2
         let slides = legacy_ppt_slide_texts(&stream);
         assert_eq!(slides.len(), 1);
         assert_eq!(slides[0], vec!["Síntese do módulo".to_string()]);
+    }
+
+    #[test]
+    fn legacy_ppt_structured_layout_decodes_shapes() {
+        // A minimal structured deck: DocumentAtom (slide size), one slide
+        // with a ColorSchemeAtom and a PPDrawing holding a single shape —
+        // F00A (instance = shape type), F00B (white fill), F010 anchor
+        // (y1, x1, x2, y2 as u16s) and an F00D client textbox with "Hello".
+        let d = td("legacy_ppt_escher");
+        let p = d.join("deck.ppt");
+
+        let escher = |ver: u16, inst: u16, rec_type: u16, payload: &[u8]| -> Vec<u8> {
+            let mut v = Vec::new();
+            v.extend_from_slice(&((inst << 4) | ver).to_le_bytes());
+            v.extend_from_slice(&rec_type.to_le_bytes());
+            v.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            v.extend_from_slice(payload);
+            v
+        };
+
+        // Anchor: F010 packs (y1, x1, x2, y2) → rect (200,100)-(300,400) mu.
+        let anchor: Vec<u8> = [100u16, 200, 300, 400]
+            .iter()
+            .flat_map(|u| u.to_le_bytes())
+            .collect();
+        // One simple property: fill color (0x181) = plain white COLORREF.
+        let mut props = Vec::new();
+        props.extend_from_slice(&0x0181u16.to_le_bytes());
+        props.extend_from_slice(&0x00ff_ffffu32.to_le_bytes());
+        // Client textbox: TextHeaderAtom (3999) + TextCharsAtom (4000).
+        let textbox = [
+            ppt_rec(0, 3999, &4u32.to_le_bytes()),
+            ppt_rec(0, 4000, &ppt_utf16("Hello")),
+        ]
+        .concat();
+        // F00A payload: [spid u32][flags u16][type u16].
+        let mut sp = Vec::new();
+        sp.extend_from_slice(&0x0000_0400u32.to_le_bytes());
+        sp.extend_from_slice(&0x0a00u16.to_le_bytes()); // HAVEANCHOR|HASSHAPETYPE
+        sp.extend_from_slice(&0u16.to_le_bytes());
+
+        let shape = [
+            escher(0, 1, 0xf00a, &sp),
+            escher(0, 0, 0xf00b, &props),
+            escher(0, 0, 0xf010, &anchor),
+            escher(0x0f, 0, 0xf00d, &textbox),
+        ]
+        .concat();
+        // PPDrawing → DgContainer → SpgrContainer → shape container.
+        let drawing = escher(
+            0x0f,
+            0,
+            1036,
+            &escher(
+                0x0f,
+                0,
+                0xf002,
+                &escher(0x0f, 0, 0xf003, &escher(0x0f, 0, 0xf004, &shape)),
+            ),
+        );
+        // ColorSchemeAtom: 8×COLORREF; title slot (3) = 0x7D491F (#1F497D).
+        let mut scheme = Vec::new();
+        for v in [
+            0x00ff_ffffu32,
+            0x0000_0000,
+            0x00ec_ece1,
+            0x007d_491f,
+            0x0000_0000,
+            0x0000_0000,
+            0x0000_0000,
+            0x0000_0000,
+        ] {
+            scheme.extend_from_slice(&v.to_le_bytes());
+        }
+        let slide = ppt_rec(0x0f, 1006, &[ppt_rec(0, 2032, &scheme), drawing].concat());
+        // DocumentAtom: slide size 5760×4320 master units.
+        let mut doc_atom = Vec::new();
+        doc_atom.extend_from_slice(&5760u32.to_le_bytes());
+        doc_atom.extend_from_slice(&4320u32.to_le_bytes());
+        let stream = ppt_rec(0x0f, 1000, &[ppt_rec(0, 1001, &doc_atom), slide].concat());
+
+        {
+            let mut comp = cfb::create(&p).unwrap();
+            let mut s = comp.create_stream("/PowerPoint Document").unwrap();
+            s.write_all(&stream).unwrap();
+            s.flush().unwrap();
+            drop(s);
+            comp.flush().unwrap();
+        }
+
+        let layout = legacy_ppt_structured_layout(&p, 1).expect("structured parse");
+        assert_eq!(layout.slide_w, 9_144_000.0);
+        assert_eq!(layout.slide_h, 6_858_000.0);
+        assert_eq!(layout.elements.len(), 2, "fill shape behind its text");
+
+        let emu = |mu: f64| mu * 1587.5;
+        let SlideElement::Shape(sh) = &layout.elements[0] else {
+            panic!("first element must be the fill shape");
+        };
+        assert_eq!(sh.x, emu(200.0));
+        assert_eq!(sh.y, emu(100.0));
+        assert_eq!(sh.w, emu(100.0));
+        assert_eq!(sh.h, emu(300.0));
+        assert_eq!(sh.prst, "rect");
+        assert!(matches!(sh.fill, Some(FillKind::Solid((1.0, 1.0, 1.0), _))));
+
+        let SlideElement::Text(b) = &layout.elements[1] else {
+            panic!("second element must be the text box");
+        };
+        assert_eq!(b.text, "Hello");
+        assert!(b.is_title, "the only text box becomes the title");
+        // Title color resolves through the scheme: 0x7D491F → (0x1F,0x49,0x7D).
+        let (r, g, bl) = b.color.expect("scheme title color");
+        assert!((r - 0x1f as f64 / 255.0).abs() < 1e-9);
+        assert!((g - 0x49 as f64 / 255.0).abs() < 1e-9);
+        assert!((bl - 0x7d as f64 / 255.0).abs() < 1e-9);
+
+        // Counts as one slide and renders through the shared pipeline.
+        assert_eq!(legacy_ppt_slide_count(&p), Some(1));
+        let png = render_legacy_ppt_slide(&p, 1).expect("render");
+        assert!(png.starts_with(&[0x89, b'P', b'N', b'G']), "PNG output");
+
+        let _ = fs::remove_dir_all(&d);
     }
 
     #[test]
