@@ -4850,11 +4850,16 @@ fn render_legacy_ppt_slide(doc: &Path, slide: usize) -> Option<Vec<u8>> {
 
 /// Versioned per-slide render-cache path for a legacy .ppt: the shared
 /// `render_cache_path` key with a slide suffix, so each slide caches alone.
+/// The `.png` extension is load-bearing — `image::open` guesses the image
+/// format from the path only, so an extension-less cache file never decodes
+/// and the preview falls back to the generic info card.
 fn legacy_ppt_cache_path(path: &Path, slide: usize) -> PathBuf {
     let base = render_cache_path(path); // .../<md5(uri|mtime|v)>.png
-    let mut name = base.file_stem().unwrap_or_default().to_os_string();
-    name.push(format!("-s{}", slide));
-    base.with_file_name(name) // .../<md5>-s<n>.png
+    let stem = base
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    base.with_file_name(format!("{}-s{}.png", stem, slide)) // .../<md5>-s<n>.png
 }
 
 /// Cached slide PNG of a legacy .ppt, sane-checked — a truncated or bogus
@@ -5121,13 +5126,49 @@ fn decode_utf16le_lossy(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// Decode one TextBytesAtom (record 4008): the document's ANSI code page —
+/// Windows-1252 for Western decks. ASCII and Latin-1 pass through, the
+/// CP1252 specials above Latin-1 get their real mappings, and control bytes
+/// (plus the 5 undefined CP1252 slots) become spaces so word separation
+/// survives. The old decoder blanked every byte ≥ 0x7F, dropping all
+/// accented text ("S ntese" instead of "Síntese").
 fn decode_ppt_8bit_text(bytes: &[u8]) -> String {
     bytes
         .iter()
         .map(|&b| match b {
             b'\r' | b'\n' | b'\t' => b as char,
             0x20..=0x7e => b as char,
-            _ => ' ',
+            // Latin-1 range — identical to CP1252 (í ó ç ã ñ …).
+            0xa0..=0xff => b as char,
+            // CP1252 punctuation/specials in 0x80..=0x9F.
+            0x80 => '\u{20ac}', // €
+            0x82 => '\u{201a}', // ‚
+            0x83 => '\u{0192}', // ƒ
+            0x84 => '\u{201e}', // „
+            0x85 => '\u{2026}', // …
+            0x86 => '\u{2020}', // †
+            0x87 => '\u{2021}', // ‡
+            0x88 => '\u{02c6}', // ˆ
+            0x89 => '\u{2030}', // ‰
+            0x8a => '\u{0160}', // Š
+            0x8b => '\u{2039}', // ‹
+            0x8c => '\u{0152}', // Œ
+            0x8e => '\u{017d}', // Ž
+            0x91 => '\u{2018}', // '
+            0x92 => '\u{2019}', // '
+            0x93 => '\u{201c}', // "
+            0x94 => '\u{201d}', // "
+            0x95 => '\u{2022}', // •
+            0x96 => '\u{2013}', // –
+            0x97 => '\u{2014}', // —
+            0x98 => '\u{02dc}', // ˜
+            0x99 => '\u{2122}', // ™
+            0x9a => '\u{0161}', // š
+            0x9b => '\u{203a}', // ›
+            0x9c => '\u{0153}', // œ
+            0x9e => '\u{017e}', // ž
+            0x9f => '\u{0178}', // Ÿ
+            _ => ' ', // control bytes + undefined CP1252 slots
         })
         .collect()
 }
@@ -8750,8 +8791,64 @@ line2
         assert!(sane_png_file(&png2));
         assert_eq!(resolve_page_png(&p, 2).as_deref(), Some(png2.as_path()));
 
-        let _ = fs::remove_file(legacy_ppt_cache_path(&p, 2));
+        // The cached file must keep its .png extension AND decode through
+        // image::open — that's exactly how the preview pane loads slides.
+        // An extension-less cache file (the pre-fix bug) made image::open
+        // fail with Format(Unknown), so .ppt previews fell back to the
+        // generic info card while the in-memory QA render still passed.
+        assert_eq!(
+            png2.extension().and_then(|e| e.to_str()),
+            Some("png"),
+            "legacy slide cache path must keep its .png extension"
+        );
+        assert!(
+            image::open(&png2).is_ok(),
+            "cached slide must decode via image::open"
+        );
+
+        // The pane path: compute_preview reports a real image with the nav
+        // total instead of the generic info card.
+        match compute_preview(&p) {
+            PreviewPayload::Image { page, total_pages, .. } => {
+                assert_eq!(page, Some(1));
+                assert_eq!(total_pages, Some(3));
+            }
+            _ => panic!("legacy .ppt must preview as an image with page nav"),
+        }
+        let png1 = legacy_ppt_cache_path(&p, 1);
+        assert!(sane_png_file(&png1));
+        assert!(image::open(&png1).is_ok());
+
+        for slide in 1..=3 {
+            let _ = fs::remove_file(legacy_ppt_cache_path(&p, slide));
+        }
         let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn ppt_8bit_text_decodes_cp1252() {
+        // TextBytesAtom (record 4008) carries the document's ANSI code page
+        // — CP1252 for Western decks. Regression: the old decoder blanked
+        // every byte ≥ 0x7F to a space ("S ntese" instead of "Síntese").
+        assert_eq!(decode_ppt_8bit_text(b"S\xEDntese"), "Síntese");
+        assert_eq!(decode_ppt_8bit_text(b"redu\xE7\xE3o"), "redução");
+        // CP1252 specials above Latin-1: smart quotes + em dash.
+        assert_eq!(
+            decode_ppt_8bit_text(b"\x93quoted\x94 \x97 dash"),
+            "“quoted” — dash"
+        );
+        // Whitespace survives; undefined slots / control bytes become spaces.
+        assert_eq!(decode_ppt_8bit_text(b"a\tb\nc"), "a\tb\nc");
+        assert_eq!(decode_ppt_8bit_text(b"a\x81b\x1fb"), "a b b");
+    }
+
+    #[test]
+    fn legacy_ppt_bytes_atom_keeps_accents() {
+        // End-to-end: a BytesAtom slide extracts its accented text intact.
+        let stream = ppt_rec(0x0f, 1006, &ppt_rec(0, 4008, b"S\xEDntese do m\xF3dulo"));
+        let slides = legacy_ppt_slide_texts(&stream);
+        assert_eq!(slides.len(), 1);
+        assert_eq!(slides[0], vec!["Síntese do módulo".to_string()]);
     }
 
     #[test]
