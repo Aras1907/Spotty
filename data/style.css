@@ -196,7 +196,7 @@ window.spotty-window > * {
     margin-bottom: 4px;
 }
 
-/* Add-ons window lists: no card plate, no row tint — rows blend fully with
+/* Triggers window lists: no card plate, no row tint — rows blend fully with
    the window background; only a hover highlight separates them.
    NOTE: adw::ActionRow extends gtk::ListBoxRow, so inner rows must be
    neutralized or every row paints two hover layers. */

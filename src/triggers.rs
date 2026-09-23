@@ -128,24 +128,9 @@ pub fn triggers_dir() -> PathBuf {
     p
 }
 
-/// Migrate `~/.config/spotty/addons/` → `triggers/` on first run.
-fn migrate_legacy_addons_dir() {
-    let Some(mut old) = dirs::config_dir().map(|p| p.join("spotty/addons")) else {
-        return;
-    };
-    // Remove trailing slash if present
-    let new = triggers_dir();
-    if old.exists() && !new.exists() {
-        if fs::rename(&old, &new).is_ok() {
-            log::info!("triggers: migrated {} → {}", old.display(), new.display());
-        }
-    }
-}
-
 /// (Re)scan the triggers dir and rebuild the registry. Invalid manifests are
 /// skipped with a warning — one broken file must not take down the market.
 pub fn load_all() {
-    migrate_legacy_addons_dir();
     let mut loaded = Vec::new();
     let dir = triggers_dir();
     let Ok(entries) = fs::read_dir(&dir) else {
@@ -409,5 +394,20 @@ mod tests {
         assert_eq!(shell_escape("hello"), "'hello'");
         assert_eq!(shell_escape("a'b"), "'a'\\''b'");
         assert_eq!(shell_escape("; rm -rf /"), "'; rm -rf /'");
+    }
+
+    #[test]
+    fn marketplace_url_defaults_to_official_repo() {
+        // Configs without the field (and `Default`) must land on the
+        // official triggers marketplace, never an empty URL.
+        assert_eq!(
+            crate::config::default_trigger_repo_url(),
+            "https://raw.githubusercontent.com/Aras1907/spotty-triggers/main"
+        );
+        let cfg = crate::config::Config::default();
+        assert_eq!(
+            cfg.trigger_repo_url,
+            crate::config::default_trigger_repo_url()
+        );
     }
 }

@@ -1,7 +1,7 @@
-//! Add-ons window: installed add-on list + marketplace browser.
+//! Triggers window: installed trigger list + marketplace browser.
 //!
 //! libadwaita layout (GNOME extension-manager style): a single `adw::Window`
-//! with a `NavigationView` — the root page lists installed add-ons, the
+//! with a `NavigationView` — the root page lists installed triggers, the
 //! pushed "Marketplace" page browses a GitHub (or local `file://`) repository
 //! with a `gtk::SearchEntry`. Every fetch goes through curl on a spawned
 //! thread (flatpak-spawn aware, no new HTTP dependency), results hop back to
@@ -10,8 +10,9 @@
 //! Loading feedback is a spinner next to the search entry; errors surface in
 //! an inline `adw::Banner` above the list (no toasts).
 //!
-//! Install = download manifest → validate → copy into the add-ons dir →
-//! reload registry. Uninstall = delete the manifest. Shell add-ons require
+//! Install = download manifest (or pick a downloaded file with
+//! "Import Trigger File…") → validate → copy into the triggers dir →
+//! reload registry. Uninstall = delete the manifest. Shell triggers require
 //! an explicit confirmation dialog that shows the exact command template.
 use crate::triggers::{self, TriggerAction, TriggerManifest, MarketEntry};
 use crate::config::Config;
@@ -32,6 +33,9 @@ pub struct TriggersWindow {
     market_search: gtk::SearchEntry,
     market_spinner: gtk::DrawingArea,
     error_banner: adw::Banner,
+    /// Error banner on the root page (install/uninstall/import feedback —
+    /// the marketplace banner is only visible on the marketplace page).
+    root_banner: adw::Banner,
     market_page: adw::NavigationPage,
     config: Rc<RefCell<Config>>,
     market: Rc<RefCell<Vec<MarketEntry>>>,
@@ -65,7 +69,7 @@ impl TriggersWindow {
         toolbar.set_content(Some(&nav));
         window.set_content(Some(&toolbar));
 
-        // ── Root page: installed add-ons ──────────────────────────────────
+        // ── Root page: installed triggers ─────────────────────────────────
         let installed_stack = gtk::Stack::new();
         let installed_list = gtk::ListBox::builder()
             .css_classes(["spotty-flat-list"])
@@ -86,16 +90,33 @@ impl TriggersWindow {
             .build();
         let clamp = adw::Clamp::builder().maximum_size(520).build();
         clamp.set_child(Some(&installed_stack));
+        // Inline feedback for failed installs/uninstalls started from this
+        // page (the marketplace's own banner lives on the marketplace page).
+        let root_banner = adw::Banner::builder().revealed(false).build();
+        root_box.append(&root_banner);
         root_box.append(&clamp);
         root_scroll.set_child(Some(&root_box));
 
+        let button_row = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(8)
+            .halign(gtk::Align::Center)
+            .build();
         let browse_btn = gtk::Button::builder()
             .label("Browse New Trigger")
             .icon_name("folder-download-symbolic")
             .css_classes(["suggested-action"])
-            .halign(gtk::Align::Center)
             .build();
-        root_box.append(&browse_btn);
+        // Install a manifest the user downloaded from GitHub (or anywhere)
+        // without going through the marketplace index.
+        let import_btn = gtk::Button::builder()
+            .label("Import Trigger File…")
+            .icon_name("document-open-symbolic")
+            .tooltip_text("Install a downloaded trigger manifest (.json)")
+            .build();
+        button_row.append(&browse_btn);
+        button_row.append(&import_btn);
+        root_box.append(&button_row);
 
         let empty_page = adw::StatusPage::builder()
             .title("No triggers installed")
@@ -191,6 +212,7 @@ impl TriggersWindow {
             market_search,
             market_spinner,
             error_banner,
+            root_banner,
             market_page,
             config,
             market: Rc::new(RefCell::new(Vec::new())),
@@ -207,6 +229,11 @@ impl TriggersWindow {
         {
             let w = win.clone();
             browse_btn.connect_clicked(move |_| w.show_marketplace());
+        }
+
+        {
+            let w = win.clone();
+            import_btn.connect_clicked(move |_| w.import_from_file());
         }
 
         {
@@ -421,8 +448,8 @@ impl TriggersWindow {
         icon
     }
 
-    /// Install an add-on from the marketplace: fetch its manifest, confirm
-    /// shell add-ons (showing the command), then install.
+    /// Install a trigger from the marketplace: fetch its manifest, confirm
+    /// shell triggers (showing the command), then install.
     fn install_market(&self, entry: &MarketEntry) {
         self.hide_error();
         self.set_loading(true);
@@ -443,7 +470,7 @@ impl TriggersWindow {
     }
 
     /// Main thread: manifest downloaded — parse, write to a temp file,
-    /// confirm shell add-ons, then install.
+    /// confirm shell triggers, then install.
     fn handle_manifest_response(&self, body: Result<String, String>, id: String) {
         self.set_loading(false);
         let text = match body {
@@ -459,16 +486,59 @@ impl TriggersWindow {
             self.show_error(&format!("Cannot save manifest: {e}"));
             return;
         }
-        if let Ok(manifest) = serde_json::from_str::<TriggerManifest>(&text) {
-            if matches!(manifest.action, TriggerAction::Shell { .. }) {
-                self.confirm_shell_install(manifest, tmp);
-                return;
-            }
-        }
-        self.finish_install(&tmp);
+        self.install_path(&tmp);
     }
 
-    /// Shell add-ons run arbitrary commands as the user — always confirm and
+    /// Shared install path for a manifest file already on disk (a freshly
+    /// downloaded marketplace manifest or a file the user picked with
+    /// "Import Trigger File…"): confirm shell triggers, then install.
+    fn install_path(&self, path: &std::path::Path) {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if let Ok(manifest) = serde_json::from_str::<TriggerManifest>(&text) {
+                if matches!(manifest.action, TriggerAction::Shell { .. }) {
+                    self.confirm_shell_install(manifest, path.to_path_buf());
+                    return;
+                }
+            }
+        }
+        self.finish_install(path);
+    }
+
+    /// Let the user install a downloaded manifest directly: file picker →
+    /// shared install path (validation + shell confirmation).
+    fn import_from_file(&self) {
+        self.hide_error();
+        let filter = gtk::FileFilter::new();
+        filter.set_name(Some("Trigger manifests (*.json)"));
+        filter.add_suffix("json");
+        filter.add_mime_type("application/json");
+        let filters = gtk::gio::ListStore::new::<gtk::FileFilter>();
+        filters.append(&filter);
+        let dialog = gtk::FileDialog::builder()
+            .title("Import Trigger File")
+            .modal(true)
+            .filters(&filters)
+            .default_filter(&filter)
+            .build();
+        let w = self.self_rc();
+        dialog.open(
+            Some(&self.window),
+            None::<&gtk::gio::Cancellable>,
+            move |result| match result {
+                Ok(file) => {
+                    if let Some(path) = file.path() {
+                        w.install_path(&path);
+                    }
+                }
+                Err(_) => {
+                    // Dismissed the picker — not an error worth surfacing.
+                    log::info!("triggers: import cancelled");
+                }
+            },
+        );
+    }
+
+    /// Shell triggers run arbitrary commands as the user — always confirm and
     /// show the exact command template before installing.
     fn confirm_shell_install(&self, manifest: TriggerManifest, tmp: std::path::PathBuf) {
         let command = match &manifest.action {
@@ -479,7 +549,7 @@ impl TriggersWindow {
             .transient_for(&self.window)
             .heading(format!("Install {}?", manifest.name))
             .body(format!(
-                "This add-on runs shell commands on your system.\n\n{}\n\nInstall only if you trust its author.",
+                "This trigger runs shell commands on your system.\n\n{}\n\nInstall only if you trust its author.",
                 command
             ))
             .build();
@@ -521,6 +591,7 @@ impl TriggersWindow {
     /// Registry changed → refresh both lists and re-sync GNOME keybindings
     /// on a background thread.
     pub fn after_mutation(&self) {
+        self.hide_error();
         self.rebuild_installed();
         self.rebuild_market();
         crate::ui::settings_window::refresh_triggers_live();
@@ -534,14 +605,18 @@ impl TriggersWindow {
         self.market_spinner.set_visible(loading);
     }
 
-    /// Inline error banner (hidden on the next action).
+    /// Inline error banner (hidden on the next action). Shown on both pages
+    /// so a failure started on one is visible wherever the user is.
     fn show_error(&self, msg: &str) {
         self.error_banner.set_title(msg);
         self.error_banner.set_revealed(true);
+        self.root_banner.set_title(msg);
+        self.root_banner.set_revealed(true);
     }
 
     fn hide_error(&self) {
         self.error_banner.set_revealed(false);
+        self.root_banner.set_revealed(false);
     }
 
     fn self_rc(&self) -> Rc<Self> {
@@ -553,14 +628,14 @@ impl TriggersWindow {
     }
 }
 
-/// The live add-ons window, if one exists (see `LIVE`).
+/// The live triggers window, if one exists (see `LIVE`).
 pub fn live_window() -> Option<Rc<TriggersWindow>> {
     LIVE.with(|l| l.borrow().clone())
 }
 
-/// Refresh the add-ons window's installed list + marketplace rows.
+/// Refresh the triggers window's installed list + marketplace rows.
 /// Called from other windows after trigger mutations so the two views stay
-/// in sync without requiring the add-ons window to be closed and reopened.
+/// in sync without requiring the triggers window to be closed and reopened.
 pub fn refresh_live() {
     if let Some(w) = live_window() {
         w.after_mutation();

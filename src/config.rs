@@ -305,11 +305,18 @@ pub struct Config {
     /// so the user finds apps to install without typing the "install" verb.
     #[serde(default = "dt")]
     pub enable_new_apps: bool,
-    /// Base URL of the triggers marketplace repository. Empty until the user
-    /// configures one in the Triggers window. Anything curl understands works,
-    /// including `file://` paths for local testing.
-    #[serde(default, alias = "addon_repo_url")]
+    /// Base URL of the official triggers marketplace repository
+    /// (`Aras1907/spotty-triggers` on GitHub). Anything curl understands
+    /// works, including `file://` paths for local testing.
+    #[serde(default = "default_trigger_repo_url")]
     pub trigger_repo_url: String,
+}
+
+/// The official triggers marketplace (kept in one place: it is both the
+/// `Default` for fresh configs and the serde default for configs that
+/// predate the field).
+pub fn default_trigger_repo_url() -> String {
+    "https://raw.githubusercontent.com/Aras1907/spotty-triggers/main".into()
 }
 
 fn de() -> SearchEngine {
@@ -408,7 +415,7 @@ impl Default for Config {
             clipboard_shortcut: String::new(),
             package_manager: PackageManager::default(),
             enable_new_apps: true,
-            trigger_repo_url: String::new(),
+            trigger_repo_url: default_trigger_repo_url(),
         }
     }
 }
@@ -521,6 +528,12 @@ impl Config {
         if self.clipboard_history_limit == 100 {
             self.clipboard_history_limit = 1000;
         }
+        // Older defaults shipped an empty marketplace URL (the field existed
+        // but pointed nowhere) — fill in the official repository so the
+        // marketplace works without manual configuration.
+        if self.trigger_repo_url.trim().is_empty() {
+            self.trigger_repo_url = default_trigger_repo_url();
+        }
     }
 
     pub fn save(&self) {
@@ -577,5 +590,27 @@ impl Config {
             let sep = if custom.contains('?') { '&' } else { '?' };
             format!("{custom}{sep}q={encoded}")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An empty stored marketplace URL (the old default) is upgraded to the
+    /// official triggers repository; a set URL is left alone.
+    #[test]
+    fn empty_trigger_repo_url_migrates_to_official() {
+        let mut cfg = Config::default();
+        assert_eq!(cfg.trigger_repo_url, default_trigger_repo_url());
+
+        cfg.trigger_repo_url = "  ".into();
+        cfg.migrate_resource_defaults();
+        assert_eq!(cfg.trigger_repo_url, default_trigger_repo_url());
+
+        let custom = "file:///srv/repo";
+        cfg.trigger_repo_url = custom.into();
+        cfg.migrate_resource_defaults();
+        assert_eq!(cfg.trigger_repo_url, custom);
     }
 }
