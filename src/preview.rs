@@ -2045,7 +2045,7 @@ fn thumb_cache_path(path: &Path) -> PathBuf {
 
 /// Bump this when the office/pptx RENDER code changes, so old cached renders are
 /// invalidated and regenerated instead of being served stale forever.
-const RENDER_VERSION: u32 = 21;
+const RENDER_VERSION: u32 = 22;
 const PPTX_RENDER_VERSION: u32 = 5;
 
 /// A Spotty-private cache path for thumbnails Spotty RENDERS itself (office docs,
@@ -4658,6 +4658,25 @@ fn legacy_ppt_stream(doc: &Path) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
+/// The deck's `Pictures` storage stream — concatenated image records, each
+/// `[header|uid(16)|tag|raw image]` — or None when the deck has none.
+fn legacy_ppt_pictures_stream(doc: &Path) -> Option<Vec<u8>> {
+    use std::io::Read;
+
+    let mut comp = cfb::open(doc).ok()?;
+    let stream_name = if comp.exists("/Pictures") {
+        "/Pictures"
+    } else if comp.exists("Pictures") {
+        "Pictures"
+    } else {
+        return None;
+    };
+    let mut stream = comp.open_stream(stream_name).ok()?;
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).ok()?;
+    Some(bytes)
+}
+
 /// Collect every record-1006 (slide) payload in `bytes`, in stream order.
 /// A matched record's payload is taken whole (slides don't nest); other
 /// container records are descended into so slides wrapped inside document
@@ -4988,12 +5007,14 @@ fn legacy_ppt_estimate_pt(w: f64, h: f64, text: &str) -> f64 {
 }
 
 /// Decode one shape container (F004) payload: its fill/outline become a
-/// `DrawShape` drawn behind its client text (a `SlideBox`). Pictures
-/// (pib / shape type 75) wait for stage 2; groups (type 0) render through
-/// their child containers, which the collector surfaces on their own.
+/// `DrawShape` drawn behind its client text (a `SlideBox`); a picture
+/// property (pib / shape type 75) resolves through `media` into a
+/// `DrawPicture`. Groups (type 0) render through their child containers,
+/// which the collector surfaces on their own.
 fn legacy_ppt_push_shape(
     sp_container: &[u8],
     scheme: &[(f64, f64, f64); 8],
+    media: Option<&LegacyPptMedia>,
     out: &mut Vec<SlideElement>,
 ) {
     let mut shape_type = 0u16;
@@ -5033,9 +5054,6 @@ fn legacy_ppt_push_shape(
     if !have_sp || shape_type == 0 {
         return;
     }
-    if props.iter().any(|(op, _)| *op == 0x0104) || shape_type == 75 {
-        return; // picture: stage 2
-    }
     let Some((mx1, my1, mx2, my2)) = rect else {
         return;
     };
@@ -5057,12 +5075,6 @@ fn legacy_ppt_push_shape(
     } else if w <= 0.0 || h <= 0.0 {
         return;
     }
-    let prst = match shape_type {
-        3 => "ellipse",
-        2 => "roundRect",
-        _ if is_line => "line",
-        _ => "rect",
-    };
 
     let opt = |op: u16, default: f64| {
         props
@@ -5070,14 +5082,6 @@ fn legacy_ppt_push_shape(
             .find(|(o, _)| *o == op)
             .map(|(_, v)| *v as f64)
             .unwrap_or(default)
-    };
-    let fill = if is_line {
-        None
-    } else {
-        props
-            .iter()
-            .find(|(op, _)| *op == 0x0181)
-            .map(|(_, v)| FillKind::Solid(legacy_ppt_rgb(*v, scheme), 1.0))
     };
     let line = props
         .iter()
@@ -5087,6 +5091,53 @@ fn legacy_ppt_push_shape(
             alpha: 1.0,
             width_emu: opt(0x01cb, 9_525.0),
         });
+    let rot = (opt(0x0004, 0.0) / 65_536.0).to_radians();
+    let flip_h = flags & 0x0040 != 0;
+    let flip_v = flags & 0x0080 != 0;
+
+    // Picture: pib (0x104) names a BlipStore entry (1-based) → cached
+    // image file. Drawn instead of a fill, outline kept as frame; no
+    // resolvable image (WMF/EMF, missing stream) leaves the shape skipped.
+    if let Some(pib) = props
+        .iter()
+        .find_map(|(op, v)| (*op == 0x0104).then_some(*v))
+    {
+        if !is_line {
+            if let Some(path) = media.and_then(|m| m.path_for(pib)) {
+                out.push(SlideElement::Picture(DrawPicture {
+                    x,
+                    y,
+                    w,
+                    h,
+                    path,
+                    crop: [0.0; 4],
+                    line,
+                    rot,
+                    flip_h,
+                    flip_v,
+                }));
+            }
+        }
+        return;
+    }
+    if shape_type == 75 {
+        return; // picture record without a resolvable pib
+    }
+
+    let prst = match shape_type {
+        3 => "ellipse",
+        2 => "roundRect",
+        _ if is_line => "line",
+        _ => "rect",
+    };
+    let fill = if is_line {
+        None
+    } else {
+        props
+            .iter()
+            .find(|(op, _)| *op == 0x0181)
+            .map(|(_, v)| FillKind::Solid(legacy_ppt_rgb(*v, scheme), 1.0))
+    };
 
     if fill.is_some() || line.is_some() {
         out.push(SlideElement::Shape(DrawShape {
@@ -5097,9 +5148,9 @@ fn legacy_ppt_push_shape(
             prst: prst.into(),
             fill,
             line,
-            rot: (opt(0x0004, 0.0) / 65_536.0).to_radians(),
-            flip_h: flags & 0x0040 != 0,
-            flip_v: flags & 0x0080 != 0,
+            rot,
+            flip_h,
+            flip_v,
             freeform: None,
         }));
     }
@@ -5177,6 +5228,218 @@ fn legacy_ppt_finish_boxes(
     }
 }
 
+/// Deck-scoped picture material for a legacy .ppt: the BlipStore's image
+/// ids (uids, in entry order) plus the raw `Pictures` stream, so a shape's
+/// pib property (1-based) resolves to a file in the shared media cache.
+/// Decks without either stream get an empty map — those pictures are then
+/// skipped, exactly as before pictures were supported.
+struct LegacyPptMedia {
+    uids: Vec<[u8; 16]>,
+    pictures: Vec<u8>,
+    locs: std::collections::HashMap<[u8; 16], (usize, usize)>,
+    dir: PathBuf,
+}
+
+impl LegacyPptMedia {
+    fn new(doc: &Path, stream: &[u8]) -> Self {
+        // BlipStoreContainer (F001) → BlipStoreEntry (F007) uid list.
+        let mut uids = Vec::new();
+        if let Some(bse) = legacy_ppt_find(stream, 0xf001, 0) {
+            let mut pos = 0usize;
+            while pos + 8 <= bse.len() {
+                let Some((_, _, rec_type, payload, next)) = legacy_ppt_hdr(bse, pos) else {
+                    break;
+                };
+                if rec_type == 0xf007 && payload.len() >= 18 {
+                    let mut uid = [0u8; 16];
+                    uid.copy_from_slice(&payload[2..18]);
+                    uids.push(uid);
+                }
+                pos = next;
+            }
+        }
+        // Pictures stream: concatenated [header | uid(16) | tag | image].
+        let pictures = legacy_ppt_pictures_stream(doc).unwrap_or_default();
+        let mut locs = std::collections::HashMap::new();
+        let mut pos = 0usize;
+        while pos + 8 <= pictures.len() {
+            let Some((_, _, _, payload, next)) = legacy_ppt_hdr(&pictures, pos) else {
+                break;
+            };
+            if payload.len() >= 16 {
+                let mut uid = [0u8; 16];
+                uid.copy_from_slice(&payload[..16]);
+                locs.entry(uid).or_insert((pos + 8, payload.len()));
+            }
+            pos = next;
+        }
+        Self {
+            uids,
+            pictures,
+            locs,
+            dir: media_cache_dir(doc),
+        }
+    }
+
+    /// File in the media cache holding pib's image (1-based BlipStore
+    /// index); None when the entry or stream is missing, or the payload
+    /// isn't a raster format we decode (WMF/EMF … are skipped).
+    fn path_for(&self, pib: u32) -> Option<PathBuf> {
+        if self.pictures.is_empty() {
+            return None;
+        }
+        let uid = *self.uids.get(pib.checked_sub(1)? as usize)?;
+        let (start, len) = *self.locs.get(&uid)?;
+        let payload = self.pictures.get(start..start + len)?;
+        // uid (16 bytes) + 1–2 tag bytes, then the raw image — scan a small
+        // window for a known magic so the tag variant doesn't matter.
+        let data = payload.get(16..)?;
+        const MAGICS: [&[u8]; 6] = [
+            b"\xff\xd8\xff", // JPEG
+            b"\x89PNG",      // PNG
+            b"GIF8",         // GIF
+            b"II*\0",        // TIFF LE
+            b"MM\0*",        // TIFF BE
+            b"BM",           // BMP
+        ];
+        let off = (0..data.len().min(48))
+            .find(|&i| MAGICS.iter().any(|m| data[i..].starts_with(m)))?;
+        let bytes = &data[off..];
+        if bytes.is_empty() {
+            return None;
+        }
+        let out = self.dir.join(format!("{}.bin", crate::md5::hex(&uid)));
+        if !out.exists() {
+            std::fs::create_dir_all(&self.dir).ok()?;
+            std::fs::write(&out, bytes).ok()?;
+        }
+        Some(out)
+    }
+}
+
+/// The master record (top-level 1016, stream order) a slide follows: the
+/// SlideAtom's masterID (u32@12) is matched against the join ids echoed by
+/// the document's SlideListWithText (4080, instance 1) blocks, which list
+/// the masters in stream order (byte-verified on multi-master decks).
+/// Decks with a single master resolve through it directly; masterless or
+/// ambiguous decks yield None.
+fn legacy_ppt_master<'a>(bytes: &'a [u8], slide_payload: &[u8]) -> Option<&'a [u8]> {
+    let mut masters: Vec<&'a [u8]> = Vec::new();
+    let mut joins: Vec<u32> = Vec::new();
+    let mut pos = 0usize;
+    while pos + 8 <= bytes.len() {
+        let Some((_, _, rec_type, payload, next)) = legacy_ppt_hdr(bytes, pos) else {
+            break;
+        };
+        match rec_type {
+            1016 => masters.push(payload),
+            1000 if joins.is_empty() => {
+                // First document container only: later copies restate the
+                // same list (or a stale one) after edits.
+                let mut c = 0usize;
+                while c + 8 <= payload.len() {
+                    let Some((_, cinst, cty, cpay, cnext)) = legacy_ppt_hdr(payload, c) else {
+                        break;
+                    };
+                    if cty == 4080 && cinst == 1 {
+                        let mut b = 0usize;
+                        while b + 8 <= cpay.len() {
+                            let Some((_, _, bty, bpay, bnext)) = legacy_ppt_hdr(cpay, b) else {
+                                break;
+                            };
+                            if bty == 1011 && bpay.len() >= 16 {
+                                joins.push(u32::from_le_bytes([
+                                    bpay[12], bpay[13], bpay[14], bpay[15],
+                                ]));
+                            }
+                            b = bnext;
+                        }
+                    }
+                    c = cnext;
+                }
+            }
+            _ => {}
+        }
+        pos = next;
+    }
+    if masters.is_empty() {
+        return None;
+    }
+    let atom = legacy_ppt_find(slide_payload, 1007, 0)?;
+    if atom.len() >= 16 {
+        let id = u32::from_le_bytes([atom[12], atom[13], atom[14], atom[15]]);
+        if let Some(idx) = joins.iter().position(|&j| j == id) {
+            if let Some(m) = masters.get(idx) {
+                return Some(m);
+            }
+        }
+    }
+    (masters.len() == 1).then_some(masters[0])
+}
+
+/// The master's full-bleed picture (≥90% of the slide on both axes) as the
+/// background image; smaller pictures (logos) are decorative and out of
+/// scope. None when the master has no Drawing or no such picture.
+fn legacy_ppt_master_bg(
+    master: &[u8],
+    media: &LegacyPptMedia,
+    slide_w: f64,
+    slide_h: f64,
+) -> Option<PathBuf> {
+    let drawing = legacy_ppt_find(master, 1036, 0)?;
+    let mut shapes = Vec::new();
+    legacy_ppt_collect_shapes(drawing, &mut shapes, 0);
+    for sp in shapes {
+        let Some((pib, (_, _, w, h))) = legacy_ppt_shape_pic(sp) else {
+            continue;
+        };
+        if w >= slide_w * 0.9 && h >= slide_h * 0.9 {
+            return media.path_for(pib);
+        }
+    }
+    None
+}
+
+/// (blip index, anchor rect in EMU) of one shape container — what the
+/// master-background probe needs, without building render elements.
+fn legacy_ppt_shape_pic(sp: &[u8]) -> Option<(u32, (f64, f64, f64, f64))> {
+    let mut pib = None;
+    let mut rect = None;
+    let mut pos = 0usize;
+    while pos + 8 <= sp.len() {
+        let Some((_, _, rec_type, payload, next)) = legacy_ppt_hdr(sp, pos) else {
+            break;
+        };
+        match rec_type {
+            0xf00b => {
+                if let Some(v) = legacy_ppt_props(payload)
+                    .iter()
+                    .find_map(|(op, v)| (*op == 0x0104).then_some(*v))
+                {
+                    pib = Some(v);
+                }
+            }
+            0xf00f | 0xf010 => {
+                if rect.is_none() {
+                    rect = legacy_ppt_anchor_rect(payload);
+                }
+            }
+            _ => {}
+        }
+        pos = next;
+    }
+    let (pib, (x1, y1, x2, y2)) = (pib?, rect?);
+    Some((
+        pib,
+        (
+            x1 * PPT_MU_EMU,
+            y1 * PPT_MU_EMU,
+            (x2 - x1) * PPT_MU_EMU,
+            (y2 - y1) * PPT_MU_EMU,
+        ),
+    ))
+}
+
 /// Structured parse of slide `slide` (1-based) into the shared pptx render
 /// model. None when the stream, the slide or its Drawing can't be read, or
 /// the Drawing yields no positioned shapes/text — callers then fall back to
@@ -5187,26 +5450,39 @@ fn legacy_ppt_structured_layout(doc: &Path, slide: usize) -> Option<SlideLayout>
     let mut payloads = Vec::new();
     collect_ppt_slide_payloads(&bytes, &mut payloads, 0);
     let payload = *payloads.get(slide.saturating_sub(1))?;
-    let scheme = legacy_ppt_scheme(payload);
+
+    let media = LegacyPptMedia::new(doc, &bytes);
+    let master = legacy_ppt_master(&bytes, payload);
+    // Own ColorSchemeAtom first; a slide without one follows its master's
+    // scheme (first 2032), then the classic Office defaults.
+    let scheme = if legacy_ppt_find(payload, 2032, 0).is_some() {
+        legacy_ppt_scheme(payload)
+    } else {
+        legacy_ppt_scheme(master.unwrap_or(payload))
+    };
+
     let drawing = legacy_ppt_find(payload, 1036, 0)?;
     let mut shapes = Vec::new();
     legacy_ppt_collect_shapes(drawing, &mut shapes, 0);
     let mut elements = Vec::new();
     for sp in &shapes {
-        legacy_ppt_push_shape(sp, &scheme, &mut elements);
+        legacy_ppt_push_shape(sp, &scheme, Some(&media), &mut elements);
     }
     if elements.is_empty() {
         return None;
     }
     legacy_ppt_finish_boxes(&mut elements, &scheme, slide_h);
+
+    // A full-bleed picture in the master is the background; otherwise the
+    // scheme's background color (white by default).
+    let background = master
+        .and_then(|m| legacy_ppt_master_bg(m, &media, slide_w, slide_h))
+        .map(SlideBackground::Image)
+        .unwrap_or_else(|| SlideBackground::Solid(scheme[0].0, scheme[0].1, scheme[0].2));
     Some(SlideLayout {
         slide_w,
         slide_h,
-        background: Some(SlideBackground::Solid(
-            scheme[0].0,
-            scheme[0].1,
-            scheme[0].2,
-        )),
+        background: Some(background),
         elements,
     })
 }
@@ -7814,6 +8090,20 @@ fn extract_pptx_media_from_dir<R: std::io::Read + std::io::Seek>(
     }
 }
 
+/// On-disk media cache directory for a deck, keyed by (path, mtime) like
+/// the slide PNG cache: editing the deck must invalidate extracted media
+/// too, or a replaced picture keeps rendering from the old bytes forever.
+/// Shared by pptx rel extraction and legacy .ppt BlipStore extraction.
+fn media_cache_dir(doc: &Path) -> PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(format!(
+            "spotty/pptx-media/{}-{}",
+            crate::md5::hex(doc.to_string_lossy().as_bytes()),
+            doc_mtime_secs(doc)
+        ))
+}
+
 /// Extract one part's image relationships into the on-disk media cache and
 /// return its rId → path map (per-part maps avoid rId collisions across
 /// slide/layout/master).
@@ -7822,16 +8112,7 @@ fn extract_part_media<R: std::io::Read + std::io::Seek>(
     doc: &Path,
     part_path: &str,
 ) -> std::collections::HashMap<String, PathBuf> {
-    // Keyed by (path, mtime) like the slide PNG cache: editing the deck must
-    // invalidate extracted media too, or a replaced picture keeps rendering
-    // from the old bytes forever (`!out.exists()` below reuses old files).
-    let media_cache = dirs::cache_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(format!(
-            "spotty/pptx-media/{}-{}",
-            crate::md5::hex(doc.to_string_lossy().as_bytes()),
-            doc_mtime_secs(doc)
-        ));
+    let media_cache = media_cache_dir(doc);
     let _ = std::fs::create_dir_all(&media_cache);
     let mut map = std::collections::HashMap::new();
     extract_pptx_media_from_dir(zip, part_path, &media_cache, &mut map);
@@ -9233,6 +9514,30 @@ line2
         s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect()
     }
 
+    /// Record with a nonzero instance field (escher carries shape type /
+    /// list kind there): info = (inst << 4) | ver, then type, len, payload.
+    fn ppt_rec_inst(ver: u16, inst: u16, rec_type: u16, payload: &[u8]) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&((inst << 4) | ver).to_le_bytes());
+        v.extend_from_slice(&rec_type.to_le_bytes());
+        v.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        v.extend_from_slice(payload);
+        v
+    }
+
+    /// A 2×2 red PNG — the one blip payload of the stage-2 test decks.
+    fn test_png() -> Vec<u8> {
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            2,
+            2,
+            image::Rgba([255u8, 0, 0, 255]),
+        ))
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .unwrap();
+        png
+    }
+
     #[test]
     fn legacy_ppt_slide_texts_enumerates_every_slide() {
         // Document container wrapping three slide containers (record 1006),
@@ -9473,6 +9778,295 @@ line2
         assert_eq!(legacy_ppt_slide_count(&p), Some(1));
         let png = render_legacy_ppt_slide(&p, 1).expect("render");
         assert!(png.starts_with(&[0x89, b'P', b'N', b'G']), "PNG output");
+
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn legacy_ppt_picture_shape_resolves_media() {
+        // pib (0x104) = 1-based BlipStore index → uid → Pictures record →
+        // cached image file → DrawPicture element.
+        let d = td("legacy_ppt_pic");
+        let p = d.join("deck.ppt");
+
+        let png = test_png();
+        let uid = [7u8; 16];
+        // BlipStoreEntry F007: btWin32, btMac, uid(16), tag, cbSave, …
+        let mut bse = vec![5u8, 5];
+        bse.extend_from_slice(&uid);
+        bse.extend_from_slice(&[0xff, 0x00]); // tag
+        bse.extend_from_slice(&0u32.to_le_bytes()); // cbSave
+        bse.extend_from_slice(&0u32.to_le_bytes()); // cRef
+        bse.extend_from_slice(&0u32.to_le_bytes()); // foDelay
+        bse.extend_from_slice(&0u32.to_le_bytes()); // usage
+        let blipstore = ppt_rec_inst(
+            0x0f,
+            0,
+            1035,
+            &ppt_rec_inst(0x0f, 0, 0xf001, &ppt_rec_inst(2, 2, 0xf007, &bse)),
+        );
+
+        // Pictures record: uid(16) + tag byte + raw image.
+        let mut pic_payload = Vec::new();
+        pic_payload.extend_from_slice(&uid);
+        pic_payload.push(0xff);
+        pic_payload.extend_from_slice(&png);
+        let pictures = ppt_rec_inst(0, 0, 0xf01d, &pic_payload);
+
+        // Picture shape: F00A (instance = 75, picture), pib = 1, anchor.
+        let anchor: Vec<u8> = [100u16, 200, 300, 400]
+            .iter()
+            .flat_map(|u| u.to_le_bytes())
+            .collect();
+        let mut props = Vec::new();
+        props.extend_from_slice(&0x0104u16.to_le_bytes());
+        props.extend_from_slice(&1u32.to_le_bytes()); // pib → entry 1
+        let mut sp = Vec::new();
+        sp.extend_from_slice(&0x0000_0400u32.to_le_bytes());
+        sp.extend_from_slice(&0x0a00u16.to_le_bytes());
+        sp.extend_from_slice(&75u16.to_le_bytes());
+        let shape = [
+            ppt_rec_inst(0, 75, 0xf00a, &sp),
+            ppt_rec_inst(0, 0, 0xf00b, &props),
+            ppt_rec_inst(0, 0, 0xf010, &anchor),
+        ]
+        .concat();
+        let drawing = ppt_rec_inst(
+            0x0f,
+            0,
+            1036,
+            &ppt_rec_inst(
+                0x0f,
+                0,
+                0xf002,
+                &ppt_rec_inst(0x0f, 0, 0xf003, &ppt_rec_inst(0x0f, 0, 0xf004, &shape)),
+            ),
+        );
+        let slide = ppt_rec(0x0f, 1006, &drawing);
+        let mut doc_atom = Vec::new();
+        doc_atom.extend_from_slice(&5760u32.to_le_bytes());
+        doc_atom.extend_from_slice(&4320u32.to_le_bytes());
+        let stream = ppt_rec(
+            0x0f,
+            1000,
+            &[ppt_rec(0, 1001, &doc_atom), blipstore, slide].concat(),
+        );
+
+        {
+            let mut comp = cfb::create(&p).unwrap();
+            let mut s = comp.create_stream("/PowerPoint Document").unwrap();
+            s.write_all(&stream).unwrap();
+            s.flush().unwrap();
+            drop(s);
+            let mut s = comp.create_stream("/Pictures").unwrap();
+            s.write_all(&pictures).unwrap();
+            s.flush().unwrap();
+            drop(s);
+            comp.flush().unwrap();
+        }
+
+        let layout = legacy_ppt_structured_layout(&p, 1).expect("structured parse");
+        assert_eq!(
+            layout.elements.len(),
+            1,
+            "the picture is the slide's only element"
+        );
+        let SlideElement::Picture(pic) = &layout.elements[0] else {
+            panic!("element must be the picture");
+        };
+        assert_eq!(pic.crop, [0.0; 4], "no srcRect crop");
+        assert!(pic.path.exists(), "blip materialized into the media cache");
+        // .bin has no image extension — decode by content, like the painter.
+        assert!(
+            image::load_from_memory(&fs::read(&pic.path).unwrap()).is_ok(),
+            "cached blip must decode"
+        );
+        assert!(render_slide_layout(&layout).is_some(), "renders the picture");
+        let rendered = render_legacy_ppt_slide(&p, 1).expect("render");
+        assert!(rendered.starts_with(&[0x89, b'P', b'N', b'G']), "PNG output");
+
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn legacy_ppt_master_scheme_and_background() {
+        // The slide has no ColorSchemeAtom of its own: it follows its
+        // master's (join id 0x80000001 via SlideListWithText inst 1), and
+        // the master's full-bleed picture becomes the background image.
+        let d = td("legacy_ppt_master_bg");
+        let p = d.join("deck.ppt");
+
+        let png = test_png();
+        let uid = [9u8; 16];
+        let mut bse = vec![5u8, 5];
+        bse.extend_from_slice(&uid);
+        bse.extend_from_slice(&[0xff, 0x00]);
+        bse.extend_from_slice(&0u32.to_le_bytes());
+        bse.extend_from_slice(&0u32.to_le_bytes());
+        bse.extend_from_slice(&0u32.to_le_bytes());
+        bse.extend_from_slice(&0u32.to_le_bytes());
+        let blipstore = ppt_rec_inst(
+            0x0f,
+            0,
+            1035,
+            &ppt_rec_inst(0x0f, 0, 0xf001, &ppt_rec_inst(2, 2, 0xf007, &bse)),
+        );
+        let mut pic_payload = Vec::new();
+        pic_payload.extend_from_slice(&uid);
+        pic_payload.push(0xff);
+        pic_payload.extend_from_slice(&png);
+        let pictures = ppt_rec_inst(0, 0, 0xf01d, &pic_payload);
+
+        // Master join: SlideListWithText (4080, inst 1) block echoing the
+        // master id at u32@12.
+        let mut join = vec![0u8; 16];
+        join[12..16].copy_from_slice(&0x8000_0001u32.to_le_bytes());
+        let master_list = ppt_rec_inst(0x0f, 1, 4080, &ppt_rec(0, 1011, &join));
+
+        // Slide: SlideAtom with masterID 0x80000001, one filled shape
+        // carrying a text box; no own scheme.
+        let mut atom = vec![0u8; 24];
+        atom[12..16].copy_from_slice(&0x8000_0001u32.to_le_bytes());
+        let anchor: Vec<u8> = [100u16, 200, 300, 400]
+            .iter()
+            .flat_map(|u| u.to_le_bytes())
+            .collect();
+        let mut props = Vec::new();
+        props.extend_from_slice(&0x0181u16.to_le_bytes());
+        props.extend_from_slice(&0x00ff_ffffu32.to_le_bytes());
+        let textbox = [
+            ppt_rec(0, 3999, &4u32.to_le_bytes()),
+            ppt_rec(0, 4000, &ppt_utf16("Hello")),
+        ]
+        .concat();
+        let mut sp = Vec::new();
+        sp.extend_from_slice(&0x0000_0400u32.to_le_bytes());
+        sp.extend_from_slice(&0x0a00u16.to_le_bytes());
+        sp.extend_from_slice(&0u16.to_le_bytes());
+        let shape = [
+            ppt_rec_inst(0, 1, 0xf00a, &sp),
+            ppt_rec_inst(0, 0, 0xf00b, &props),
+            ppt_rec_inst(0, 0, 0xf010, &anchor),
+            ppt_rec_inst(0x0f, 0, 0xf00d, &textbox),
+        ]
+        .concat();
+        let drawing = ppt_rec_inst(
+            0x0f,
+            0,
+            1036,
+            &ppt_rec_inst(
+                0x0f,
+                0,
+                0xf002,
+                &ppt_rec_inst(0x0f, 0, 0xf003, &ppt_rec_inst(0x0f, 0, 0xf004, &shape)),
+            ),
+        );
+        let slide = ppt_rec(0x0f, 1006, &[ppt_rec(0, 1007, &atom), drawing].concat());
+
+        // Master: scheme title (slot 3) = 0x0000FF00 → green, plus a
+        // full-bleed picture (anchor = the whole 5760×4320 slide).
+        let mut scheme = Vec::new();
+        for v in [
+            0x00ff_ffffu32,
+            0x0000_0000,
+            0x00ec_ece1,
+            0x0000_ff00, // title: green
+            0x0000_0000,
+            0x0000_0000,
+            0x0000_0000,
+            0x0000_0000,
+        ] {
+            scheme.extend_from_slice(&v.to_le_bytes());
+        }
+        // F010 packs (y1, x1, x2, y2) as 4×u16 — the whole 5760×4320 slide.
+        let full_anchor: Vec<u8> = [0u16, 0, 5760, 4320]
+            .iter()
+            .flat_map(|u| u.to_le_bytes())
+            .collect();
+        let mut bg_props = Vec::new();
+        bg_props.extend_from_slice(&0x0104u16.to_le_bytes());
+        bg_props.extend_from_slice(&1u32.to_le_bytes());
+        let mut bg_sp = Vec::new();
+        bg_sp.extend_from_slice(&0x0000_0401u32.to_le_bytes());
+        bg_sp.extend_from_slice(&0x0a00u16.to_le_bytes());
+        bg_sp.extend_from_slice(&75u16.to_le_bytes());
+        let bg_shape = [
+            ppt_rec_inst(0, 75, 0xf00a, &bg_sp),
+            ppt_rec_inst(0, 0, 0xf00b, &bg_props),
+            ppt_rec_inst(0, 0, 0xf010, &full_anchor),
+        ]
+        .concat();
+        let master_drawing = ppt_rec_inst(
+            0x0f,
+            0,
+            1036,
+            &ppt_rec_inst(
+                0x0f,
+                0,
+                0xf002,
+                &ppt_rec_inst(0x0f, 0, 0xf003, &ppt_rec_inst(0x0f, 0, 0xf004, &bg_shape)),
+            ),
+        );
+        let master = ppt_rec(
+            0x0f,
+            1016,
+            &[ppt_rec(0, 2032, &scheme), master_drawing].concat(),
+        );
+
+        let mut doc_atom = Vec::new();
+        doc_atom.extend_from_slice(&5760u32.to_le_bytes());
+        doc_atom.extend_from_slice(&4320u32.to_le_bytes());
+        let stream = ppt_rec(
+            0x0f,
+            1000,
+            &[
+                ppt_rec(0, 1001, &doc_atom),
+                master_list,
+                blipstore,
+                slide,
+            ]
+            .concat(),
+        );
+        let stream = [stream, master].concat();
+
+        {
+            let mut comp = cfb::create(&p).unwrap();
+            let mut s = comp.create_stream("/PowerPoint Document").unwrap();
+            s.write_all(&stream).unwrap();
+            s.flush().unwrap();
+            drop(s);
+            let mut s = comp.create_stream("/Pictures").unwrap();
+            s.write_all(&pictures).unwrap();
+            s.flush().unwrap();
+            drop(s);
+            comp.flush().unwrap();
+        }
+
+        let layout = legacy_ppt_structured_layout(&p, 1).expect("structured parse");
+        // Scheme falls through to the master: the title box is green.
+        let title = layout
+            .elements
+            .iter()
+            .find_map(|e| match e {
+                SlideElement::Text(b) if b.is_title => Some(b),
+                _ => None,
+            })
+            .expect("title box");
+        assert_eq!(
+            title.color,
+            Some((0.0, 1.0, 0.0)),
+            "master scheme title color"
+        );
+        // Background: the master's full-bleed picture.
+        let Some(SlideBackground::Image(bg)) = &layout.background else {
+            panic!("master full-bleed picture must become the background");
+        };
+        assert!(bg.exists());
+        assert!(
+            image::load_from_memory(&fs::read(bg).unwrap()).is_ok(),
+            "background blip must decode"
+        );
+        assert!(render_slide_layout(&layout).is_some(), "renders with bg");
 
         let _ = fs::remove_dir_all(&d);
     }
