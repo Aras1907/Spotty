@@ -2,6 +2,21 @@
 
 Spotty — a Raycast-style launcher for GNOME Linux, in Rust with GTK4/libadwaita.
 
+## Rules: always use graft, never LibreOffice
+
+- **Always use graft first.** For every task here — understanding how
+  something works, finding where code lives, scoping a change, checking who
+  calls a symbol — query the graft graph **before** grepping or opening source
+  files. Use the MCP tools (`graft_find_code`, `graft_find_all`,
+  `graft_file_api`, `graft_trace_calls`, `graft_repo_map`) or the CLI
+  (`graft ask`, `graft grep`, `graft skeleton`, `graft callers`, `graft map`).
+  Re-ask the graph freely; fall back to raw `grep`/file reads only for files
+  graft has not indexed. After big code changes, refresh with `graft build`.
+- **No LibreOffice, ever.** Office previews and thumbnails must stay
+  native/pure Rust (zip/cfb/calamine/cairo) or use the bundled tools in
+  `flatpak/com.spotty.Spotty.yaml`. Never add a dependency on LibreOffice or
+  `soffice`/`libreoffice` conversions.
+
 ## Build & Run
 
 ```bash
