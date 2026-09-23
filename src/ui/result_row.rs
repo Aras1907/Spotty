@@ -108,7 +108,7 @@ impl ResultRow {
                     ResultKind::Emoji => "face-smile-symbolic",
                 }));
             }
-            // Request a thumbnail for office files (pptx/xlsx).
+            // Request an overview thumbnail for document files.
             if let Some(path) = match &r.action {
                 crate::search::Action::OpenPath(p) => Some(p),
                 crate::search::Action::BrowseInto(p) => Some(p),

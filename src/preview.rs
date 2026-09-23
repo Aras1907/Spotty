@@ -706,8 +706,7 @@ impl PreviewPane {
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_ascii_lowercase();
-        let nav_ok = *self.nav_file_path.borrow() == p
-            && matches!(ext.as_str(), "pptx" | "ppsx" | "pps" | "odp" | "ppt" | "pdf");
+        let nav_ok = *self.nav_file_path.borrow() == p && nav_native_ext(&ext);
         if nav_ok {
             self.show_slide(self.current_slide.get());
         } else {
@@ -799,6 +798,11 @@ impl PreviewPane {
                         .map(|i| crate::imageinfo::caption(&i))
                         .unwrap_or_default(),
                 );
+                // Spreadsheet pages show the sheet/part name as the caption
+                // while paging; other types keep the file-info caption.
+                if let Some(cap) = office_page_caption(path, page.unwrap_or(1)) {
+                    self.image_caption.set_label(&cap);
+                }
                 // Only OCR actual image files — skip PDF/PPTX/office pages.
                 if is_ocrable_image(path) {
                     self.refresh_ocr_text(path);
@@ -856,7 +860,10 @@ impl PreviewPane {
         if let Some(page_path) = resolve_page_png(&file_path, n) {
             set_picture_from_file(&self.image, &page_path);
             self.stack.set_visible_child_name("image");
-            self.image_caption.set_label("");
+            // Sheet pages name the sheet/part; prose/slide pages clear the
+            // caption (the nav label already carries n / total).
+            let cap = office_page_caption(&file_path, n).unwrap_or_default();
+            self.image_caption.set_label(&cap);
             return;
         }
         // Fallback: pre-rendered page list (types without per-page rendering).
@@ -1230,8 +1237,10 @@ fn compute_preview(path: &Path) -> PreviewPayload {
             }
             PreviewPayload::Info
         }
-        // ── PPTX / ODP: render first slide, cache total for nav ──
-        "pptx" | "ppsx" | "pps" | "odp" => {
+        // ── PPTX / PPSX / PPS: render first slide, cache total for nav ──
+        // (ODP lives in the office arm below — it's parsed as ODF text
+        // slides there, with per-slide nav like every other deck format.)
+        "pptx" | "ppsx" | "pps" => {
             let total = pptx_slide_count(path).unwrap_or(1);
             store_doc_meta(path, total);
             // Native slide render first, then fall back to office_thumbnail
@@ -1260,28 +1269,35 @@ fn compute_preview(path: &Path) -> PreviewPayload {
             }
             PreviewPayload::Info
         }
-        // ── Office documents (Word / Excel / legacy PPT / ODT) ──
+        // ── Office documents (Word / Excel / ODF / RTF / legacy PPT) ──
         "doc" | "docx" | "odt" | "rtf" | "ott" | "fodt" | "wps" | "xls" | "xlsx" | "ods"
-        | "ots" | "fods" | "csv" | "ppt" | "otp" | "fodp" => {
-            // Legacy binary .ppt gets multi-slide nav: native per-slide
-            // render first (consistent with slides 2..N behind the nav
-            // bar), shared/embedded thumbnail as fallback, and the slide
-            // count reported so the nav bar + wheel work like pptx/PDF.
+        | "ots" | "fods" | "csv" | "ppt" | "otp" | "fodp" | "odp" => {
+            // Native multi-page previews: legacy .ppt slides plus the
+            // paginated prose / sheet-grid / ODF-text-slide renderer for
+            // everything else. Page 1 renders natively first (so pages 2..N
+            // behind the nav bar come from the same render pass), the nav
+            // reports total_pages, and when no structured parse exists
+            // (.doc/.wps, empty or broken files) we fall back to the
+            // shared/embedded thumbnail with the nav hidden.
             let legacy_ppt = ext == "ppt";
-            let total = if legacy_ppt {
-                let total = legacy_ppt_slide_count(path).unwrap_or(1);
-                store_doc_meta(path, total);
-                total
-            } else {
-                1
-            };
-            let thumb = if legacy_ppt {
+            let page1 = if legacy_ppt {
                 cached_legacy_ppt_slide(path, 1)
                     .or_else(|| render_legacy_ppt_slide_to_cache(path, 1))
-                    .or_else(|| office_thumbnail(path))
             } else {
-                office_thumbnail(path)
+                cached_office_page(path, 1).or_else(|| render_office_page_to_cache(path, 1))
             };
+            let native = page1.is_some();
+            let native_total = if !native {
+                1
+            } else if legacy_ppt {
+                legacy_ppt_slide_count(path).unwrap_or(1)
+            } else {
+                office_page_count(path).unwrap_or(1)
+            };
+            if native {
+                store_doc_meta(path, native_total);
+            }
+            let thumb = page1.or_else(|| office_thumbnail(path));
             if let Some(thumb) = thumb {
                 if let Some(img) = image::open(&thumb).ok() {
                     let rgba = img.to_rgba8();
@@ -1299,8 +1315,8 @@ fn compute_preview(path: &Path) -> PreviewPayload {
                     };
                     return PreviewPayload::Image {
                         rgba: raw, w: dw, h: dh,
-                        total_pages: legacy_ppt.then_some(total),
-                        page: legacy_ppt.then_some(1),
+                        total_pages: native.then_some(native_total),
+                        page: native.then_some(1),
                     };
                 }
             }
@@ -1567,7 +1583,7 @@ pub(crate) fn pptx_first_slide_png(doc: &Path) -> Option<PathBuf> {
         .extension()
         .and_then(|s| s.to_str())
         .map(|s| s.to_ascii_lowercase());
-    if !matches!(ext.as_deref(), Some("pptx" | "ppsx" | "pps" | "odp")) {
+    if !matches!(ext.as_deref(), Some("pptx" | "ppsx" | "pps")) {
         return None;
     }
     cached_pptx_slide(doc, 1).or_else(|| render_pptx_slide(doc, 1))
@@ -1579,6 +1595,78 @@ fn clamp_page(n: usize, total: usize) -> usize {
     n.clamp(1, total.max(1))
 }
 
+/// Versioned cache path for office page `n` (1-based). Page 1 shares
+/// `render_cache_path` so result rows and the preview pane serve the exact
+/// same image; further pages live next to it with a `-p{n}` suffix.
+fn office_page_cache_path(doc: &Path, n: usize) -> PathBuf {
+    let base = render_cache_path(doc);
+    if n <= 1 {
+        return base;
+    }
+    let stem = base
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    base.with_file_name(format!("{}-p{}.png", stem, n))
+}
+
+fn cached_office_page(doc: &Path, n: usize) -> Option<PathBuf> {
+    let path = office_page_cache_path(doc, n);
+    if sane_png_file(&path) {
+        return Some(path);
+    }
+    if path.exists() {
+        log::info!(
+            "office: dropping corrupt cached page {}",
+            path.display()
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+    None
+}
+
+/// Prepare (memoized) and render office page `n`, write it to the versioned
+/// cache, and return its path. Page indices clamp into the prepared range —
+/// the nav clamps before calling, but this keeps direct callers safe too.
+fn render_office_page_to_cache(doc: &Path, n: usize) -> Option<PathBuf> {
+    let prep = prepare_office(doc)?;
+    let n = clamp_page(n, prep.pages.len());
+    let png = render_office_page(&prep, n)?;
+    let out = office_page_cache_path(doc, n);
+    if std::fs::write(&out, &png).is_ok() {
+        log::debug!(
+            "office: rendered page {} of {} for {}",
+            n,
+            prep.pages.len(),
+            doc.display()
+        );
+        Some(out)
+    } else {
+        None
+    }
+}
+
+/// Total native page count (prose pages / sheet chunks / ODF slides) for
+/// documents Spotty renders itself; None when the type has no structured
+/// parser (.doc/.wps) or the file couldn't be read.
+fn office_page_count(doc: &Path) -> Option<usize> {
+    prepare_office(doc).map(|p| p.pages.len().max(1))
+}
+
+/// Page caption override (sheet name / part) driving the preview caption
+/// while paging. None for prose/slides (their caption stays the file info).
+fn office_page_caption(doc: &Path, n: usize) -> Option<String> {
+    let prep = prepare_office(doc)?;
+    prep.pages.get(n.max(1) - 1)?.caption.clone()
+}
+
+/// True when previews of `ext` (lowercase) are native multi-page and can
+/// keep their page position across a live file refresh.
+fn nav_native_ext(ext: &str) -> bool {
+    matches!(ext, "pdf" | "pptx" | "ppsx" | "pps" | "ppt")
+        || OFFICE_PAGE_EXTS.contains(&ext)
+}
+
 /// Resolve the PNG for page/slide `n` (1-based) of a multi-page document:
 /// disk cache first, render on demand otherwise. Shared by the nav bar
 /// buttons, the wheel stepper, and the staleness refresh so all three step
@@ -1588,13 +1676,15 @@ fn resolve_page_png(doc: &Path, n: usize) -> Option<PathBuf> {
     let ext = doc.extension().and_then(|s| s.to_str()).unwrap_or("");
     if ext.eq_ignore_ascii_case("pdf") {
         cached_pdf_page(doc, n).or_else(|| render_pdf_page(doc, n))
-    } else if ["pptx", "ppsx", "pps", "odp"]
+    } else if ["pptx", "ppsx", "pps"]
         .iter()
         .any(|e| ext.eq_ignore_ascii_case(e))
     {
         cached_pptx_slide(doc, n).or_else(|| render_pptx_slide(doc, n))
     } else if ext.eq_ignore_ascii_case("ppt") {
         cached_legacy_ppt_slide(doc, n).or_else(|| render_legacy_ppt_slide_to_cache(doc, n))
+    } else if OFFICE_PAGE_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
+        cached_office_page(doc, n).or_else(|| render_office_page_to_cache(doc, n))
     } else {
         None
     }
@@ -1955,7 +2045,7 @@ fn thumb_cache_path(path: &Path) -> PathBuf {
 
 /// Bump this when the office/pptx RENDER code changes, so old cached renders are
 /// invalidated and regenerated instead of being served stale forever.
-const RENDER_VERSION: u32 = 19;
+const RENDER_VERSION: u32 = 20;
 const PPTX_RENDER_VERSION: u32 = 5;
 
 /// A Spotty-private cache path for thumbnails Spotty RENDERS itself (office docs,
@@ -2045,7 +2135,7 @@ pub(crate) fn has_tool(tool: &str) -> bool {
 
 /// Render the first page of a PDF to a cached PNG. Uses `pdftoppm`
 /// (poppler-utils), which is installed on essentially every Linux desktop.
-fn pdf_thumbnail(pdf: &Path) -> Option<PathBuf> {
+pub(crate) fn pdf_thumbnail(pdf: &Path) -> Option<PathBuf> {
     if let Some(existing) = existing_shared_thumb(pdf) {
         return Some(existing);
     }
@@ -2160,7 +2250,7 @@ fn render_pdf_all_pages(pdf: &Path) -> Option<(Vec<PathBuf>, usize)> {
 /// — never by shelling out to an external converter, so behavior is identical
 /// on every machine. Returns None when nothing usable exists, so the caller
 /// falls back to the type-specific info card.
-fn office_thumbnail(doc: &Path) -> Option<PathBuf> {
+pub(crate) fn office_thumbnail(doc: &Path) -> Option<PathBuf> {
     let ext = doc
         .extension()
         .and_then(|s| s.to_str())
@@ -2222,7 +2312,19 @@ fn office_thumbnail(doc: &Path) -> Option<PathBuf> {
         return Some(out);
     }
 
-    // STEP 2 — content preview (Word/Excel text/data) drawn with Cairo.
+    // STEP 2 — native paginated render: page 1 shares `render_cache_path`
+    // with the preview pane, so rows and pane show the same image. Falls
+    // back to the legacy single-content card for types without a
+    // structured parser (.doc/.wps strings card).
+    if let Some(prep) = prepare_office(doc) {
+        if let Some(png) = render_office_page(&prep, 1) {
+            if std::fs::write(&out, &png).is_ok() {
+                return Some(out);
+            }
+        }
+    }
+
+    // Legacy single-content card (Word/Excel text/data) drawn with Cairo.
     match extract_office_content(doc) {
         Some(content) => {
             log::debug!(
@@ -2573,7 +2675,7 @@ fn extract_office_content(doc: &Path) -> Option<OfficeContent> {
 fn extract_csv(doc: &Path) -> Option<OfficeContent> {
     let text = std::fs::read_to_string(doc).ok()?;
     let delimiter = detect_csv_delimiter(&text);
-    let mut rows = parse_delimited_rows(&text, delimiter);
+    let mut rows = parse_delimited_rows(&text, delimiter, OFFICE_MAX_ROWS);
     rows.retain(|row| row.iter().any(|cell| !cell.trim().is_empty()));
     if rows.is_empty() {
         return None;
@@ -2607,7 +2709,7 @@ fn detect_csv_delimiter(text: &str) -> char {
     best.0
 }
 
-fn parse_delimited_rows(text: &str, delimiter: char) -> Vec<Vec<String>> {
+fn parse_delimited_rows(text: &str, delimiter: char, max_rows: usize) -> Vec<Vec<String>> {
     let mut rows = Vec::new();
     let mut row = Vec::new();
     let mut cell = String::new();
@@ -2633,7 +2735,7 @@ fn parse_delimited_rows(text: &str, delimiter: char) -> Vec<Vec<String>> {
                 cell.clear();
                 rows.push(row);
                 row = Vec::new();
-                if rows.len() >= 24 {
+                if rows.len() >= max_rows {
                     break;
                 }
             }
@@ -2648,6 +2750,809 @@ fn parse_delimited_rows(text: &str, delimiter: char) -> Vec<Vec<String>> {
     }
 
     rows
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Native office pages: paginated prose, sheet grids, ODF text slides
+//
+// Every supported office document is prepared into a list of renderable
+// pages ONCE (memoized by path+mtime+size), then each page renders to its
+// own versioned cache file. The preview pane's nav bar, the wheel stepper,
+// the staleness refresh and the result-row thumbnails all share this path,
+// so freshly created or downloaded files work with no pre-existing cache.
+// ──────────────────────────────────────────────────────────────────────
+
+/// Extensions rendered as native pages/sheets/slides (nav bar + wheel).
+/// Types outside this list (.doc, .wps, unreadable or empty files) keep the
+/// single-thumbnail behavior with the nav hidden.
+const OFFICE_PAGE_EXTS: &[&str] = &[
+    "docx", "odt", "rtf", "ott", "fodt",           // prose pages
+    "xls", "xlsx", "ods", "ots", "fods", "csv",    // sheet pages
+    "odp", "otp", "fodp",                          // ODF slides
+];
+
+/// Hard caps so a pathological file can't blow up memory or the nav bar.
+const OFFICE_MAX_PARAS: usize = 2000;
+const OFFICE_MAX_SHEETS: usize = 64;
+const OFFICE_MAX_ROWS: usize = 5000;
+const OFFICE_MAX_COLS: usize = 12;
+/// Rows rendered per spreadsheet page (fits the A4-ish canvas).
+const SHEET_ROWS_PER_PAGE: usize = 30;
+
+// Document page canvas (A4 @ 96 dpi) + vertical rhythm — shared by the
+// paginator and the renderer so measured page breaks are exact.
+const DOC_PAGE_W: i32 = 794;
+const DOC_PAGE_H: i32 = 1123;
+const DOC_MARGIN: f64 = 56.0;
+const DOC_BODY_SIZE: f64 = 14.0;
+const DOC_BODY_LINE: f64 = 20.0;
+const DOC_PARA_GAP: f64 = 9.0;
+const DOC_FOOTER: f64 = 56.0;
+
+/// One laid-out line of prose. `para_end` marks the last wrapped line of its
+/// paragraph so measure and render share the exact vertical rhythm.
+#[derive(Debug)]
+struct ProseLine {
+    text: String,
+    para_end: bool,
+}
+
+/// One renderable page of a prepared office document.
+struct OfficePage {
+    /// Sheet name (plus part) shown as the preview caption while paging.
+    caption: Option<String>,
+    body: OfficePageBody,
+}
+
+#[derive(Debug)]
+enum OfficePageBody {
+    /// Paginated prose; `first` carries the big title block.
+    Prose { first: bool, lines: Vec<ProseLine> },
+    /// One chunk of spreadsheet rows (a whole sheet, or part of an
+    /// oversized one) rendered with `sheet` as the tab label. `first` marks
+    /// the sheet's first page, whose row 0 gets the header styling.
+    Grid {
+        sheet: String,
+        rows: Vec<Vec<String>>,
+        first: bool,
+    },
+    /// ODF presentation slide: title + bullet paragraphs.
+    Slide { title: String, bullets: Vec<String> },
+}
+
+/// Everything needed to render every page of one document.
+struct PreparedOffice {
+    kind: OfficeKind,
+    doc_title: String,
+    pages: Vec<OfficePage>,
+}
+
+/// Prepared pages keyed by (path, mtime, size) — stepping through pages
+/// never re-parses the file, and an edited file re-prepares itself.
+fn office_prepared_memo(
+) -> &'static Mutex<std::collections::HashMap<(std::path::PathBuf, u64, u64), std::sync::Arc<PreparedOffice>>>
+{
+    static M: OnceLock<
+        Mutex<std::collections::HashMap<(std::path::PathBuf, u64, u64), std::sync::Arc<PreparedOffice>>>,
+    > = OnceLock::new();
+    M.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+fn prepare_office(doc: &Path) -> Option<std::sync::Arc<PreparedOffice>> {
+    let meta = std::fs::metadata(doc).ok()?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let key = (doc.to_path_buf(), mtime, meta.len());
+    if let Ok(map) = office_prepared_memo().lock() {
+        if let Some(p) = map.get(&key) {
+            return Some(p.clone());
+        }
+    }
+    let prepared = build_prepared_office(doc)?;
+    let arc = std::sync::Arc::new(prepared);
+    if let Ok(mut map) = office_prepared_memo().lock() {
+        if map.len() > 64 {
+            map.clear();
+        }
+        map.insert(key, arc.clone());
+    }
+    Some(arc)
+}
+
+/// Dispatch by extension into the structured parsers. Returns None for
+/// types without one (.doc/.wps) and for files with no extractable content
+/// — callers then fall back to the generic card / embedded thumbnail.
+fn build_prepared_office(doc: &Path) -> Option<PreparedOffice> {
+    let ext = doc.extension()?.to_str()?.to_lowercase();
+    match ext.as_str() {
+        "docx" => prose_from_paragraphs(docx_paragraphs(&zip_entry_string(doc, "word/document.xml")?)),
+        "odt" | "ott" => prose_from_paragraphs(odf_paragraphs(&zip_entry_string(doc, "content.xml")?)),
+        "fodt" => prose_from_paragraphs(odf_paragraphs(&read_bounded_text(doc, 4 * 1024 * 1024)?)),
+        "rtf" => prose_from_paragraphs(rtf_paragraphs(&read_bounded_text(doc, 4 * 1024 * 1024)?)),
+        "xls" | "xlsx" | "ods" | "ots" => sheets_via_calamine(doc),
+        "fods" => {
+            let rows = fods_rows(&read_bounded_text(doc, 8 * 1024 * 1024)?);
+            if rows.is_empty() {
+                return None;
+            }
+            let stem = file_stem_title(doc);
+            grid_pages(&[(stem, rows)])
+        }
+        "csv" => {
+            let rows = csv_rows_full(doc)?;
+            let stem = file_stem_title(doc);
+            grid_pages(&[(stem, rows)])
+        }
+        "odp" | "otp" => slides_from_odf(&zip_entry_string(doc, "content.xml")?),
+        "fodp" => slides_from_odf(&read_bounded_text(doc, 8 * 1024 * 1024)?),
+        _ => None,
+    }
+}
+
+fn file_stem_title(doc: &Path) -> String {
+    doc.file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Spreadsheet".into())
+}
+
+/// Read a text file capped at `max_bytes` (lossy UTF-8 — a preview must not
+/// fail on one bad byte near the cap).
+fn read_bounded_text(doc: &Path, max_bytes: u64) -> Option<String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(doc).ok()?;
+    let mut buf = Vec::new();
+    f.by_ref().take(max_bytes).read_to_end(&mut buf).ok()?;
+    Some(String::from_utf8_lossy(&buf).into_owned())
+}
+
+fn zip_entry_string(doc: &Path, name: &str) -> Option<String> {
+    let file = std::fs::File::open(doc).ok()?;
+    let mut zip = zip::ZipArchive::new(file).ok()?;
+    read_zip_text(&mut zip, name)
+}
+
+// ── Prose documents ──
+
+/// Paragraph texts from `word/document.xml` — the full document (capped only
+/// by OFFICE_MAX_PARAS; pagination needs every paragraph, not the first 30).
+fn docx_paragraphs(xml: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    for para in xml.split("</w:p>") {
+        let runs = extract_text_runs(para, "w:t");
+        if !runs.is_empty() {
+            let text = runs.join("");
+            if !text.trim().is_empty() {
+                lines.push(text);
+            }
+        }
+        if lines.len() >= OFFICE_MAX_PARAS {
+            break;
+        }
+    }
+    lines
+}
+
+/// Build paginated prose pages: first non-empty paragraph is the title, the
+/// rest is the body. All-empty input returns None (generic card instead).
+fn prose_from_paragraphs(mut paras: Vec<String>) -> Option<PreparedOffice> {
+    paras.truncate(OFFICE_MAX_PARAS);
+    paras.retain(|p| !p.trim().is_empty());
+    if paras.is_empty() {
+        return None;
+    }
+    let mut it = paras.into_iter();
+    let doc_title = it.next()?;
+    let body: Vec<String> = it.collect();
+    let pages = paginate_prose(&doc_title, &body)?;
+    if pages.is_empty() {
+        return None;
+    }
+    Some(PreparedOffice {
+        kind: OfficeKind::Document,
+        doc_title,
+        pages,
+    })
+}
+
+/// Measure-time wrap: split paragraphs into display lines and break them
+/// into pages using the same fonts/margins the renderer draws with.
+fn paginate_prose(title: &str, paras: &[String]) -> Option<Vec<OfficePage>> {
+    let (_s, cr) = new_surface(8, 8)?;
+    let content_w = DOC_PAGE_W as f64 - DOC_MARGIN * 2.0;
+    let mut pages: Vec<Vec<ProseLine>> = Vec::new();
+    let mut cur: Vec<ProseLine> = Vec::new();
+    let mut y = prose_body_top(&cr, true, title);
+    for para in paras {
+        prose_set_body_font(&cr);
+        let wrapped = wrap_lines_full(&cr, para, content_w);
+        for (i, line) in wrapped.iter().enumerate() {
+            if y + DOC_BODY_LINE > prose_body_bottom() && !cur.is_empty() {
+                pages.push(std::mem::take(&mut cur));
+                y = prose_body_top(&cr, false, title);
+            }
+            cur.push(ProseLine {
+                text: line.clone(),
+                para_end: i + 1 == wrapped.len(),
+            });
+            y += DOC_BODY_LINE;
+        }
+        y += DOC_PARA_GAP;
+    }
+    if !cur.is_empty() || pages.is_empty() {
+        pages.push(cur);
+    }
+    Some(
+        pages
+            .into_iter()
+            .enumerate()
+            .map(|(i, lines)| OfficePage {
+                caption: None,
+                body: OfficePageBody::Prose {
+                    first: i == 0,
+                    lines,
+                },
+            })
+            .collect(),
+    )
+}
+
+// ── Prose layout metrics (shared by paginator and renderer) ──
+
+fn prose_set_body_font(cr: &gtk::cairo::Context) {
+    use gtk::cairo;
+    cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+    cr.set_font_size(DOC_BODY_SIZE);
+}
+
+/// Big title block height on the first page (≤3 wrapped lines + rule).
+fn prose_title_block_h(cr: &gtk::cairo::Context, title: &str) -> f64 {
+    use gtk::cairo;
+    cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
+    cr.set_font_size(30.0);
+    let n = wrap_lines_full(cr, title, DOC_PAGE_W as f64 - DOC_MARGIN * 2.0)
+        .len()
+        .min(3)
+        .max(1);
+    (n as f64) * 38.0 + 14.0
+}
+
+/// Small header height on continuation pages.
+fn prose_header_h() -> f64 {
+    40.0
+}
+
+/// Where the body starts vertically on a page.
+fn prose_body_top(cr: &gtk::cairo::Context, first: bool, title: &str) -> f64 {
+    if first {
+        DOC_MARGIN + prose_title_block_h(cr, title)
+    } else {
+        DOC_MARGIN + prose_header_h()
+    }
+}
+
+fn prose_body_bottom() -> f64 {
+    DOC_PAGE_H as f64 - DOC_FOOTER
+}
+
+// ── ODF text extraction (ODT/FODT/ODP/OTP/FODP share this) ──
+
+/// Find the next `<text:p` / `<text:h` opening tag at or after `from`,
+/// returning its position and which element it is. The boundary check after
+/// the letter rejects look-alikes such as `<text:paragraph>` or
+/// `<text:header>`.
+fn find_odf_para_tag(xml: &str, from: usize) -> Option<(usize, char)> {
+    let mut search = from;
+    while search < xml.len() {
+        let rel = xml[search..].find("<text:")?;
+        let at = search + rel;
+        let after = at + "<text:".len();
+        let Some(ch0) = xml[after..].chars().next() else {
+            return None;
+        };
+        if matches!(ch0, 'p' | 'h') {
+            let next = xml[after + 1..].chars().next();
+            if matches!(
+                next,
+                Some('>') | Some(' ') | Some('\t') | Some('\r') | Some('\n') | Some('/')
+            ) {
+                return Some((at, ch0));
+            }
+        }
+        search = at + "<text:".len() + 1;
+    }
+    None
+}
+
+/// Paragraph texts from ODF XML (`content.xml`): `<text:p>` and `<text:h>`
+/// elements in document order, markup stripped, entities decoded.
+fn odf_paragraphs(xml: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut pos = 0;
+    while let Some((start, which)) = find_odf_para_tag(xml, pos) {
+        let Some(gt_rel) = xml[start..].find('>') else {
+            break;
+        };
+        let open_end = start + gt_rel + 1;
+        // self-closing <text:p/> carries no text
+        if open_end >= 2 && xml.as_bytes()[open_end - 2] == b'/' {
+            pos = open_end;
+            continue;
+        }
+        let close = if which == 'p' { "</text:p>" } else { "</text:h>" };
+        let Some(end_rel) = xml[open_end..].find(close) else {
+            pos = open_end;
+            continue;
+        };
+        let inner = &xml[open_end..open_end + end_rel];
+        let text = strip_odf_markup(inner);
+        if !text.trim().is_empty() {
+            out.push(text);
+            if out.len() >= OFFICE_MAX_PARAS {
+                break;
+            }
+        }
+        pos = open_end + end_rel + close.len();
+    }
+    out
+}
+
+/// Is `<tag…` an element with exactly this qualified name (no prefix match)?
+fn tag_name_is(tag: &str, name: &str) -> bool {
+    tag.strip_prefix('<')
+        .and_then(|r| r.strip_prefix(name))
+        .map_or(false, |r| {
+            r.starts_with('>')
+                || r.starts_with(' ')
+                || r.starts_with('/')
+                || r.starts_with('\t')
+                || r.starts_with('\n')
+        })
+}
+
+/// Strip ODF inline markup from one paragraph/cell: `<text:s>` runs become
+/// spaces (honouring text:c), tabs and line breaks keep their whitespace,
+/// all other tags are dropped, then XML entities are decoded.
+fn strip_odf_markup(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('<') {
+        out.push_str(&rest[..i]);
+        let Some(g) = rest[i..].find('>') else {
+            out.push_str(&rest[i..]);
+            return decode_xml_entities(&out);
+        };
+        let tag = &rest[i..i + g + 1];
+        if tag_name_is(tag, "text:s") {
+            let n = attr_value(tag, "text:c")
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(1);
+            for _ in 0..n.min(40) {
+                out.push(' ');
+            }
+        } else if tag_name_is(tag, "text:tab") {
+            out.push('\t');
+        } else if tag_name_is(tag, "text:line-break") {
+            out.push('\n');
+        }
+        rest = &rest[i + g + 1..];
+    }
+    out.push_str(rest);
+    decode_xml_entities(&out)
+}
+
+// ── RTF ──
+
+/// Paragraphs from RTF source: a control-word stripper that understands
+/// `\par`/`\line` breaks, `\tab`, `\uN` unicode, `\'hh` hex, `\bin`
+/// payloads, and skips skippable groups (font/color/style tables, pictures,
+/// metadata, and anything marked with the `\*` destination marker).
+fn rtf_paragraphs(src: &str) -> Vec<String> {
+    let ch: Vec<char> = src.chars().collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut skip: Vec<bool> = vec![false];
+    let mut i = 0usize;
+
+    macro_rules! pushc {
+        ($c:expr) => {
+            if !*skip.last().unwrap_or(&false) {
+                cur.push($c);
+            }
+        };
+    }
+    macro_rules! end_para {
+        () => {
+            if !*skip.last().unwrap_or(&false) {
+                let t = cur.trim().to_string();
+                if !t.is_empty() {
+                    out.push(t);
+                    if out.len() >= OFFICE_MAX_PARAS {
+                        return out;
+                    }
+                }
+                cur.clear();
+            }
+        };
+    }
+
+    while i < ch.len() {
+        match ch[i] {
+            '\\' => {
+                i += 1;
+                if i >= ch.len() {
+                    break;
+                }
+                match ch[i] {
+                    '\\' | '{' | '}' => {
+                        pushc!(ch[i]);
+                        i += 1;
+                    }
+                    '~' => {
+                        pushc!(' ');
+                        i += 1;
+                    }
+                    '\'' => {
+                        if i + 2 < ch.len() {
+                            let hex: String = ch[i + 1..i + 3].iter().collect();
+                            if let Ok(b) = u8::from_str_radix(&hex, 16) {
+                                pushc!(b as char); // latin-1 for the common case
+                            }
+                            i += 3;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    '*' => {
+                        // Destination marker: skip this group unless understood.
+                        if let Some(last) = skip.last_mut() {
+                            *last = true;
+                        }
+                        i += 1;
+                    }
+                    '\n' | '\r' => {
+                        i += 1; // line continuation
+                    }
+                    c if c.is_ascii_alphabetic() => {
+                        let start = i;
+                        while i < ch.len() && ch[i].is_ascii_alphabetic() {
+                            i += 1;
+                        }
+                        let word: String = ch[start..i].iter().collect();
+                        // Optional numeric parameter (may be negative).
+                        let mut param: i32 = 0;
+                        let mut has_param = false;
+                        if i < ch.len() && (ch[i] == '-' || ch[i].is_ascii_digit()) {
+                            let pstart = i;
+                            if ch[i] == '-' {
+                                i += 1;
+                            }
+                            while i < ch.len() && ch[i].is_ascii_digit() {
+                                i += 1;
+                            }
+                            if let Ok(v) = ch[pstart..i].iter().collect::<String>().parse::<i32>() {
+                                param = v;
+                                has_param = true;
+                            }
+                        }
+                        // Optional single-space delimiter.
+                        let mut consumed_delim = false;
+                        if i < ch.len() && ch[i] == ' ' {
+                            i += 1;
+                            consumed_delim = true;
+                        }
+
+                        let skipped = *skip.last().unwrap_or(&false);
+                        match word.as_str() {
+                            "par" | "line" => end_para!(),
+                            "tab" => {
+                                if !skipped {
+                                    cur.push('\t');
+                                }
+                            }
+                            "u" if has_param => {
+                                if !skipped {
+                                    let code = if param < 0 { param + 65536 } else { param };
+                                    if let Some(c) =
+                                        u32::try_from(code).ok().and_then(char::from_u32)
+                                    {
+                                        cur.push(c);
+                                    }
+                                }
+                                // The mandatory fallback character follows.
+                                if !consumed_delim && i < ch.len() && ch[i] != '\\' {
+                                    i += 1;
+                                }
+                            }
+                            "bin" if has_param && param > 0 => {
+                                i = (i + param as usize).min(ch.len());
+                            }
+                            "emdash" => pushc!('\u{2014}'),
+                            "endash" => pushc!('\u{2013}'),
+                            "bullet" => pushc!('\u{2022}'),
+                            "lquote" => pushc!('\u{2018}'),
+                            "rquote" => pushc!('\u{2019}'),
+                            "ldblquote" => pushc!('\u{201c}'),
+                            "rdblquote" => pushc!('\u{201d}'),
+                            // Known skippable destinations open a group we ignore.
+                            "fonttbl" | "colortbl" | "stylesheet" | "info" | "pict"
+                            | "themedata" | "colorscheme" | "datastore" | "listtable"
+                            | "listoverridetable" | "header" | "footer" | "headerl"
+                            | "headerr" | "footerl" | "footerr" | "headerf" | "footerf"
+                            | "generator" | "xmlnstbl" => {
+                                if let Some(last) = skip.last_mut() {
+                                    *last = true;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    c if c.is_ascii_digit() => {
+                        while i < ch.len() && ch[i].is_ascii_digit() {
+                            i += 1;
+                        }
+                    }
+                    c => {
+                        pushc!(c);
+                        i += 1;
+                    }
+                }
+            }
+            '{' => {
+                let cur_skip = *skip.last().unwrap_or(&false);
+                skip.push(cur_skip);
+                i += 1;
+            }
+            '}' => {
+                if skip.len() > 1 {
+                    skip.pop();
+                }
+                i += 1;
+            }
+            '\n' | '\r' => {
+                i += 1; // RTF source newlines are not content
+            }
+            c => {
+                pushc!(c);
+                i += 1;
+            }
+        }
+    }
+    end_para!();
+    out
+}
+
+// ── Spreadsheets ──
+
+/// All sheets of a workbook via calamine (xlsx/xls/ods/ots), prepared as
+/// row-chunk grid pages.
+fn sheets_via_calamine(doc: &Path) -> Option<PreparedOffice> {
+    use calamine::Reader;
+    let mut wb = calamine::open_workbook_auto(doc).ok()?;
+    let names = wb.sheet_names();
+    let mut sheets: Vec<(String, Vec<Vec<String>>)> = Vec::new();
+    for name in names.into_iter().take(OFFICE_MAX_SHEETS) {
+        let Ok(range) = wb.worksheet_range(&name) else {
+            continue;
+        };
+        let rows: Vec<Vec<String>> = range
+            .rows()
+            .take(OFFICE_MAX_ROWS)
+            .map(|row| {
+                let mut cells: Vec<String> = row
+                    .iter()
+                    .map(|c| crate::thumbnails::cell_value_str(c))
+                    .collect();
+                while cells.last().map(|c| c.trim().is_empty()).unwrap_or(false) {
+                    cells.pop();
+                }
+                cells.truncate(OFFICE_MAX_COLS);
+                cells
+            })
+            .collect();
+        sheets.push((name, rows));
+    }
+    if sheets.is_empty() {
+        return None;
+    }
+    grid_pages(&sheets)
+}
+
+/// Split sheets into row-chunk pages (SHEET_ROWS_PER_PAGE rows each), with
+/// the sheet name as caption ("Sheet2 · 3/7" for split sheets).
+fn grid_pages(sheets: &[(String, Vec<Vec<String>>)]) -> Option<PreparedOffice> {
+    let mut pages = Vec::new();
+    for (name, rows) in sheets {
+        let chunks: Vec<&[Vec<String>]> = if rows.is_empty() {
+            Vec::new()
+        } else {
+            rows.chunks(SHEET_ROWS_PER_PAGE).collect()
+        };
+        let parts = chunks.len();
+        if parts == 0 {
+            pages.push(OfficePage {
+                caption: Some(name.clone()),
+                body: OfficePageBody::Grid {
+                    sheet: name.clone(),
+                    rows: Vec::new(),
+                    first: true,
+                },
+            });
+            continue;
+        }
+        for (i, chunk) in chunks.into_iter().enumerate() {
+            let caption = if parts > 1 {
+                format!("{} \u{b7} {}/{}", name, i + 1, parts)
+            } else {
+                name.clone()
+            };
+            pages.push(OfficePage {
+                caption: Some(caption),
+                body: OfficePageBody::Grid {
+                    sheet: name.clone(),
+                    rows: chunk.to_vec(),
+                    first: i == 0,
+                },
+            });
+        }
+    }
+    if pages.is_empty() {
+        return None;
+    }
+    let doc_title = sheets
+        .first()
+        .map(|s| s.0.clone())
+        .unwrap_or_else(|| "Spreadsheet".into());
+    Some(PreparedOffice {
+        kind: OfficeKind::Spreadsheet,
+        doc_title,
+        pages,
+    })
+}
+
+/// Full CSV rows for pagination (the single-card extractor stays capped).
+fn csv_rows_full(doc: &Path) -> Option<Vec<Vec<String>>> {
+    let text = read_bounded_text(doc, 4 * 1024 * 1024)?;
+    let delimiter = detect_csv_delimiter(&text);
+    let mut rows = parse_delimited_rows(&text, delimiter, OFFICE_MAX_ROWS);
+    rows.retain(|row| row.iter().any(|cell| !cell.trim().is_empty()));
+    if rows.is_empty() {
+        return None;
+    }
+    for row in &mut rows {
+        for cell in row.iter_mut() {
+            *cell = cell.trim().replace('\r', "");
+        }
+        while row.last().map(|c| c.trim().is_empty()).unwrap_or(false) {
+            row.pop();
+        }
+        row.truncate(OFFICE_MAX_COLS);
+    }
+    Some(rows)
+}
+
+/// Rows of a flat ODS (fods): table rows/cells split from raw XML, markup
+/// stripped, numeric `office:value` used when a cell has no text body.
+fn fods_rows(xml: &str) -> Vec<Vec<String>> {
+    let mut rows = Vec::new();
+    for row_chunk in xml.split("</table:table-row>") {
+        let Some(i) = row_chunk.rfind("<table:table-row") else {
+            continue; // prolog before the first row
+        };
+        let row_body = &row_chunk[i..];
+        if !row_body.contains('>') {
+            continue;
+        }
+        let mut cells = Vec::new();
+        for cell_chunk in row_body.split("</table:table-cell>") {
+            let Some(ci) = cell_chunk.rfind("<table:table-cell") else {
+                continue;
+            };
+            let cell_tag_end = cell_chunk[ci..].find('>').map(|g| ci + g);
+            let Some(cell_tag_end) = cell_tag_end else {
+                continue;
+            };
+            let open_tag = &cell_chunk[ci..(cell_tag_end + 1).min(cell_chunk.len())];
+            let inner = &cell_chunk[(cell_tag_end + 1).min(cell_chunk.len())..];
+            let mut text = strip_odf_markup(inner);
+            if text.trim().is_empty() {
+                if let Some(v) = attr_value(open_tag, "office:value") {
+                    text = v;
+                }
+            }
+            cells.push(text);
+        }
+        if cells.iter().any(|c| !c.trim().is_empty()) {
+            cells.truncate(OFFICE_MAX_COLS);
+            rows.push(cells);
+        }
+        if rows.len() >= OFFICE_MAX_ROWS {
+            break;
+        }
+    }
+    rows
+}
+
+// ── ODF presentations ──
+
+/// Slide list from ODF content.xml (ODP/OTP zipped, FODP flat): one page per
+/// `<draw:page>`; first paragraph is the title, the rest are bullets.
+fn slides_from_odf(content_xml: &str) -> Option<PreparedOffice> {
+    let mut starts: Vec<usize> = Vec::new();
+    let mut scan = 0usize;
+    while let Some(rel) = content_xml[scan..].find("<draw:page") {
+        let at = scan + rel;
+        starts.push(at);
+        scan = at + "<draw:page".len();
+    }
+
+    let mut pages = Vec::new();
+    for (i, &s) in starts.iter().enumerate() {
+        let Some(gt_rel) = content_xml[s..].find('>') else {
+            break;
+        };
+        let body_start = s + gt_rel + 1;
+        let bound = starts.get(i + 1).copied().unwrap_or(content_xml.len());
+        if body_start >= bound {
+            continue; // self-closed page, no content
+        }
+        let end = content_xml[body_start..bound]
+            .find("</draw:page>")
+            .map(|r| body_start + r)
+            .unwrap_or(bound);
+        let chunk = &content_xml[body_start..end.min(bound)];
+        let paras = odf_paragraphs(chunk);
+        let mut it = paras.iter().filter(|p| !p.trim().is_empty());
+        let Some(first) = it.next() else {
+            continue; // picture-only or empty slide
+        };
+        let title = first.clone();
+        let bullets: Vec<String> = it.cloned().collect();
+        pages.push(OfficePage {
+            caption: None,
+            body: OfficePageBody::Slide { title, bullets },
+        });
+    }
+    if pages.is_empty() {
+        return None;
+    }
+    Some(PreparedOffice {
+        kind: OfficeKind::Presentation,
+        doc_title: "Presentation".into(),
+        pages,
+    })
+}
+
+/// Word-wrap `text` at `max_w` with no line cap — unlike the capped
+/// `wrap_text` for small on-screen boxes; pagination needs every line.
+/// Explicit newlines inside a paragraph become line breaks.
+fn wrap_lines_full(cr: &gtk::cairo::Context, text: &str, max_w: f64) -> Vec<String> {
+    let mut lines = Vec::new();
+    for raw in text.split('\n') {
+        let mut cur = String::new();
+        for word in raw.split_whitespace() {
+            let trial = if cur.is_empty() {
+                word.to_string()
+            } else {
+                format!("{} {}", cur, word)
+            };
+            let w = cr
+                .text_extents(&trial)
+                .map(|e| e.width())
+                .unwrap_or(0.0);
+            if w > max_w && !cur.is_empty() {
+                lines.push(std::mem::take(&mut cur));
+                cur = word.to_string();
+            } else {
+                cur = trial;
+            }
+        }
+        lines.push(cur);
+    }
+    lines
 }
 
 /// Read a named entry from the zip into a String (UTF-8, lossy).
@@ -2778,23 +3683,14 @@ fn extract_docx<R: std::io::Read + std::io::Seek>(
     zip: &mut zip::ZipArchive<R>,
 ) -> Option<OfficeContent> {
     let xml = read_zip_text(zip, "word/document.xml")?;
-    // In DOCX, paragraphs are <w:p> and text runs inside are <w:t>. To preserve
-    // paragraph breaks we split on </w:p> first, then pull the w:t runs per para.
-    let mut lines = Vec::new();
-    for para in xml.split("</w:p>") {
-        let runs = extract_text_runs(para, "w:t");
-        if !runs.is_empty() {
-            lines.push(runs.join(""));
-        }
-        if lines.len() >= 30 {
-            break;
-        }
-    }
+    // Full paragraph list (not the first 30): pagination needs every line,
+    // and the legacy single-card renderer clips at the page edge anyway.
+    let lines = docx_paragraphs(&xml);
     if lines.is_empty() {
         return None;
     }
-    let title = lines.first().cloned().unwrap_or_else(|| "Document".into());
-    let body = lines.into_iter().skip(1).take(24).collect();
+    let title = lines[0].clone();
+    let body = lines[1..].to_vec();
     Some(OfficeContent {
         kind: OfficeKind::Document,
         title,
@@ -3167,6 +4063,343 @@ fn render_spreadsheet(content: &OfficeContent) -> Option<Vec<u8>> {
     }
 
     surface_to_png(surface, cr)
+}
+
+// ── Native page renderers (prose / sheet grid / ODF slide) ──
+
+/// Render prepared page `n` (1-based; clamped) to PNG bytes.
+fn render_office_page(prep: &PreparedOffice, n: usize) -> Option<Vec<u8>> {
+    let n = clamp_page(n, prep.pages.len());
+    let page = prep.pages.get(n - 1)?;
+    match &page.body {
+        OfficePageBody::Prose { first, lines } => render_prose_page(
+            &prep.doc_title,
+            *first,
+            lines,
+            n,
+            prep.pages.len(),
+            &prep.kind,
+        ),
+        OfficePageBody::Grid { sheet, rows, first } => {
+            render_sheet_grid(rows, sheet, *first, n, prep.pages.len())
+        }
+        OfficePageBody::Slide { title, bullets } => {
+            render_odf_slide(title, bullets, n, prep.pages.len())
+        }
+    }
+}
+
+/// One A4-ish page of prose: title block on page 1, small header after,
+/// wrapped lines, folio bottom-right. Vertical positions must stay in sync
+/// with `paginate_prose` (shared prose_body_top/metrics functions).
+fn render_prose_page(
+    title: &str,
+    first: bool,
+    lines: &[ProseLine],
+    page_no: usize,
+    total: usize,
+    kind: &OfficeKind,
+) -> Option<Vec<u8>> {
+    use gtk::cairo;
+    let (surface, cr) = new_surface(DOC_PAGE_W, DOC_PAGE_H)?;
+    let wf = DOC_PAGE_W as f64;
+    let hf = DOC_PAGE_H as f64;
+    let content_w = wf - DOC_MARGIN * 2.0;
+
+    cr.set_source_rgb(1.0, 1.0, 1.0);
+    cr.paint().ok()?;
+    let (ar, ag, ab) = accent_for(kind);
+
+    if first {
+        cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
+        cr.set_font_size(30.0);
+        cr.set_source_rgb(ar, ag, ab);
+        let block_h = prose_title_block_h(&cr, title);
+        let mut ty = DOC_MARGIN + 30.0;
+        for line in wrap_lines_full(&cr, title, content_w).into_iter().take(3) {
+            cr.move_to(DOC_MARGIN, ty);
+            let _ = cr.show_text(&line);
+            ty += 38.0;
+        }
+        cr.set_source_rgba(ar, ag, ab, 0.55);
+        cr.set_line_width(2.0);
+        cr.move_to(DOC_MARGIN, DOC_MARGIN + block_h - 7.0);
+        cr.line_to(wf - DOC_MARGIN, DOC_MARGIN + block_h - 7.0);
+        cr.stroke().ok()?;
+    } else {
+        cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+        cr.set_font_size(13.0);
+        cr.set_source_rgb(0.45, 0.45, 0.48);
+        let shown = truncate_to_width(&cr, title, content_w);
+        cr.move_to(DOC_MARGIN, DOC_MARGIN + 16.0);
+        let _ = cr.show_text(&shown);
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.18);
+        cr.set_line_width(1.0);
+        cr.move_to(DOC_MARGIN, DOC_MARGIN + 30.0);
+        cr.line_to(wf - DOC_MARGIN, DOC_MARGIN + 30.0);
+        cr.stroke().ok()?;
+    }
+
+    let mut y = prose_body_top(&cr, first, title);
+    prose_set_body_font(&cr);
+    cr.set_source_rgb(0.18, 0.18, 0.20);
+    for line in lines {
+        if y > prose_body_bottom() {
+            break;
+        }
+        cr.move_to(DOC_MARGIN, y + 15.0);
+        let _ = cr.show_text(&line.text);
+        y += DOC_BODY_LINE;
+        if line.para_end {
+            y += DOC_PARA_GAP;
+        }
+    }
+
+    draw_folio(&cr, page_no, total, wf - DOC_MARGIN, hf - 24.0);
+
+    cr.set_source_rgb(0.88, 0.88, 0.90);
+    cr.set_line_width(1.0);
+    cr.rectangle(0.5, 0.5, wf - 1.0, hf - 1.0);
+    cr.stroke().ok()?;
+
+    surface_to_png(surface, cr)
+}
+
+/// One page of spreadsheet rows: header bands, grid, sheet tab (real sheet
+/// name), folio. Row count fits SHEET_ROWS_PER_PAGE by construction.
+fn render_sheet_grid(
+    rows: &[Vec<String>],
+    sheet: &str,
+    first_of_sheet: bool,
+    page_no: usize,
+    total: usize,
+) -> Option<Vec<u8>> {
+    use gtk::cairo;
+    let (surface, cr) = new_surface(DOC_PAGE_W, DOC_PAGE_H)?;
+    let wf = DOC_PAGE_W as f64;
+    let hf = DOC_PAGE_H as f64;
+
+    cr.set_source_rgb(1.0, 1.0, 1.0);
+    cr.paint().ok()?;
+
+    let ncols = rows
+        .iter()
+        .map(|r| r.len())
+        .max()
+        .unwrap_or(6)
+        .clamp(1, OFFICE_MAX_COLS);
+    let row_header_w = 46.0;
+    let col_header_h = 30.0;
+    // Row height pairs with SHEET_ROWS_PER_PAGE to fit the canvas.
+    let row_h = (hf - col_header_h - 44.0) / SHEET_ROWS_PER_PAGE as f64;
+    let table_w = wf - row_header_w - 1.0;
+    let col_w = table_w / ncols as f64;
+    // Rows fill down to hf-44 (row_h divides exactly that span); leave a
+    // little slack so float rounding can't clip the last row.
+    let table_bottom = hf - 40.0;
+
+    cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+
+    // Header bands.
+    cr.set_source_rgb(0.91, 0.92, 0.93);
+    cr.rectangle(0.0, 0.0, wf, col_header_h);
+    cr.fill().ok()?;
+    cr.rectangle(0.0, col_header_h, row_header_w, hf - col_header_h);
+    cr.fill().ok()?;
+    cr.set_source_rgb(0.74, 0.75, 0.77);
+    cr.set_line_width(1.0);
+    cr.move_to(0.0, col_header_h + 0.5);
+    cr.line_to(wf, col_header_h + 0.5);
+    cr.stroke().ok()?;
+    cr.move_to(row_header_w + 0.5, 0.0);
+    cr.line_to(row_header_w + 0.5, hf);
+    cr.stroke().ok()?;
+
+    // Column letters.
+    cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
+    cr.set_font_size(11.5);
+    cr.set_source_rgb(0.28, 0.29, 0.31);
+    for ci in 0..ncols {
+        let cx = row_header_w + ci as f64 * col_w;
+        let letter = ((b'A' + ci as u8) as char).to_string();
+        let tw = cr
+            .text_extents(&letter)
+            .map(|e| e.width())
+            .unwrap_or(0.0);
+        cr.move_to(cx + (col_w - tw) / 2.0, 20.0);
+        let _ = cr.show_text(&letter);
+    }
+
+    // Rows.
+    let mut y = col_header_h;
+    for (ri, row) in rows.iter().enumerate() {
+        if y + row_h > table_bottom {
+            break;
+        }
+        cr.set_source_rgb(0.91, 0.92, 0.93);
+        cr.rectangle(0.0, y, row_header_w, row_h);
+        cr.fill().ok()?;
+        cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+        cr.set_font_size(10.5);
+        cr.set_source_rgb(0.38, 0.39, 0.41);
+        let row_num = (ri + 1).to_string();
+        let tw = cr.text_extents(&row_num).map(|e| e.width()).unwrap_or(0.0);
+        cr.move_to(row_header_w - tw - 7.0, y + 19.5);
+        let _ = cr.show_text(&row_num);
+        // Only the sheet's REAL header row (row 0 of its first page) gets
+        // the bold green header styling — continuation pages are all data.
+        if first_of_sheet && ri == 0 {
+            cr.set_source_rgb(0.55, 0.82, 0.30);
+        } else if ri % 2 == 0 {
+            cr.set_source_rgb(0.86, 0.92, 0.98);
+        } else {
+            cr.set_source_rgb(0.88, 0.95, 0.83);
+        }
+        cr.rectangle(row_header_w, y, table_w, row_h);
+        cr.fill().ok()?;
+        for ci in 0..ncols {
+            let cx = row_header_w + ci as f64 * col_w;
+            let cell = row.get(ci).map(|s| s.as_str()).unwrap_or("");
+            if first_of_sheet && ri == 0 {
+                cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
+                cr.set_source_rgb(0.0, 0.0, 0.0);
+            } else {
+                cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+                cr.set_source_rgb(0.15, 0.15, 0.17);
+            }
+            cr.set_font_size(12.0);
+            let shown = truncate_to_width(&cr, cell, col_w - 10.0);
+            cr.move_to(cx + 5.0, y + 19.5);
+            let _ = cr.show_text(&shown);
+        }
+        y += row_h;
+    }
+
+    // Grid lines.
+    cr.set_source_rgba(0.0, 0.0, 0.0, 0.18);
+    cr.set_line_width(1.0);
+    for ci in 0..=ncols {
+        let cx = row_header_w + ci as f64 * col_w;
+        cr.move_to(cx + 0.5, 0.0);
+        cr.line_to(cx + 0.5, y);
+        cr.stroke().ok()?;
+    }
+    let mut gy = col_header_h;
+    while gy < y {
+        cr.move_to(0.0, gy + 0.5);
+        cr.line_to(wf, gy + 0.5);
+        cr.stroke().ok()?;
+        gy += row_h;
+    }
+    if y > col_header_h && first_of_sheet {
+        cr.set_source_rgba(0.0, 0.0, 0.0, 0.70);
+        cr.set_line_width(1.2);
+        cr.rectangle(row_header_w + 0.5, col_header_h + 0.5, table_w - 1.0, row_h - 1.0);
+        cr.stroke().ok()?;
+    }
+
+    // Sheet tab (real sheet name) bottom-left + folio bottom-right.
+    let tab_y = hf - 36.0;
+    cr.set_source_rgb(0.95, 0.96, 0.97);
+    cr.rectangle(8.0, tab_y, 180.0, 24.0);
+    cr.fill().ok()?;
+    cr.set_source_rgba(0.0, 0.0, 0.0, 0.16);
+    cr.set_line_width(1.0);
+    cr.rectangle(8.5, tab_y + 0.5, 179.0, 23.0);
+    cr.stroke().ok()?;
+    cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
+    cr.set_font_size(11.5);
+    cr.set_source_rgb(0.18, 0.47, 0.27);
+    let shown = truncate_to_width(&cr, sheet, 164.0);
+    cr.move_to(20.0, tab_y + 16.5);
+    let _ = cr.show_text(&shown);
+
+    draw_folio(&cr, page_no, total, wf - 24.0, tab_y + 16.5);
+
+    cr.set_source_rgb(0.88, 0.88, 0.90);
+    cr.set_line_width(1.0);
+    cr.rectangle(0.5, 0.5, wf - 1.0, hf - 1.0);
+    cr.stroke().ok()?;
+
+    surface_to_png(surface, cr)
+}
+
+/// One ODF presentation slide: title band, accent rule, bullet body —
+/// same fidelity class as the legacy .ppt renderer (title + bullets).
+fn render_odf_slide(title: &str, bullets: &[String], page_no: usize, total: usize) -> Option<Vec<u8>> {
+    use gtk::cairo;
+    const W: i32 = 1280;
+    const H: i32 = 960;
+    let (surface, cr) = new_surface(W, H)?;
+    let wf = W as f64;
+    let hf = H as f64;
+
+    cr.set_source_rgb(1.0, 1.0, 1.0);
+    cr.paint().ok()?;
+    let (ar, ag, ab) = accent_for(&OfficeKind::Presentation);
+
+    cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
+    cr.set_font_size(44.0);
+    cr.set_source_rgb(ar, ag, ab);
+    let mut ty = 108.0;
+    for line in wrap_lines_full(&cr, title, wf - 140.0).into_iter().take(2) {
+        cr.move_to(64.0, ty);
+        let _ = cr.show_text(&line);
+        ty += 56.0;
+    }
+    cr.set_source_rgba(ar, ag, ab, 0.55);
+    cr.set_line_width(3.0);
+    cr.move_to(64.0, ty + 4.0);
+    cr.line_to(wf - 64.0, ty + 4.0);
+    cr.stroke().ok()?;
+
+    let mut y = ty + 76.0;
+    for bullet in bullets.iter().take(12) {
+        if y > hf - 60.0 {
+            break;
+        }
+        y = draw_odf_bullet(&cr, bullet, 84.0, y, wf - 180.0);
+    }
+
+    draw_folio(&cr, page_no, total, wf - 64.0, hf - 32.0);
+
+    cr.set_source_rgb(0.85, 0.85, 0.87);
+    cr.set_line_width(1.0);
+    cr.rectangle(0.5, 0.5, wf - 1.0, hf - 1.0);
+    cr.stroke().ok()?;
+
+    surface_to_png(surface, cr)
+}
+
+/// Bullet with accent square marker; returns the y for the next bullet.
+fn draw_odf_bullet(cr: &gtk::cairo::Context, text: &str, x: f64, y: f64, max_w: f64) -> f64 {
+    use gtk::cairo;
+    let (ar, ag, ab) = accent_for(&OfficeKind::Presentation);
+    cr.set_source_rgb(ar, ag, ab);
+    cr.rectangle(x, y - 15.0, 8.0, 8.0);
+    let _ = cr.fill();
+    cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+    cr.set_font_size(23.0);
+    cr.set_source_rgb(0.10, 0.10, 0.12);
+    let mut out_y = y;
+    for line in wrap_lines_full(cr, text, max_w - 24.0) {
+        cr.move_to(x + 24.0, out_y);
+        let _ = cr.show_text(&line);
+        out_y += 34.0;
+    }
+    out_y + 12.0
+}
+
+/// Small gray "n / total" bottom-right folio on rendered office pages.
+fn draw_folio(cr: &gtk::cairo::Context, page_no: usize, total: usize, right_x: f64, baseline: f64) {
+    use gtk::cairo;
+    cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+    cr.set_font_size(11.0);
+    cr.set_source_rgb(0.55, 0.55, 0.58);
+    let folio = format!("{}/{}", page_no, total);
+    let tw = cr.text_extents(&folio).map(|e| e.width()).unwrap_or(0.0);
+    cr.move_to(right_x - tw, baseline);
+    let _ = cr.show_text(&folio);
 }
 
 /// Accent color per document kind (PowerPoint orange / Word blue / Excel green).
@@ -8377,5 +9610,495 @@ accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
             fs::write(format!("{}/slide-{}.png", out, slide), &png).unwrap();
         }
         println!("rendered {n} slides to {out}");
+    }
+
+    // ── Office page preparation (prose / sheets / ODF slides) ──
+
+    /// Zip container with an arbitrary name/extension (docx/odt/odp/…).
+    fn write_zip(path: &std::path::Path, parts: &[(String, Vec<u8>)]) {
+        let f = fs::File::create(path).unwrap();
+        let mut w = zip::ZipWriter::new(f);
+        for (n, data) in parts {
+            w.start_file(n.as_str(), zip::write::FileOptions::default()).unwrap();
+            w.write_all(data).unwrap();
+        }
+        w.finish().unwrap();
+    }
+
+    fn zip_fixture(name: &str, file_name: &str, parts: &[(String, Vec<u8>)]) -> std::path::PathBuf {
+        let d = td(name);
+        let path = d.join(file_name);
+        write_zip(&path, parts);
+        path
+    }
+
+    fn long_paras(n: usize) -> Vec<String> {
+        (0..n)
+            .map(|i| {
+                format!(
+                    "Paragraph {i}: the quick brown fox jumps over the lazy dog while the \
+                     indexer walks the whole home directory looking for files to rank."
+                )
+            })
+            .collect()
+    }
+
+    fn docx_parts(paras: &[String]) -> Vec<(String, Vec<u8>)> {
+        let mut xml = String::from(
+            "<?xml version=\"1.0\"?><w:document xmlns:w=\"x\"><w:body>",
+        );
+        for p in paras {
+            xml.push_str(&format!("<w:p><w:r><w:t>{}</w:t></w:r></w:p>", p));
+        }
+        xml.push_str("</w:body></w:document>");
+        vec![("word/document.xml".into(), xml.into_bytes())]
+    }
+
+    /// ODT content.xml from raw `<text:p>`/`<text:h>` segments.
+    fn odt_parts(segments: &[String]) -> Vec<(String, Vec<u8>)> {
+        let xml = format!(
+            "<?xml version=\"1.0\"?><office:document-content><office:body><text:body>{}</text:body></office:body></office:document-content>",
+            segments.join("")
+        );
+        vec![("content.xml".into(), xml.into_bytes())]
+    }
+
+    /// ODP content.xml: one `<draw:page>` per (title, bullets) slide.
+    fn odp_parts(slides: &[(&str, &[&str])]) -> Vec<(String, Vec<u8>)> {
+        let mut xml = String::from(
+            "<?xml version=\"1.0\"?><office:document-content><office:body>",
+        );
+        for (title, bullets) in slides {
+            xml.push_str(
+                "<draw:page draw:name=\"p\"><draw:frame presentation:class=\"title\"><text:p>",
+            );
+            xml.push_str(title);
+            xml.push_str("</text:p></draw:frame><draw:frame presentation:class=\"body\">");
+            for b in bullets.iter() {
+                xml.push_str(&format!("<text:p>{}</text:p>", b));
+            }
+            xml.push_str("</draw:frame></draw:page>");
+        }
+        xml.push_str("</office:body></office:document-content>");
+        vec![("content.xml".into(), xml.into_bytes())]
+    }
+
+    /// Minimal OPC xlsx with inline-string cells: sheets in order.
+    fn xlsx_parts(sheets: &[(&str, Vec<Vec<String>>)]) -> Vec<(String, Vec<u8>)> {
+        let mut parts: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut ct = String::from(
+            "<?xml version=\"1.0\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/><Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>",
+        );
+        let mut wb = String::from(
+            "<?xml version=\"1.0\"?><workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets>",
+        );
+        let mut rels = String::from(
+            "<?xml version=\"1.0\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">",
+        );
+        for (i, (name, rows)) in sheets.iter().enumerate() {
+            let n = i + 1;
+            ct.push_str(&format!(
+                "<Override PartName=\"/xl/worksheets/sheet{n}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
+            ));
+            wb.push_str(&format!(
+                "<sheet name=\"{}\" sheetId=\"{n}\" r:id=\"rId{n}\"/>",
+                name
+            ));
+            rels.push_str(&format!(
+                "<Relationship Id=\"rId{n}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet{n}.xml\"/>"
+            ));
+            let mut sheet = String::from(
+                "<?xml version=\"1.0\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>",
+            );
+            for (ri, row) in rows.iter().enumerate() {
+                sheet.push_str(&format!("<row r=\"{}\">", ri + 1));
+                for (ci, cell) in row.iter().enumerate() {
+                    let col = (b'A' + ci as u8) as char;
+                    sheet.push_str(&format!(
+                        "<c r=\"{col}{}\" t=\"inlineStr\"><is><t>{}</t></is></c>",
+                        ri + 1,
+                        cell
+                    ));
+                }
+                sheet.push_str("</row>");
+            }
+            sheet.push_str("</sheetData></worksheet>");
+            parts.push((format!("xl/worksheets/sheet{n}.xml"), sheet.into_bytes()));
+        }
+        ct.push_str("</Types>");
+        rels.push_str("</Relationships>");
+        wb.push_str("</sheets></workbook>");
+        parts.push(("[Content_Types].xml".into(), ct.into_bytes()));
+        parts.push((
+            "_rels/.rels".into(),
+            br#"<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#
+                .to_vec(),
+        ));
+        parts.push(("xl/workbook.xml".into(), wb.into_bytes()));
+        parts.push(("xl/_rels/workbook.xml.rels".into(), rels.into_bytes()));
+        parts
+    }
+
+    fn rm_office_cache(doc: &std::path::Path, n_pages: usize) {
+        for n in 1..=n_pages.max(1) {
+            let _ = fs::remove_file(office_page_cache_path(doc, n));
+        }
+    }
+
+    #[test]
+    fn office_docx_paginates_and_compute_reports_pages() {
+        let paras = long_paras(100);
+        let path = zip_fixture("office_docx", "report.docx", &docx_parts(&paras));
+
+        let prep = prepare_office(&path).expect("docx prepares");
+        assert!(prep.pages.len() >= 4, "paginates: {} pages", prep.pages.len());
+        assert!(matches!(
+            prep.pages[0].body,
+            OfficePageBody::Prose { first: true, .. }
+        ));
+        assert!(matches!(
+            prep.pages[1].body,
+            OfficePageBody::Prose { first: false, .. }
+        ));
+        // Re-preparation (fresh process / memo eviction) is deterministic.
+        let again = build_prepared_office(&path).expect("re-prepares");
+        assert_eq!(again.pages.len(), prep.pages.len());
+        let total = prep.pages.len();
+        for n in 1..=total {
+            let png = render_office_page(&prep, n).expect("render page");
+            assert!(png.starts_with(b"\x89PNG"), "page {n} is a PNG");
+        }
+
+        // The preview pane reports total pages + page 1 for the nav bar.
+        match compute_preview(&path) {
+            PreviewPayload::Image { total_pages, page, .. } => {
+                assert_eq!(page, Some(1));
+                assert_eq!(total_pages, Some(total));
+            }
+            _ => panic!("expected Image payload for paginated docx"),
+        }
+        // Contentless files stay on the generic card (no placeholder page).
+        assert!(office_page_caption(&path, 1).is_none());
+
+        rm_office_cache(&path, total);
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn office_odt_and_flat_odt_text() {
+        let segs = vec![
+            "<text:h>Chapter One</text:h>".to_string(),
+            "<text:p>Hello <text:span class=\"T1\">world</text:span> &amp; more</text:p>"
+                .to_string(),
+            "<text:p/>".to_string(),
+            "<text:p>Second paragraph.</text:p>".to_string(),
+        ];
+        let odt = zip_fixture("office_odt", "notes.odt", &odt_parts(&segs));
+        let prep = prepare_office(&odt).expect("odt prepares");
+        assert_eq!(prep.pages.len(), 1);
+        assert_eq!(prep.doc_title, "Chapter One");
+        match &prep.pages[0].body {
+            OfficePageBody::Prose { lines, .. } => {
+                let joined: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+                assert!(joined.contains(&"Hello world & more"), "{joined:?}");
+                assert!(joined.contains(&"Second paragraph."), "{joined:?}");
+            }
+            other => panic!("expected Prose, got {other:?}"),
+        }
+
+        // Flat ODT (.fodt) parses through the same scanner.
+        let flat = td("office_fodt").join("flat.fodt");
+        fs::write(&flat, &odt_parts(&segs)[0].1).unwrap();
+        let prep2 = prepare_office(&flat).expect("fodt prepares");
+        assert_eq!(prep2.doc_title, "Chapter One");
+
+        rm_office_cache(&odt, 1);
+        rm_office_cache(&flat, 1);
+        let _ = fs::remove_dir_all(odt.parent().unwrap());
+        let _ = fs::remove_dir_all(flat.parent().unwrap());
+    }
+
+    #[test]
+    fn office_rtf_extracts_body_skipping_tables() {
+        let d = td("office_rtf");
+        let p = d.join("letter.rtf");
+        fs::write(
+            &p,
+            r"{\rtf1\ansi\deff0{\fonttbl{\f0\fswiss Helvetica;}}{\colortbl;\red255\green0\blue0;}{\info{\title Quarterly Report}}\f0\fs24 First paragraph of the report.\par Second paragraph with a {\b bold} word and an emdash \emdash here.\par Third paragraph closing the document.}",
+        )
+        .unwrap();
+
+        let prep = prepare_office(&p).expect("rtf prepares");
+        assert_eq!(prep.doc_title, "First paragraph of the report.");
+        match &prep.pages[0].body {
+            OfficePageBody::Prose { lines, .. } => {
+                let joined: Vec<&str> = lines.iter().map(|l| l.text.as_str()).collect();
+                let all = joined.join("\n");
+                assert!(all.contains("bold word"), "{all}");
+                assert!(all.contains('\u{2014}'), "emdash decoded: {all}");
+                assert!(
+                    !all.contains("Helvetica") && !all.contains("Quarterly"),
+                    "font table / metadata skipped: {all}"
+                );
+            }
+            other => panic!("expected Prose, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn office_xlsx_sheet_pages_and_captions() {
+        let rows1: Vec<Vec<String>> = (0..35)
+            .map(|r| vec![format!("Item {r}"), (r * 3).to_string()])
+            .collect();
+        let rows2: Vec<Vec<String>> = (0..20)
+            .map(|r| vec![format!("Stat {r}"), format!("{r}.5")])
+            .collect();
+        let path = zip_fixture(
+            "office_xlsx",
+            "book.xlsx",
+            &xlsx_parts(&[("Data", rows1), ("Stats", rows2)]),
+        );
+
+        let prep = prepare_office(&path).expect("xlsx prepares");
+        // 35 rows → 2 chunks of 30+5, 20 rows → 1 chunk: 3 workbook pages.
+        assert_eq!(prep.pages.len(), 3);
+        let caps: Vec<Option<String>> = prep
+            .pages
+            .iter()
+            .map(|p| p.caption.clone())
+            .collect();
+        assert_eq!(
+            caps,
+            vec![
+                Some("Data \u{b7} 1/2".to_string()),
+                Some("Data \u{b7} 2/2".to_string()),
+                Some("Stats".to_string()),
+            ]
+        );
+        match &prep.pages[0].body {
+            OfficePageBody::Grid { sheet, rows, .. } => {
+                assert_eq!(sheet, "Data");
+                assert_eq!(rows.len(), 30);
+                assert_eq!(rows[0][0], "Item 0");
+            }
+            other => panic!("expected Grid, got {other:?}"),
+        }
+
+        // Shared resolver renders sheet pages on demand; caption helper too.
+        let png = resolve_page_png(&path, 2).expect("sheet page 2 resolves");
+        assert!(sane_png_file(&png));
+        assert_eq!(resolve_page_png(&path, 2).as_deref(), Some(png.as_path()));
+        assert_eq!(
+            office_page_caption(&path, 2).as_deref(),
+            Some("Data \u{b7} 2/2")
+        );
+
+        rm_office_cache(&path, 3);
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn office_odp_text_slides_resolve_pages() {
+        let path = zip_fixture(
+            "office_odp",
+            "deck.odp",
+            &odp_parts(&[
+                ("Title One", &["Bullet A", "Bullet B"]),
+                ("Title Two", &["Only bullet"]),
+                ("Title Three", &[]),
+            ]),
+        );
+
+        let prep = prepare_office(&path).expect("odp prepares");
+        assert_eq!(office_page_count(&path), Some(3));
+        match &prep.pages[0].body {
+            OfficePageBody::Slide { title, bullets } => {
+                assert_eq!(title, "Title One");
+                assert_eq!(bullets, &["Bullet A".to_string(), "Bullet B".to_string()]);
+            }
+            other => panic!("expected Slide, got {other:?}"),
+        }
+        match &prep.pages[1].body {
+            OfficePageBody::Slide { title, .. } => assert_eq!(title, "Title Two"),
+            other => panic!("expected Slide, got {other:?}"),
+        }
+        for n in 1..=3 {
+            let png = render_office_page(&prep, n).expect("render slide");
+            assert!(png.starts_with(b"\x89PNG"));
+        }
+
+        // The shared page resolver walks ODP like pptx/PDF.
+        let png2 = resolve_page_png(&path, 2).expect("odp page 2 resolves");
+        assert!(sane_png_file(&png2));
+        assert_eq!(resolve_page_png(&path, 2).as_deref(), Some(png2.as_path()));
+
+        rm_office_cache(&path, 3);
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn office_csv_and_fods_grid_pages() {
+        // 70 CSV rows → 3 pages of 30/30/10.
+        let d = td("office_csv");
+        let csv = d.join("data.csv");
+        let mut text = String::from("name,value\n");
+        for i in 0..69 {
+            text.push_str(&format!("row{i},{}\n", i * 7));
+        }
+        fs::write(&csv, &text).unwrap();
+        let prep = prepare_office(&csv).expect("csv prepares");
+        assert_eq!(prep.pages.len(), 3, "70 rows chunk into 3 pages");
+        assert_eq!(
+            office_page_caption(&csv, 3).as_deref(),
+            Some("data \u{b7} 3/3")
+        );
+        match &prep.pages[2].body {
+            OfficePageBody::Grid { rows, .. } => assert_eq!(rows.len(), 10),
+            other => panic!("expected Grid, got {other:?}"),
+        }
+
+        // Flat ODS (.fods): rows/cells split from raw XML.
+        let fods = td("office_fods").join("table.fods");
+        fs::write(
+            &fods,
+            r#"<?xml version="1.0"?><office:document><office:body><table:table table:name="S1"><table:table-row><table:table-cell office:value="42"><text:p>42</text:p></table:table-cell><table:table-cell><text:p>Name</text:p></table:table-cell></table:table-row><table:table-row><table:table-cell><text:p>Beta</text:p></table:table-cell></table:table-row><table:table-row><table:table-cell><text:p>Gamma</text:p></table:table-cell></table:table-row></table:table></office:body></office:document>"#,
+        )
+        .unwrap();
+        let prep2 = prepare_office(&fods).expect("fods prepares");
+        assert_eq!(prep2.pages.len(), 1);
+        match &prep2.pages[0].body {
+            OfficePageBody::Grid { rows, .. } => {
+                assert_eq!(rows.len(), 3);
+                assert_eq!(rows[0][0], "42");
+                assert_eq!(rows[1][0], "Beta");
+            }
+            other => panic!("expected Grid, got {other:?}"),
+        }
+
+        rm_office_cache(&csv, 3);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn office_empty_and_unparsed_files_stay_cards() {
+        // 0-byte file: no prepared pages → generic info card path (None).
+        let d = td("office_empty");
+        let zero = d.join("zero.docx");
+        fs::write(&zero, b"").unwrap();
+        assert!(prepare_office(&zero).is_none());
+        assert!(office_page_count(&zero).is_none());
+
+        // Structurally empty ODT: parses, but nothing to lay out.
+        let empty = zip_fixture("office_empty_odt", "empty.odt", &odt_parts(&[]));
+        assert!(prepare_office(&empty).is_none());
+
+        // .doc has no structured parser: stays on the single strings card.
+        let docd = td("office_doc_legacy");
+        let doc = docd.join("old.doc");
+        fs::write(&doc, b"\xd0\xcf\x11\xe0 some legacy bytes").unwrap();
+        assert!(prepare_office(&doc).is_none());
+
+        let _ = fs::remove_dir_all(&d);
+        let _ = fs::remove_dir_all(empty.parent().unwrap());
+        let _ = fs::remove_dir_all(&docd);
+    }
+
+    // ── QA harness (env-gated, like pptx_qa) ──
+
+    /// Build every office fixture into SPOTTY_QA_FIXTURES_OUT for visual QA:
+    ///   SPOTTY_QA_FIXTURES_OUT=/tmp/opencode/office_fixtures cargo test office_qa_build -- --nocapture
+    #[test]
+    fn office_qa_build_fixtures() {
+        let Ok(out) = std::env::var("SPOTTY_QA_FIXTURES_OUT") else {
+            return;
+        };
+        let out = std::path::PathBuf::from(&out);
+        fs::create_dir_all(&out).unwrap();
+
+        write_zip(&out.join("long-report.docx"), &docx_parts(&long_paras(100)));
+        write_zip(
+            &out.join("notes.odt"),
+            &odt_parts(&[
+                "<text:h>Chapter One</text:h>".to_string(),
+                "<text:p>These are the meeting notes for the quarterly review, kept as plain paragraphs that wrap across the A4 page width to exercise the paginator.</text:p>".to_string(),
+                "<text:p>The indexer should pick this file up without any external converter.</text:p>".to_string(),
+            ]),
+        );
+        fs::write(
+            out.join("flat.fodt"),
+            &odt_parts(&[
+                "<text:h>Flat Document</text:h>".to_string(),
+                "<text:p>Same text, flat ODF container, no zip.</text:p>".to_string(),
+            ])[0]
+                .1,
+        )
+        .unwrap();
+        fs::write(
+            out.join("letter.rtf"),
+            r"{\rtf1\ansi\deff0{\fonttbl{\f0\fswiss Helvetica;}}{\info{\title Meta}}\f0\fs24 Dear colleague,\par This letter has several paragraphs so the RTF extractor proves it can paginate a real body of text.\par Regards,\par The Spotty Team}",
+        )
+        .unwrap();
+
+        let rows1: Vec<Vec<String>> = (0..64)
+            .map(|r| vec![format!("Item {r}"), (r * 3).to_string(), format!("v{r}")])
+            .collect();
+        let rows2: Vec<Vec<String>> = (0..20)
+            .map(|r| vec![format!("Stat {r}"), format!("{r}.5")])
+            .collect();
+        write_zip(
+            &out.join("book.xlsx"),
+            &xlsx_parts(&[("Data", rows1), ("Stats", rows2)]),
+        );
+
+        write_zip(
+            &out.join("deck.odp"),
+            &odp_parts(&[
+                ("Overview", &["First point", "Second point", "Third point"]),
+                ("Architecture", &["Single GTK thread", "Background indexer", "futures, not tokio"]),
+                ("Roadmap", &["Ship the overview", "Wire row thumbnails"]),
+            ]),
+        );
+
+        let mut csv = String::from("name,value\n");
+        for i in 0..69 {
+            csv.push_str(&format!("row{i},{}\n", i * 7));
+        }
+        fs::write(out.join("data.csv"), csv).unwrap();
+        fs::write(
+            out.join("table.fods"),
+            r#"<?xml version="1.0"?><office:document><office:body><table:table table:name="S1"><table:table-row><table:table-cell office:value="42"><text:p>42</text:p></table:table-cell><table:table-cell><text:p>Name</text:p></table:table-cell></table:table-row><table:table-row><table:table-cell><text:p>Beta</text:p></table:table-cell></table:table-row><table:table-row><table:table-cell><text:p>Gamma</text:p></table:table-cell></table:table-row></table:table></office:body></office:document>"#,
+        )
+        .unwrap();
+
+        println!("office fixtures written to {out:?}");
+    }
+
+    /// Render EVERY native page of one office document as PNGs:
+    ///   SPOTTY_QA_DOC=/path/file.xlsx SPOTTY_QA_OUT=/tmp/opencode/office_qa cargo test office_qa_render -- --nocapture
+    #[test]
+    fn office_qa_render_all_pages() {
+        let Ok(src) = std::env::var("SPOTTY_QA_DOC") else {
+            return;
+        };
+        let Ok(out) = std::env::var("SPOTTY_QA_OUT") else {
+            panic!("set SPOTTY_QA_OUT together with SPOTTY_QA_DOC");
+        };
+        let doc = std::path::Path::new(&src);
+        let prep = prepare_office(doc).unwrap_or_else(|| panic!("no prepared pages for {src}"));
+        fs::create_dir_all(&out).unwrap();
+        for n in 1..=prep.pages.len() {
+            let png = render_office_page(&prep, n).unwrap_or_else(|| panic!("render page {n}"));
+            fs::write(
+                std::path::Path::new(&out).join(format!("page-{n:03}.png")),
+                &png,
+            )
+            .unwrap();
+        }
+        println!(
+            "{} pages rendered to {out} — caption(1) = {:?}",
+            prep.pages.len(),
+            office_page_caption(doc, 1)
+        );
     }
 }

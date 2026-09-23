@@ -45,6 +45,16 @@ fn memo() -> &'static Mutex<HashMap<CacheKey, ThumbSlot>> {
 
 // ── public API ──────────────────────────────────────────────────────
 
+/// Document extensions whose result rows get a generated overview
+/// thumbnail (rendered page/slide/grid or embedded preview). Images and
+/// everything else keep their normal icons.
+const ROW_THUMB_EXTS: &[&str] = &[
+    "pdf",
+    "pptx", "ppsx", "pps", "ppt", "odp", "otp", "fodp",
+    "docx", "doc", "odt", "ott", "fodt", "rtf", "wps",
+    "xlsx", "xls", "ods", "ots", "fods", "csv",
+];
+
 /// Request a thumbnail for `path` into `icon`. Fast-path: if cached, swap
 /// the icon synchronously (stat + in-memory memo); otherwise spawn a worker.
 pub fn request(icon: &gtk::Image, path: &Path) {
@@ -53,7 +63,7 @@ pub fn request(icon: &gtk::Image, path: &Path) {
         .and_then(|s| s.to_str())
         .map(|s| s.to_ascii_lowercase())
         .unwrap_or_default();
-    if !matches!(ext.as_str(), "pptx" | "ppsx" | "pps" | "odp" | "xlsx" | "ods" | "csv") {
+    if !ROW_THUMB_EXTS.contains(&ext.as_str()) {
         return;
     }
     let meta = match std::fs::metadata(path) {
@@ -136,6 +146,19 @@ pub fn thumbnail_for(path: &Path) -> Option<PathBuf> {
         .and_then(|s| s.to_str())
         .map(|s| s.to_ascii_lowercase())
         .unwrap_or_default();
+    // PDF pages and office page-1/card previews come back as full-size
+    // files — compute, then downscale into the row cache.
+    match ext.as_str() {
+        "pdf" => {
+            return reuse_full_preview(crate::preview::pdf_thumbnail(path), &cache_path);
+        }
+        "doc" | "docx" | "odt" | "ott" | "fodt" | "rtf" | "wps" | "ppt" | "otp"
+        | "ots" | "fods" | "xls" => {
+            return reuse_full_preview(crate::preview::office_thumbnail(path), &cache_path);
+        }
+        _ => {}
+    }
+
     let png = match ext.as_str() {
         "pptx" | "ppsx" | "pps" | "odp" => {
             tier1_embedded_thumbnail(path).or_else(|| render_pptx_card(path))
@@ -392,7 +415,18 @@ fn render_xlsx_grid(path: &Path) -> Option<Vec<u8>> {
     crate::preview::surface_to_png(surface, cr)
 }
 
-fn cell_value_str(v: &calamine::Data) -> String {
+/// Downscale a full-size preview PNG into the row cache (or hand back the
+/// original path when downscaling isn't possible).
+fn reuse_full_preview(src: Option<PathBuf>, cache: &Path) -> Option<PathBuf> {
+    let src = src?;
+    if !src.exists() {
+        return None;
+    }
+    Some(downscale_slide_icon(&src, cache).unwrap_or(src))
+}
+
+/// Format one spreadsheet cell for display (shared with preview.rs).
+pub(crate) fn cell_value_str(v: &calamine::Data) -> String {
     match v {
         calamine::Data::Empty => String::new(),
         calamine::Data::Bool(b) => b.to_string(),
@@ -582,6 +616,47 @@ mod tests {
         assert!(result.exists());
         let meta = std::fs::metadata(&result).unwrap();
         assert!(meta.len() > 0);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Row gate covers document types end-to-end: a .docx row gets the
+    /// native page-1 render, downscaled to row-card size.
+    #[test]
+    fn thumbnail_for_docx_office_page() {
+        assert!(ROW_THUMB_EXTS.contains(&"docx"));
+        assert!(ROW_THUMB_EXTS.contains(&"pdf"));
+
+        let d = td("docx_row");
+        let p = d.join("doc.docx");
+        {
+            let mut xml = String::from(
+                "<?xml version=\"1.0\"?><w:document xmlns:w=\"x\"><w:body>",
+            );
+            for i in 0..40 {
+                xml.push_str(&format!(
+                    "<w:p><w:r><w:t>Paragraph {i} of the row thumbnail test document, long enough to wrap.</w:t></w:r></w:p>"
+                ));
+            }
+            xml.push_str("</w:body></w:document>");
+            let f = std::fs::File::create(&p).unwrap();
+            let mut w = zip::ZipWriter::new(f);
+            w.start_file("word/document.xml", zip::write::FileOptions::default())
+                .unwrap();
+            w.write_all(xml.as_bytes()).unwrap();
+            w.finish().unwrap();
+        }
+
+        let thumb = thumbnail_for(&p).expect("docx row thumbnail");
+        assert!(thumb.exists());
+        assert_eq!(&std::fs::read(&thumb).unwrap()[..4], b"\x89PNG");
+        let img = image::open(&thumb).unwrap().to_rgba8();
+        assert!(
+            (img.width() as f32) <= CARD_W as f32 && (img.height() as f32) <= CARD_H as f32,
+            "downscaled to row size: {}x{}",
+            img.width(),
+            img.height()
+        );
+        let _ = std::fs::remove_file(&thumb);
         let _ = std::fs::remove_dir_all(&d);
     }
 }
