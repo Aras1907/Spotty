@@ -908,6 +908,7 @@ pub fn refresh_search_window() {
         if let Some(st) = s.borrow().as_ref() {
             if let Some(win) = st.search_win.borrow().as_ref() {
                 win.refresh_results();
+                win.refresh_preview_if_stale();
                 win.refresh_ops_indicator();
                 win.refresh_bt_toast();
             }

@@ -161,6 +161,15 @@ pub struct PreviewPane {
     pending: std::rc::Rc<std::cell::Cell<bool>>,
     // Whether the nav buttons have been connected (prevents duplicate handlers).
     nav_connected: std::rc::Rc<std::cell::Cell<bool>>,
+    // (mtime secs, size) of `current` at load time — refresh_if_stale()
+    // compares against it to re-render when the file changes on disk.
+    // (0,0) = no path-preview active (text/help pages clear it).
+    current_stamp: std::rc::Rc<std::cell::Cell<(u64, u64)>>,
+    // Debounce for the list refresh scheduled after a live reload, so the
+    // result rows + thumbnails catch up without being hammered per stat tick.
+    list_refresh_id: std::rc::Rc<std::cell::Cell<Option<gtk::glib::SourceId>>>,
+    // Persistent 1 s stat-timer driving refresh_if_stale().
+    stale_poll_id: std::rc::Rc<std::cell::Cell<Option<gtk::glib::SourceId>>>,
 }
 
 impl PreviewPane {
@@ -457,6 +466,9 @@ impl PreviewPane {
             displayed: std::rc::Rc::new(std::cell::Cell::new(false)),
             pending: std::rc::Rc::new(std::cell::Cell::new(false)),
             nav_connected: std::rc::Rc::new(std::cell::Cell::new(false)),
+            current_stamp: std::rc::Rc::new(std::cell::Cell::new((0, 0))),
+            list_refresh_id: std::rc::Rc::new(std::cell::Cell::new(None)),
+            stale_poll_id: std::rc::Rc::new(std::cell::Cell::new(None)),
         };
 
         // Start a persistent poll to deliver async preview decode results.
@@ -466,6 +478,16 @@ impl PreviewPane {
             gtk::glib::ControlFlow::Continue
         });
         pane.preview_poll_id.set(Some(poll_id));
+
+        // Live refresh: re-render the preview when the file it's showing is
+        // edited/saved externally. One stat per second — a no-op until the
+        // (mtime, size) stamp actually changes.
+        let pane_stale = pane.clone();
+        let stale_id = gtk::glib::timeout_add_local(Duration::from_secs(1), move || {
+            pane_stale.refresh_if_stale();
+            gtk::glib::ControlFlow::Continue
+        });
+        pane.stale_poll_id.set(Some(stale_id));
         pane
     }
 
@@ -482,6 +504,7 @@ impl PreviewPane {
         *self.msel.borrow_mut() = String::new();
         self.displayed.set(false);
         self.pending.set(false);
+        self.current_stamp.set((0, 0));
         self.stack.set_visible_child_name("empty");
     }
 
@@ -497,6 +520,7 @@ impl PreviewPane {
     /// Show raw text (e.g. a clipboard text entry) in full, scrollable.
     pub fn show_text(&self, s: &str) {
         *self.current.borrow_mut() = std::path::PathBuf::new();
+        self.current_stamp.set((0, 0)); // not a path preview
         self.stop_video();
         self.displayed.set(true);
         self.text.buffer().set_text(s);
@@ -510,6 +534,7 @@ impl PreviewPane {
     /// verify it's still the row being previewed.
     pub fn show_help(&self, help: &str, image_path: Option<&Path>) {
         self.stop_video();
+        self.current_stamp.set((0, 0)); // not a path preview
         self.displayed.set(true);
         self.htext.set_label(help);
         if let Some(p) = image_path {
@@ -529,15 +554,27 @@ impl PreviewPane {
     }
 
     pub fn show_path(&self, p: &Path) {
+        self.show_path_inner(p, false);
+    }
+
+    /// `force` bypasses the "already displaying this path" early return so a
+    /// file that changed on disk can be re-loaded (live refresh). It also
+    /// tolerates the path being transiently absent during an atomic save.
+    fn show_path_inner(&self, p: &Path, force: bool) {
         if !p.exists() {
+            if force {
+                return; // vanished mid-save — the next staleness tick retries
+            }
             return self.clear();
         }
         // Skip re-render if this file is already being displayed
         // or a load for it is already in flight.
-        if *self.current.borrow() == p && (self.displayed.get() || self.pending.get()) {
+        if !force && *self.current.borrow() == p && (self.displayed.get() || self.pending.get()) {
             return;
         }
         *self.current.borrow_mut() = p.to_path_buf();
+        // Change-detection key for refresh_if_stale() (mtime + size).
+        self.current_stamp.set(file_stamp(p).unwrap_or((0, 0)));
         self.stop_video();
 
         let is_video_ext = |ext: &str| {
@@ -618,6 +655,58 @@ impl PreviewPane {
             });
         });
         self.preview_debounce_id.set(Some(id));
+    }
+
+    /// Re-render the currently shown preview when its file changed on disk
+    /// (external edit/save). Called from a 1 s timer and whenever the
+    /// indexer refreshes results; the common case is one stat() — a no-op.
+    pub fn refresh_if_stale(&self) {
+        if !self.displayed.get() || self.pending.get() {
+            return;
+        }
+        let p = self.current.borrow().clone();
+        if p.is_empty() {
+            return; // text/help page — no file being previewed
+        }
+        let Some(st) = file_stamp(&p) else { return }; // unreadable or mid-save
+        if st == self.current_stamp.get() {
+            return; // unchanged
+        }
+        self.current_stamp.set(st);
+
+        // Multi-page doc showing a page of ITSELF: re-render just that page
+        // (disk cache is keyed by mtime → this renders fresh) so the user's
+        // slide position survives the edit.
+        let ext = p
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let nav_ok = *self.nav_file_path.borrow() == p
+            && matches!(ext.as_str(), "pptx" | "ppsx" | "pps" | "odp" | "pdf");
+        if nav_ok {
+            self.show_slide(self.current_slide.get());
+        } else {
+            self.show_path_inner(&p, true);
+        }
+        log::info!(
+            "preview: reloaded {} (file changed)",
+            p.file_name().unwrap_or_default().to_string_lossy()
+        );
+        self.schedule_list_refresh();
+    }
+
+    /// Debounce so the result list (rows + Tier-0 thumbnails) catches up
+    /// too — the thumbnails memo keys include (path, mtime, size), so a
+    /// rebuild re-renders the icon from the changed file.
+    fn schedule_list_refresh(&self) {
+        if let Some(id) = self.list_refresh_id.take() {
+            id.remove();
+        }
+        let id = gtk::glib::timeout_add_local_once(Duration::from_millis(500), || {
+            crate::app::refresh_search_window();
+        });
+        self.list_refresh_id.set(Some(id));
     }
 
     /// Kick off background OCR for the image so it becomes searchable.
@@ -748,6 +837,12 @@ impl PreviewPane {
                 set_picture_from_file(&self.image, &page_path);
                 self.stack.set_visible_child_name("image");
                 self.image_caption.set_label("");
+            } else {
+                log::warn!(
+                    "preview: failed to render pdf page {} of {}",
+                    n,
+                    file_path.display()
+                );
             }
         } else if matches!(
             ext,
@@ -761,6 +856,12 @@ impl PreviewPane {
                 set_picture_from_file(&self.image, &slide_path);
                 self.stack.set_visible_child_name("image");
                 self.image_caption.set_label("");
+            } else {
+                log::warn!(
+                    "preview: failed to render slide {} of {}",
+                    n,
+                    file_path.display()
+                );
             }
         } else {
             // Fallback: use slide_paths vec.
@@ -1117,11 +1218,9 @@ fn compute_preview(path: &Path) -> PreviewPayload {
         "pptx" | "ppsx" | "pps" | "odp" => {
             let total = pptx_slide_count(path).unwrap_or(1);
             store_doc_meta(path, total);
-            // Try on-demand render first, then fall back to office_thumbnail
-            // (shared thumbnails, embedded thumbs, LibreOffice, Cairo content render).
-            let slide_path = cached_pptx_slide(path, 1)
-                .or_else(|| render_pptx_slide(path, 1))
-                .or_else(|| office_thumbnail(path));
+            // Native slide render first, then fall back to office_thumbnail
+            // (shared thumbnails or the embedded PowerPoint preview image).
+            let slide_path = pptx_first_slide_png(path).or_else(|| office_thumbnail(path));
             if let Some(slide_path) = slide_path {
                 if let Some(img) = image::open(&slide_path).ok() {
                     let rgba = img.to_rgba8();
@@ -1340,20 +1439,59 @@ fn render_pdf_page(pdf: &Path, page: usize) -> Option<PathBuf> {
 
 /// Check if a cached PPTX slide PNG exists.
 fn cached_pptx_slide(doc: &Path, slide: usize) -> Option<PathBuf> {
-    let meta = std::fs::metadata(doc).ok()?;
-    let mtime = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let mtime = doc_mtime_secs(doc);
     let hash = crate::md5::hex(doc.to_string_lossy().as_bytes());
     let cache_root = dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
         .join(format!("spotty/pptx/v{}", PPTX_RENDER_VERSION))
         .join(format!("{}-{}", hash, mtime));
     let slide_path = cache_root.join(format!("slide-{}.png", slide));
-    slide_path.exists().then_some(slide_path)
+    if sane_png_file(&slide_path) {
+        Some(slide_path)
+    } else {
+        if slide_path.exists() {
+            log::info!("pptx: dropping corrupt cached slide {}", slide_path.display());
+            let _ = std::fs::remove_file(&slide_path);
+        }
+        None
+    }
+}
+
+/// A cached slide PNG must start with the PNG signature and hold real
+/// content. A truncated or bogus file must not be served forever — it gets
+/// dropped here so the next caller re-renders instead (self-healing cache).
+fn sane_png_file(path: &Path) -> bool {
+    use std::io::Read;
+    let Ok(meta) = std::fs::metadata(path) else { return false; };
+    if meta.len() < 256 {
+        return false;
+    }
+    let mut magic = [0u8; 8];
+    let Ok(mut f) = std::fs::File::open(path) else { return false; };
+    f.read_exact(&mut magic).is_ok() && &magic[..] == b"\x89PNG\r\n\x1a\n"
+}
+
+/// File modification time in whole seconds since the epoch (0 when unknown).
+fn doc_mtime_secs(doc: &Path) -> u64 {
+    std::fs::metadata(doc)
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// `(mtime secs, size)` — the live-refresh change key for one file
+/// (`PreviewPane::refresh_if_stale`). None when unreadable.
+fn file_stamp(p: &Path) -> Option<(u64, u64)> {
+    let m = std::fs::metadata(p).ok()?;
+    let mt = m
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    Some((mt, m.len()))
 }
 
 /// Render a single PPTX slide to a cached PNG.
@@ -1363,13 +1501,7 @@ fn render_pptx_slide(doc: &Path, slide: usize) -> Option<PathBuf> {
     };
     let png = render_slide_layout(&layout)?;
 
-    let meta = std::fs::metadata(doc).ok()?;
-    let mtime = meta
-        .modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    let mtime = doc_mtime_secs(doc);
     let hash = crate::md5::hex(doc.to_string_lossy().as_bytes());
     let cache_root = dirs::cache_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp"))
@@ -1378,10 +1510,31 @@ fn render_pptx_slide(doc: &Path, slide: usize) -> Option<PathBuf> {
     let _ = std::fs::create_dir_all(&cache_root);
     let slide_path = cache_root.join(format!("slide-{}.png", slide));
     if std::fs::write(&slide_path, &png).is_ok() {
+        log::info!(
+            "pptx: rendered slide {} of {} (render v{}) -> {}",
+            slide,
+            doc.display(),
+            PPTX_RENDER_VERSION,
+            slide_path.display()
+        );
         Some(slide_path)
     } else {
         None
     }
+}
+
+/// First-slide PNG for `doc`: cached if possible, rendered on demand
+/// otherwise. Shared by the preview pane and the result-row thumbnails so
+/// both surfaces always show the same faithful render.
+pub(crate) fn pptx_first_slide_png(doc: &Path) -> Option<PathBuf> {
+    let ext = doc
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase());
+    if !matches!(ext.as_deref(), Some("pptx" | "ppsx" | "pps" | "odp")) {
+        return None;
+    }
+    cached_pptx_slide(doc, 1).or_else(|| render_pptx_slide(doc, 1))
 }
 
 struct TextPreview {
@@ -1740,7 +1893,7 @@ fn thumb_cache_path(path: &Path) -> PathBuf {
 /// Bump this when the office/pptx RENDER code changes, so old cached renders are
 /// invalidated and regenerated instead of being served stale forever.
 const RENDER_VERSION: u32 = 19;
-const PPTX_RENDER_VERSION: u32 = 3;
+const PPTX_RENDER_VERSION: u32 = 5;
 
 /// A Spotty-private cache path for thumbnails Spotty RENDERS itself (office docs,
 /// pptx layout). Kept separate from the shared cache (which we only write real
@@ -1939,116 +2092,11 @@ fn render_pdf_all_pages(pdf: &Path) -> Option<(Vec<PathBuf>, usize)> {
     Some((paths, total_pages))
 }
 
-/// Generate a thumbnail using LibreOffice headless (if installed).
-/// This provides a "full overview" for legacy .ppt, .doc, .xls, and complex .pptx.
-fn libreoffice_thumbnail(doc: &std::path::Path) -> Option<std::path::PathBuf> {
-    let out = thumb_cache_path(doc);
-    let temp_dir = dirs::cache_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join(format!("spotty-lo-{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&temp_dir);
-
-    // Convert to PDF so we can reuse our pdftoppm scaling logic.
-    let lo_args = [
-        "--headless",
-        "--invisible",
-        "--nologo",
-        "--nodefault",
-        "--nofirststartwizard",
-        "--convert-to",
-        "pdf",
-    ];
-    let status = if let Some(bin) = resolve_tool("libreoffice").or_else(|| resolve_tool("soffice"))
-    {
-        std::process::Command::new(bin)
-            .args(lo_args)
-            .arg("--outdir")
-            .arg(&temp_dir)
-            .arg(doc)
-            .status()
-            .ok()
-    } else if std::env::var("FLATPAK_ID").is_ok() {
-        std::process::Command::new("flatpak-spawn")
-            .args(["--host", "libreoffice"])
-            .args(lo_args)
-            .arg("--outdir")
-            .arg(&temp_dir)
-            .arg(doc)
-            .status()
-            .ok()
-            .or_else(|| {
-                std::process::Command::new("flatpak-spawn")
-                    .args(["--host", "soffice"])
-                    .args(lo_args)
-                    .arg("--outdir")
-                    .arg(&temp_dir)
-                    .arg(doc)
-                    .status()
-                    .ok()
-            })
-    } else {
-        None
-    }?;
-
-    if !status.success() {
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        return None;
-    }
-
-    let stem = doc.file_stem()?.to_string_lossy();
-    let pdf_path = temp_dir.join(format!("{}.pdf", stem));
-
-    let mut result = None;
-    if pdf_path.exists() {
-        let prefix = out.with_extension("");
-        let prefix_str = prefix.to_string_lossy().to_string();
-        let ppm_args = [
-            "-png",
-            "-f",
-            "1",
-            "-l",
-            "1",
-            "-scale-to",
-            "400",
-            "-singlefile",
-        ];
-        let ppm_status = if let Some(pdftoppm_bin) = resolve_tool("pdftoppm") {
-            std::process::Command::new(&pdftoppm_bin)
-                .args(ppm_args)
-                .arg(&pdf_path)
-                .arg(&prefix_str)
-                .status()
-                .ok()
-        } else if std::env::var("FLATPAK_ID").is_ok() {
-            std::process::Command::new("flatpak-spawn")
-                .args(["--host", "pdftoppm"])
-                .args(ppm_args)
-                .arg(&pdf_path)
-                .arg(&prefix_str)
-                .status()
-                .ok()
-        } else {
-            None
-        };
-
-        if ppm_status.map(|s| s.success()).unwrap_or(false) && out.exists() {
-            result = Some(out.clone());
-        } else {
-            let alt = std::path::PathBuf::from(format!("{}-1.png", prefix_str));
-            if alt.exists() && std::fs::rename(&alt, &out).is_ok() {
-                result = Some(out.clone());
-            }
-        }
-    }
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    result
-}
-
-/// Produce a preview thumbnail for an office document WITHOUT LibreOffice, by
-/// extracting the preview image embedded inside the file (see
-/// extract_embedded_thumbnail). Returns None when no usable thumbnail exists, so
-/// the caller falls back to the type-specific info card.
+/// Produce a preview thumbnail for an office document from content embedded
+/// inside the file itself (see extract_embedded_thumbnail) or rendered natively
+/// — never by shelling out to an external converter, so behavior is identical
+/// on every machine. Returns None when nothing usable exists, so the caller
+/// falls back to the type-specific info card.
 fn office_thumbnail(doc: &Path) -> Option<PathBuf> {
     let ext = doc
         .extension()
@@ -2061,10 +2109,7 @@ fn office_thumbnail(doc: &Path) -> Option<PathBuf> {
     }
 
     if matches!(ext.as_deref(), Some("ppt")) {
-        log::debug!("office preview: attempting LibreOffice full render");
-        if let Some(out) = libreoffice_thumbnail(doc) {
-            return Some(out);
-        }
+        // Legacy binary .ppt: our own text-atom slide renderer.
         let out = render_cache_path(doc);
         if out.exists() {
             return Some(out);
@@ -2079,13 +2124,6 @@ fn office_thumbnail(doc: &Path) -> Option<PathBuf> {
 
     log::debug!("office preview: generating for {}", doc.display());
 
-    // STEP 0.5 — if LibreOffice/soffice is installed, use it to generate a PERFECT full overview!
-    // This solves issues with legacy .ppt files and documents with missing embedded thumbnails.
-    log::debug!("office preview: attempting LibreOffice full render");
-    if let Some(out_path) = libreoffice_thumbnail(doc) {
-        return Some(out_path);
-    }
-
     // PowerPoint files need layout correctness first. Prefer the document's real
     // embedded preview image over Spotty's synthetic layout renderer, but keep it
     // in our private versioned cache so stale shared thumbnails are avoided.
@@ -2097,37 +2135,6 @@ fn office_thumbnail(doc: &Path) -> Option<PathBuf> {
         if let Some(bytes) = extract_embedded_thumbnail(doc) {
             log::debug!(
                 "office preview: using embedded PowerPoint thumbnail image ({} bytes)",
-                bytes.len()
-            );
-            if write_embedded_thumbnail_png(&bytes, &out) {
-                return Some(out);
-            }
-        }
-        match parse_pptx_layout(doc) {
-            Some(layout) => {
-                let text_count = layout.elements.iter().filter(|e| matches!(e, SlideElement::Text(_))).count();
-                log::debug!(
-                    "office preview: PPTX layout parsed, {} boxes",
-                    text_count
-                );
-                if let Some(png) = render_slide_layout(&layout) {
-                    log::debug!(
-                        "office preview: rendered slide PNG ({} bytes) -> {}",
-                        png.len(),
-                        out.display()
-                    );
-                    if std::fs::write(&out, &png).is_ok() {
-                        return Some(out);
-                    }
-                } else {
-                    log::debug!("office preview: render_slide_layout returned None");
-                }
-            }
-            None => log::debug!("office preview: PPTX layout parse found no shapes"),
-        }
-        if let Some(bytes) = extract_embedded_thumbnail(doc) {
-            log::debug!(
-                "office preview: using embedded PowerPoint thumbnail ({} bytes)",
                 bytes.len()
             );
             if write_embedded_thumbnail_png(&bytes, &out) {
@@ -2344,7 +2351,7 @@ fn info_icon_for(p: &Path) -> &'static str {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Native (LibreOffice-free) Office content preview
+// Native (pure-Rust, no external converter) Office content preview
 //
 // We extract the document's text/data from its OOXML XML and draw a simple
 // page-like image with Cairo's text API. This is a CONTENT preview — readable
@@ -2642,12 +2649,51 @@ fn extract_text_runs(xml: &str, tag: &str) -> Vec<String> {
 }
 
 /// Minimal XML entity decoding for the common five.
+/// Decode XML entities: the five named ones plus numeric character
+/// references (`&#10;`, `&#x2022;`) — decks routinely encode bullet chars
+/// numerically. Single pass, so `&amp;lt;` decodes to the literal `&lt;`.
 fn decode_xml_entities(s: &str) -> String {
-    s.replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 1..];
+        let Some(semi) = after.find(';') else {
+            out.push('&');
+            return out + after;
+        };
+        let body = &after[..semi];
+        let decoded: Option<char> = match body {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" => Some('\''),
+            _ => body.strip_prefix('#').and_then(|num| {
+                let code = match num.strip_prefix('x').or_else(|| num.strip_prefix('X')) {
+                    Some(hex) => u32::from_str_radix(hex, 16).ok(),
+                    None => num.parse::<u32>().ok(),
+                };
+                code.and_then(char::from_u32)
+            }),
+        };
+        match decoded {
+            Some(c) => {
+                out.push(c);
+                rest = &after[semi + 1..];
+            }
+            None => {
+                // not an entity after all — keep the '&' literally
+                out.push('&');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn extract_pptx<R: std::io::Read + std::io::Seek>(
@@ -2811,14 +2857,14 @@ fn render_content_preview(content: &OfficeContent) -> Option<Vec<u8>> {
 }
 
 /// Common helpers for the template renderers.
-fn new_surface(w: i32, h: i32) -> Option<(gtk::cairo::ImageSurface, gtk::cairo::Context)> {
+pub(crate) fn new_surface(w: i32, h: i32) -> Option<(gtk::cairo::ImageSurface, gtk::cairo::Context)> {
     use gtk::cairo;
     let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h).ok()?;
     let cr = cairo::Context::new(&surface).ok()?;
     Some((surface, cr))
 }
 
-fn surface_to_png(surface: gtk::cairo::ImageSurface, cr: gtk::cairo::Context) -> Option<Vec<u8>> {
+pub(crate) fn surface_to_png(surface: gtk::cairo::ImageSurface, cr: gtk::cairo::Context) -> Option<Vec<u8>> {
     drop(cr); // release the surface borrow before encoding
     let mut buf: Vec<u8> = Vec::new();
     surface.write_to_png(&mut buf).ok()?;
@@ -3104,15 +3150,62 @@ fn truncate_to_width(cr: &gtk::cairo::Context, text: &str, max_w: f64) -> String
 // Layout-aware PowerPoint preview
 //
 // PPTX slides describe each shape's position and size in EMUs (English Metric
-// Units; 914,400 per inch). We parse the shape tree, read each text box's
-// <a:off>/<a:ext>, and draw the boxes where they actually sit, scaled to the
-// real slide aspect ratio (from presentation.xml). This produces a
-// wireframe-accurate preview: text in the right places at the right sizes.
-// It cannot reproduce embedded images, charts, theme art, or exact fonts.
+// Units; 914,400 per inch). We walk the shape tree recursively in document
+// order — shapes, pictures, groups (with their chOff/chExt child transforms),
+// and connectors — compose the page from master → layout → slide parts, and
+// draw everything scaled to the real slide aspect ratio (from
+// presentation.xml). Backgrounds resolve slide → layout → master (solid,
+// gradient, picture, theme bgRef), placeholder geometry and text styles
+// inherit from the layout/master, and text renders through Pango with
+// per-run size/weight/color/alignment. Charts, tables, and SmartArt diagrams
+// are not rendered (yet). Everything is pure Rust — no external converter.
 // ──────────────────────────────────────────────────────────────────────
 
+/// One formatted text run inside a paragraph. Formatting is resolved at parse
+/// time (run → paragraph defaults → placeholder/master styles → theme), so the
+/// renderer only needs these effective values.
+#[derive(Clone, Default, Debug)]
+struct TextRun {
+    text: String,
+    sz_pt: Option<f64>,
+    bold: bool,
+    italic: bool,
+    underline: bool,
+    color: Option<(f64, f64, f64)>,
+    font: Option<String>,
+}
+
+/// Bullet treatment for a paragraph.
+#[derive(Clone, Debug)]
+enum ParaBullet {
+    Off,
+    Char(String),
+    /// Auto-numbered bullet (`arabicPeriod`, …) with its 1-based counter.
+    Number(String, u32),
+}
+
+/// One paragraph of rich text (a `<a:p>`; line breaks become follow-up
+/// paragraphs with `follow` set, sharing alignment but carrying no bullet).
+#[derive(Clone, Default, Debug)]
+struct TextPara {
+    runs: Vec<TextRun>,
+    /// Effective alignment: "l" | "ctr" | "r".
+    algn: String,
+    lvl: usize,
+    bullet: Option<ParaBullet>,
+    spc_bef_pt: f64,
+    spc_aft_pt: f64,
+    /// Continuation line after an `<a:br>`: no bullet, no spacing.
+    follow: bool,
+    /// `marL`: text-column offset from the box's left inset (EMU).
+    mar_l_emu: f64,
+    /// Hanging-indent zone (EMU): the first line starts this far left of the
+    /// text column so the bullet sits in the margin (PPT `indent`, else marL).
+    hang_emu: f64,
+}
+
 /// One positioned text box on a slide. Coordinates are in EMUs.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct SlideBox {
     x: f64,
     y: f64,
@@ -3125,16 +3218,124 @@ struct SlideBox {
     has_xfrm: bool,
     ph_type: String,
     color: Option<(f64, f64, f64)>,
+    /// Structured PPTX text (None for the legacy binary .ppt path).
+    paras: Option<Vec<TextPara>>,
+    /// Vertical anchor: 0 = top, 1 = center, 2 = bottom.
+    anchor: u8,
+    /// Text-frame insets: left, top, right, bottom (EMU).
+    insets: [f64; 4],
+    /// `normAutofit` fontScale factor (1.0 = unchanged).
+    autofit_scale: f64,
 }
 
+#[derive(Debug)]
 enum SlideBackground {
     Solid(f64, f64, f64),
     Image(PathBuf),
+    /// Linear gradient: (position 0..1, color, alpha 0..1) stops + angle (rad,
+    /// cairo convention: 0 = left→right, positive = clockwise/down).
+    Gradient(Vec<(f64, (f64, f64, f64), f64)>, f64),
 }
 
+/// Fill of a shape (`<a:noFill>`/`<a:solidFill>`/`<a:gradFill>`/`<a:pattFill>`).
+#[derive(Clone, Debug)]
+enum FillKind {
+    None,
+    Solid((f64, f64, f64), f64),
+    Gradient(Vec<(f64, (f64, f64, f64), f64)>, f64),
+}
+
+/// Shape outline (`<a:ln>`): color, alpha, width in EMUs.
+#[derive(Clone, Debug)]
+struct LineSpec {
+    color: (f64, f64, f64),
+    alpha: f64,
+    width_emu: f64,
+}
+
+/// One command of a `<a:custGeom>` freeform path. Coordinates are in the
+/// path's own space (`<a:path w h>`), mapped onto the shape rect at draw time.
+#[derive(Clone, Debug)]
+enum PathCmd {
+    MoveTo(f64, f64),
+    LineTo(f64, f64),
+    CubicBezTo([f64; 6]),
+    QuadBezTo([f64; 4]),
+    Close,
+}
+
+/// One `<a:path>` from a `<a:custGeom>` `<a:pathLst>`: `w`/`h` is its
+/// coordinate space, `fill` false for `fill="none"` subpaths (stroked but
+/// never filled — the stroke-only layers of compound shapes).
+#[derive(Clone, Debug)]
+struct FreeformPath {
+    w: f64,
+    h: f64,
+    fill: bool,
+    cmds: Vec<PathCmd>,
+}
+
+/// A filled/outlined shape (autoshape, text-box background, connector).
+/// Coordinates are absolute EMUs on the slide; `rot` is clockwise radians.
+/// `freeform` is set for `<a:custGeom>` geometry and wins over `prst`.
+#[derive(Clone, Debug)]
+struct DrawShape {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    prst: String,
+    fill: Option<FillKind>,
+    line: Option<LineSpec>,
+    rot: f64,
+    flip_h: bool,
+    flip_v: bool,
+    freeform: Option<Vec<FreeformPath>>,
+}
+
+/// A picture: absolute EMU rect, extracted media path, and `srcRect` crop
+/// (fractions of the image cut from left/top/right/bottom).
+#[derive(Clone, Debug)]
+struct DrawPicture {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    path: PathBuf,
+    crop: [f64; 4],
+    line: Option<LineSpec>,
+    rot: f64,
+    flip_h: bool,
+    flip_v: bool,
+}
+
+/// Parsed `c:doughnutChart`: data points, per-point colors (filled in from
+/// `c:dPt`, theme accents, or the series fill — always `Some` after parse),
+/// hole size (% of radius) and the start angle (degrees, 0 = 12 o'clock).
+#[derive(Clone, Debug)]
+struct DoughnutSpec {
+    values: Vec<f64>,
+    colors: Vec<Option<(f64, f64, f64)>>,
+    hole_pct: f64,
+    first_ang_deg: f64,
+}
+
+/// A chart `p:graphicFrame` positioned on the slide (doughnut charts only —
+/// other chart types, tables, SmartArt stay Phase 3).
+#[derive(Clone, Debug)]
+struct DrawChart {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    doughnut: DoughnutSpec,
+}
+
+#[derive(Debug)]
 enum SlideElement {
-    Shape(f64, f64, f64, f64, Option<(f64, f64, f64)>),
-    Picture(f64, f64, f64, f64, PathBuf),
+    Shape(DrawShape),
+    Picture(DrawPicture),
+    Chart(DrawChart),
     Text(SlideBox),
 }
 
@@ -3148,7 +3349,7 @@ struct SlideLayout {
 /// Parse legacy binary PowerPoint (.ppt) text atoms from the OLE container and
 /// map the first meaningful text runs onto a simple slide layout. This is not a
 /// full MS-PPT renderer, but it produces a real slide-style overview instead of
-/// the generic file card when LibreOffice is unavailable.
+/// the generic file card when no embedded thumbnail is available.
 fn parse_legacy_ppt_layout(doc: &Path) -> Option<SlideLayout> {
     use std::io::Read;
 
@@ -3190,6 +3391,10 @@ fn parse_legacy_ppt_layout(doc: &Path) -> Option<SlideLayout> {
         has_xfrm: true,
         ph_type: "title".into(),
         color: None,
+        paras: None,
+        anchor: 0,
+        insets: [91440.0, 45720.0, 91440.0, 45720.0],
+        autofit_scale: 1.0,
     }];
 
     if !body.is_empty() {
@@ -3205,6 +3410,10 @@ fn parse_legacy_ppt_layout(doc: &Path) -> Option<SlideLayout> {
             has_xfrm: true,
             ph_type: "body".into(),
             color: None,
+            paras: None,
+            anchor: 0,
+            insets: [91440.0, 45720.0, 91440.0, 45720.0],
+            autofit_scale: 1.0,
         });
     }
 
@@ -3434,6 +3643,10 @@ fn fallback_ppt_layout(doc: &Path) -> SlideLayout {
             has_xfrm: true,
             ph_type: "title".into(),
             color: None,
+            paras: None,
+            anchor: 0,
+            insets: [91440.0, 45720.0, 91440.0, 45720.0],
+            autofit_scale: 1.0,
         })],
     }
 }
@@ -3579,47 +3792,487 @@ fn push_clean_ppt_text(out: &mut Vec<String>, text: &str) {
     }
 }
 
-/// Parse slide 1's shape tree into a positioned layout.
-/// Geometry for a placeholder defined in a slide layout.
-struct LayoutPlaceholder {
-    ph_type: String,
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
+/// A slide's inherited color map: logical slot (bg1/tx1/bg2/tx2/accent…)
+/// → theme color key (lt1/dk1/…). Masters define it with `<p:clrMap>`;
+/// layouts and slides normally just inherit it (`<a:masterClrMapping/>`) but
+/// may override with `<a:overrideClrMapping>`.
+#[derive(Clone)]
+struct ClrMap {
+    slots: std::collections::HashMap<String, String>,
 }
 
-/// Do two placeholder type strings refer to the same kind of placeholder?
-/// PowerPoint treats title/ctrTitle as titles, and an empty/"body" type as the
-/// generic content placeholder.
-fn placeholder_types_match(a: &str, b: &str) -> bool {
-    let norm = |s: &str| -> String {
-        match s {
-            "ctrTitle" | "title" => "title".to_string(),
-            "" | "body" | "subTitle" | "obj" => "body".to_string(),
-            other => other.to_string(),
+impl ClrMap {
+    /// ECMA-376 default mapping (also used when a master has no `<p:clrMap>`).
+    fn default_map() -> ClrMap {
+        let mut slots = std::collections::HashMap::new();
+        for (slot, key) in [
+            ("bg1", "lt1"),
+            ("tx1", "dk1"),
+            ("bg2", "lt2"),
+            ("tx2", "dk2"),
+            ("accent1", "accent1"),
+            ("accent2", "accent2"),
+            ("accent3", "accent3"),
+            ("accent4", "accent4"),
+            ("accent5", "accent5"),
+            ("accent6", "accent6"),
+            ("hlink", "hlink"),
+            ("folHlink", "folHlink"),
+        ] {
+            slots.insert(slot.to_string(), key.to_string());
         }
+        ClrMap { slots }
+    }
+
+    /// Read `<p:clrMap bg1="…" …/>` from a slideMaster part.
+    fn from_master(master_xml: &str) -> ClrMap {
+        let mut map = ClrMap::default_map();
+        if let Some(tag) = tag_substr(master_xml, "<p:clrMap") {
+            for slot in [
+                "bg1", "tx1", "bg2", "tx2", "accent1", "accent2", "accent3", "accent4",
+                "accent5", "accent6", "hlink", "folHlink",
+            ] {
+                if let Some(v) = attr_value(&tag, slot) {
+                    map.slots.insert(slot.to_string(), v);
+                }
+            }
+        }
+        map
+    }
+
+    /// Read `<a:overrideClrMapping …/>` (all slots present on the tag).
+    fn from_override(tag: &str) -> ClrMap {
+        let mut map = ClrMap::default_map();
+        for slot in [
+            "bg1", "tx1", "bg2", "tx2", "accent1", "accent2", "accent3", "accent4",
+            "accent5", "accent6", "hlink", "folHlink",
+        ] {
+            if let Some(v) = attr_value(tag, slot) {
+                map.slots.insert(slot.to_string(), v);
+            }
+        }
+        map
+    }
+
+    /// Logical slot → theme color key (identity for keys already theme-named).
+    fn resolve(&self, key: &str) -> String {
+        self.slots.get(key).cloned().unwrap_or_else(|| key.to_string())
+    }
+}
+
+/// Bullet directive of one style layer: keep inheriting vs. an explicit choice.
+#[derive(Clone, PartialEq)]
+enum BulletLayer {
+    Inherit,
+    Off,
+    Char(String),
+    AutoNum(String),
+}
+
+impl Default for BulletLayer {
+    fn default() -> Self {
+        BulletLayer::Inherit
+    }
+}
+
+/// Effective defaults for one indent level (`<a:lvlNpPr>` + its `<a:defRPr>`).
+/// Fields are Options so layers can override selectively; `None` = inherit.
+#[derive(Clone, Default)]
+struct TextStyleDef {
+    sz_pt: Option<f64>,
+    bold: Option<bool>,
+    italic: Option<bool>,
+    underline: Option<bool>,
+    color: Option<(f64, f64, f64)>,
+    font: Option<String>,
+    algn: Option<String>,
+    bullet: BulletLayer,
+    /// `marL` of the level (EMU) — kept for the hanging-indent approximation.
+    mar_l_emu: Option<f64>,
+}
+
+/// Which `<p:txStyles>` table a piece of text draws from.
+#[derive(Clone, Copy, PartialEq)]
+enum PhKind {
+    Title,
+    Body,
+    Other,
+}
+
+/// Map a placeholder type onto the txStyles table (ECMA-376 defaults:
+/// `title`/`ctrTitle` → titleStyle, the classic text placeholders →
+/// bodyStyle, everything else — including plain text boxes — → otherStyle).
+fn ph_kind_of(ph_type: &str) -> PhKind {
+    match ph_type {
+        "title" | "ctrTitle" => PhKind::Title,
+        "" | "obj" | "body" | "subTitle" => PhKind::Body,
+        _ => PhKind::Other,
+    }
+}
+
+/// `<p:txStyles>` from the slide master: per-level defaults (index 0 = lvl1).
+struct TxStyles {
+    title: Vec<TextStyleDef>,
+    body: Vec<TextStyleDef>,
+    other: Vec<TextStyleDef>,
+}
+
+impl TxStyles {
+    fn empty() -> TxStyles {
+        TxStyles {
+            title: Vec::new(),
+            body: Vec::new(),
+            other: Vec::new(),
+        }
+    }
+
+    /// Parse `<p:txStyles>` of a slideMaster part.
+    fn from_master(master_xml: &str, theme: &ThemeColors, map: &ClrMap) -> TxStyles {
+        let mut out = TxStyles::empty();
+        let Some(i) = find_open_tag(master_xml, 0, "p:txStyles") else {
+            return out;
+        };
+        let Some((s, e)) = element_span(master_xml, i, "p:txStyles") else {
+            return out;
+        };
+        let styles = &master_xml[s..e];
+        out.title = parse_style_table(styles, "p:titleStyle", theme, map);
+        out.body = parse_style_table(styles, "p:bodyStyle", theme, map);
+        out.other = parse_style_table(styles, "p:otherStyle", theme, map);
+        out
+    }
+}
+
+/// Parse one txStyles table (`<p:titleStyle>`…) into level defs.
+fn parse_style_table(styles: &str, name: &str, theme: &ThemeColors, map: &ClrMap) -> Vec<TextStyleDef> {
+    let Some(i) = find_open_tag(styles, 0, name) else {
+        return Vec::new();
     };
+    let Some((s, e)) = element_span(styles, i, name) else {
+        return Vec::new();
+    };
+    parse_levels(&styles[s..e], theme, map)
+}
+
+/// Parse `<a:lvl1pPr>` … `<a:lvl9pPr>` children into per-level defs.
+fn parse_levels(table: &str, theme: &ThemeColors, map: &ClrMap) -> Vec<TextStyleDef> {
+    let mut out: Vec<TextStyleDef> = Vec::new();
+    let mut pos = 0usize;
+    while let Some(li) = find_open_tag(table, pos, "a:lvl") {
+        let Some((ls, le)) = lvl_span(table, li) else { break };
+        pos = le;
+        let lvl_xml = &table[ls..le];
+        // level number from the tag name: <a:lvl3pPr> → index 2
+        let tag = tag_substr(lvl_xml, "<a:lvl").unwrap_or_default();
+        let digits: String = tag
+            .chars()
+            .skip_while(|c| !c.is_ascii_digit())
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        let idx = digits.parse::<usize>().unwrap_or(1).saturating_sub(1).min(8);
+        let def = parse_lvl_style(lvl_xml, theme, map);
+        if out.len() <= idx {
+            out.resize(idx + 1, TextStyleDef::default());
+        }
+        out[idx] = def;
+    }
+    out
+}
+
+/// Span of one `<a:lvlNpPr>` … `</a:lvlNpPr>` (the close tag carries digits,
+/// so a plain `</a:lvl` substring search is used instead of tag-boundary
+/// matching).
+fn lvl_span(table: &str, open_start: usize) -> Option<(usize, usize)> {
+    let open_end = tag_end(table, open_start)?;
+    if table[open_start..open_end].ends_with("/>") {
+        return Some((open_start, open_end));
+    }
+    let rel = table[open_end..].find("</a:lvl")?;
+    let c = open_end + rel;
+    let gt = table[c..].find('>')?;
+    Some((open_start, c + gt + 1))
+}
+
+/// Parse one `<a:lvlNpPr>`: level properties (algn, marL), bullet children,
+/// and the `<a:defRPr>` run defaults.
+fn parse_lvl_style(lvl_xml: &str, theme: &ThemeColors, map: &ClrMap) -> TextStyleDef {
+    let mut d = TextStyleDef::default();
+    if let Some(tag) = tag_substr(lvl_xml, "<a:lvl") {
+        if let Some(a) = attr_value(&tag, "algn") {
+            d.algn = Some(a);
+        }
+        if let Some(m) = attr_value(&tag, "marL").and_then(|v| v.parse::<f64>().ok()) {
+            d.mar_l_emu = Some(m);
+        }
+    }
+    d.bullet = parse_bullet_layer(lvl_xml);
+    if let Some(i) = find_open_tag(lvl_xml, 0, "a:defRPr") {
+        if let Some((s, e)) = element_span(lvl_xml, i, "a:defRPr") {
+            apply_rpr(&mut d, &lvl_xml[s..e], theme, map);
+        }
+    }
+    d
+}
+
+/// Bullet children of a `<a:pPr>`/`<a:lvlNpPr>`:
+/// `<a:buNone>` / `<a:buChar char="…">` / `<a:buAutoNum type="…">`.
+fn parse_bullet_layer(frag: &str) -> BulletLayer {
+    if find_open_tag(frag, 0, "a:buNone").is_some() {
+        return BulletLayer::Off;
+    }
+    if let Some(i) = find_open_tag(frag, 0, "a:buChar") {
+        let font = find_open_tag(frag, 0, "a:buFont")
+            .and_then(|j| tag_substr(&frag[j..], "<a:buFont"))
+            .and_then(|f| attr_value(&f, "typeface"));
+        let ch = tag_substr(&frag[i..], "<a:buChar")
+            .and_then(|t| attr_value(&t, "char"))
+            .map(|c| decode_xml_entities(&c));
+        let mapped = match ch {
+            Some(c) => c
+                .chars()
+                .map(|g| map_bullet_char(g, font.as_deref()))
+                .collect(),
+            None => "\u{2022}".into(),
+        };
+        return BulletLayer::Char(mapped);
+    }
+    if let Some(i) = find_open_tag(frag, 0, "a:buAutoNum") {
+        if let Some(t) = tag_substr(&frag[i..], "<a:buAutoNum") {
+            let kind = attr_value(&t, "type").unwrap_or_else(|| "arabicPeriod".into());
+            return BulletLayer::AutoNum(kind);
+        }
+        return BulletLayer::AutoNum("arabicPeriod".into());
+    }
+    BulletLayer::Inherit
+}
+
+/// Map a `buChar` glyph encoded for a symbol font (private-use, e.g. `U+F097`
+/// = byte 0x97 of Wingdings 2) onto an equivalent Unicode bullet, so renderers
+/// without proprietary fonts show a real bullet instead of tofu. Characters
+/// outside the private-use ranges pass through unchanged; unmapped PUA bytes
+/// degrade to a plain `•`. Tables transcribed from the Wingdings / Wingdings 2
+/// code charts (the cells decks actually use for bullets).
+fn map_bullet_char(ch: char, font_typeface: Option<&str>) -> String {
+    let byte = match ch {
+        '\u{e000}'..='\u{ffff}' => ch as u32 & 0xFF,
+        _ => return ch.to_string(),
+    };
+    let fam = font_typeface.unwrap_or("").to_ascii_lowercase();
+    let table: &[(u32, char)] = if fam.contains("wingdings 2") {
+        &[
+            (0x94, '⋅'),
+            (0x96, '⦁'),
+            (0x97, '●'),
+            (0x98, '○'),
+            (0x9C, '⊙'),
+            (0x9D, '⦿'),
+            (0x9E, '🞌'),
+            (0xA1, '◾'),
+            (0xA2, '■'),
+            (0xA3, '□'),
+            (0xA8, '▣'),
+        ]
+    } else if fam.contains("wingdings") {
+        &[
+            (0x76, '❑'),
+            (0x77, '❒'),
+            (0x7A, '◆'),
+            (0x7B, '❖'),
+            (0x9E, '∙'),
+            (0x9F, '•'),
+            (0xA7, '▪'),
+        ]
+    } else if fam == "symbol" {
+        &[(0xB7, '•'), (0xA7, '■')]
+    } else {
+        &[]
+    };
+    table
+        .iter()
+        .find(|(b, _)| *b == byte)
+        .map(|(_, c)| c.to_string())
+        .unwrap_or_else(|| "\u{2022}".to_string())
+}
+
+/// Overlay one `<a:rPr>`/`<a:defRPr>` element's attributes onto `d`.
+fn apply_rpr(d: &mut TextStyleDef, rpr: &str, theme: &ThemeColors, map: &ClrMap) {
+    let Some(open_end) = tag_end(rpr, 0) else { return };
+    let tag = &rpr[..open_end];
+    if let Some(v) = attr_value(tag, "sz").and_then(|v| v.parse::<f64>().ok()) {
+        d.sz_pt = Some(v / 100.0);
+    }
+    if let Some(v) = attr_value(tag, "b") {
+        d.bold = Some(v == "1" || v == "true");
+    }
+    if let Some(v) = attr_value(tag, "i") {
+        d.italic = Some(v == "1" || v == "true");
+    }
+    if let Some(v) = attr_value(tag, "u") {
+        d.underline = Some(v != "none" && v != "0" && v != "false");
+    }
+    if let Some((c, _a)) = parse_color_el(rpr, theme, map) {
+        d.color = Some(c);
+    }
+    if let Some(i) = find_open_tag(rpr, 0, "a:latin") {
+        if let Some(t) = tag_substr(&rpr[i..], "<a:latin") {
+            if let Some(f) = attr_value(&t, "typeface") {
+                d.font = Some(f);
+            }
+        }
+    }
+}
+
+/// Geometry + fill/line + `<a:lstStyle>` a layout/master placeholder defines;
+/// the slide's same placeholder (matched by `idx`, then type) inherits these.
+struct PhDef {
+    ph_type: String,
+    idx: Option<u32>,
+    /// Absolute EMU rect (x, y, w, h), when the part specifies one.
+    geo: Option<(f64, f64, f64, f64)>,
+    fill: Option<FillKind>,
+    line: Option<LineSpec>,
+    /// `lvl1pPr` … `lvl9pPr` text-style overrides (index 0 = lvl1).
+    lst: Vec<TextStyleDef>,
+}
+
+/// Placeholder type equivalence: `ctrTitle`↔`title`, and the body-like types
+/// (`obj`/`body`/`subTitle`/absent) all match each other.
+fn placeholder_types_match(a: &str, b: &str) -> bool {
+    fn norm(t: &str) -> &str {
+        match t {
+            "ctrTitle" => "title",
+            "" | "obj" | "body" | "subTitle" => "body",
+            other => other,
+        }
+    }
     norm(a) == norm(b)
 }
 
-/// Read the placeholder geometry from the slide layout that slide1 references.
-/// Returns the list of placeholders (type + position) defined in that layout.
-fn read_layout_placeholders<R: std::io::Read + std::io::Seek>(
-    zip: &mut zip::ZipArchive<R>,
-) -> Option<Vec<LayoutPlaceholder>> {
-    // slide1's relationships point to its layout.
-    let rels = read_zip_text(zip, "ppt/slides/_rels/slide1.xml.rels")?;
-    // Find a Relationship whose Target mentions slideLayout.
-    let layout_target = rels
-        .split("<Relationship")
-        .find(|r| r.contains("slideLayout"))
-        .and_then(|r| attr_value(r, "Target"))?;
-    // Target is like "../slideLayouts/slideLayout3.xml"; normalize to a zip path.
-    let layout_path = normalize_zip_rel("ppt/slides", &layout_target);
+/// The layout/master placeholder a slide placeholder inherits from:
+/// `idx` match first (PowerPoint's primary key), then normalized type match.
+fn find_ph<'a>(defs: &'a [PhDef], ph_type: &str, idx: Option<u32>) -> Option<&'a PhDef> {
+    if let Some(i) = idx {
+        if let Some(d) = defs.iter().find(|d| d.idx == Some(i)) {
+            return Some(d);
+        }
+    }
+    defs.iter().find(|d| placeholder_types_match(&d.ph_type, ph_type))
+}
 
-    let layout_xml = read_zip_text(zip, &layout_path)?;
-    Some(parse_layout_shapes(&layout_xml))
+/// Effective text-style resolution for one shape's text frame. Layers,
+/// lowest precedence first: master `<p:txStyles>` table → master placeholder
+/// `<a:lstStyle>` → layout placeholder `<a:lstStyle>` → paragraph `defRPr` →
+/// run `rPr` (the latter two are applied by `parse_tx_body`).
+struct StyleSource<'a> {
+    kind: PhKind,
+    /// Centered-title heuristic (`<p:ph type="ctrTitle"/>`).
+    centered_title: bool,
+    layout_ph: Option<&'a PhDef>,
+    master_ph: Option<&'a PhDef>,
+    tx: Option<&'a TxStyles>,
+    /// `<p:style><a:fontRef>` color — the shape's theme default text color.
+    font_ref_color: Option<(f64, f64, f64)>,
+    major_font: &'a str,
+    minor_font: &'a str,
+    theme: &'a ThemeColors,
+    map: &'a ClrMap,
+}
+
+impl<'a> StyleSource<'a> {
+    /// Defaults for one indent level (0-based), placeholder `lstStyle`
+    /// layers applied over the master's txStyles table. Heuristic gaps are
+    /// filled by `finish` at use time.
+    fn level(&self, lvl: usize) -> TextStyleDef {
+        let table: Option<&Vec<TextStyleDef>> = match self.kind {
+            PhKind::Title => self.tx.as_ref().map(|t| &t.title),
+            PhKind::Body => self.tx.as_ref().map(|t| &t.body),
+            PhKind::Other => self.tx.as_ref().map(|t| &t.other),
+        };
+        let mut d = table.and_then(|t| t.get(lvl)).cloned().unwrap_or_default();
+        for ph in [self.master_ph, self.layout_ph].into_iter().flatten() {
+            if let Some(s) = ph.lst.get(lvl) {
+                merge_style(&mut d, s);
+            }
+        }
+        d
+    }
+
+    /// Map a typeface attribute to a concrete family: `+mj-lt`/`+mn-lt` are
+    /// theme placeholders; empty means "keep whatever else applies".
+    fn font_name(&self, typeface: &str) -> Option<String> {
+        if typeface.starts_with("+mj") {
+            Some(self.major_font.to_string())
+        } else if typeface.starts_with("+mn") {
+            Some(self.minor_font.to_string())
+        } else if typeface.is_empty() {
+            None
+        } else {
+            Some(typeface.to_string())
+        }
+    }
+
+    /// Fill heuristic gaps: default size (title 32pt / body 18pt), fontRef
+    /// color, theme font, alignment, and "no bullet unless specified".
+    fn finish(&self, d: &mut TextStyleDef) {
+        if d.sz_pt.is_none() {
+            d.sz_pt = Some(match self.kind {
+                PhKind::Title => 32.0,
+                _ => 18.0,
+            });
+        }
+        if d.color.is_none() {
+            d.color = self.font_ref_color;
+        }
+        if d.color.is_none() {
+            d.color = Some((0.10, 0.10, 0.14));
+        }
+        if d.font.is_none() || d.font.as_deref() == Some("") {
+            d.font = Some(
+                match self.kind {
+                    PhKind::Title => self.major_font,
+                    _ => self.minor_font,
+                }
+                .to_string(),
+            );
+        }
+        if d.algn.is_none() {
+            d.algn = Some(if self.centered_title { "ctr".into() } else { "l".into() });
+        }
+        if d.bullet == BulletLayer::Inherit {
+            d.bullet = BulletLayer::Off;
+        }
+    }
+}
+
+/// Overlay `s` (a higher-precedence layer) onto `d`, field by field.
+fn merge_style(d: &mut TextStyleDef, s: &TextStyleDef) {
+    if s.sz_pt.is_some() {
+        d.sz_pt = s.sz_pt;
+    }
+    if s.bold.is_some() {
+        d.bold = s.bold;
+    }
+    if s.italic.is_some() {
+        d.italic = s.italic;
+    }
+    if s.underline.is_some() {
+        d.underline = s.underline;
+    }
+    if s.color.is_some() {
+        d.color = s.color;
+    }
+    if s.font.is_some() {
+        d.font = s.font.clone();
+    }
+    if s.algn.is_some() {
+        d.algn = s.algn.clone();
+    }
+    if s.bullet != BulletLayer::Inherit {
+        d.bullet = s.bullet.clone();
+    }
+    if s.mar_l_emu.is_some() {
+        d.mar_l_emu = s.mar_l_emu;
+    }
 }
 
 /// Resolve a relationship Target (possibly with ../) against a base dir into a
@@ -3638,328 +4291,1596 @@ fn normalize_zip_rel(base_dir: &str, target: &str) -> String {
     parts.join("/")
 }
 
-/// Parse placeholder shapes (type + geometry) from a slide layout XML.
-fn parse_layout_shapes(xml: &str) -> Vec<LayoutPlaceholder> {
-    let mut out = Vec::new();
-    let mut pos = 0;
-    while let Some(rel) = xml[pos..]
-        .find("<p:sp>")
-        .or_else(|| xml[pos..].find("<p:sp "))
-    {
-        let start = pos + rel;
-        let Some(end_rel) = xml[start..].find("</p:sp>") else {
-            break;
-        };
-        let shape = &xml[start..start + end_rel];
-        pos = start + end_rel + "</p:sp>".len();
+// ── Shape-tree geometry: EMU transforms and element spans ──
 
-        let ph_type = if let Some(ph_tag) = tag_substr(shape, "<p:ph") {
-            attr_value(&ph_tag, "type").unwrap_or_else(|| "body".to_string())
-        } else {
-            continue; // only care about placeholders in the layout
-        };
+/// Affine map from a child coordinate space into its parent's, restricted to
+/// axis-aligned scale + offset + mirror (group `off/ext/chOff/chExt` + flips):
+/// x' = a·x + e, y' = d·y + f. Ancestor *rotation* is deliberately ignored —
+/// rotated groups are rare and text must stay readable.
+#[derive(Clone, Copy)]
+struct XformMap {
+    a: f64,
+    d: f64,
+    e: f64,
+    f: f64,
+}
 
-        let mut geo = None;
-        if let Some(otag) = tag_substr(shape, "<a:off ") {
-            let ox = attr_value(&otag, "x").and_then(|v| v.parse::<f64>().ok());
-            let oy = attr_value(&otag, "y").and_then(|v| v.parse::<f64>().ok());
-            if let (Some(x), Some(y)) = (ox, oy) {
-                if let Some(etag) = tag_substr(shape, "<a:ext ") {
-                    let ew = attr_value(&etag, "cx").and_then(|v| v.parse::<f64>().ok());
-                    let eh = attr_value(&etag, "cy").and_then(|v| v.parse::<f64>().ok());
-                    if let (Some(w), Some(h)) = (ew, eh) {
-                        geo = Some((x, y, w, h));
-                    }
-                }
+impl XformMap {
+    const ID: XformMap = XformMap { a: 1.0, d: 1.0, e: 0.0, f: 0.0 };
+
+    fn apply(&self, x: f64, y: f64) -> (f64, f64) {
+        (self.a * x + self.e, self.d * y + self.f)
+    }
+
+    /// Map a rect (mirrored maps normalize the corners).
+    fn apply_rect(&self, x: f64, y: f64, w: f64, h: f64) -> (f64, f64, f64, f64) {
+        let (x0, y0) = self.apply(x, y);
+        let (x1, y1) = self.apply(x + w, y + h);
+        (x0.min(x1), y0.min(y1), (x1 - x0).abs(), (y1 - y0).abs())
+    }
+}
+
+/// Raw `<a:xfrm>` contents in EMUs (plus rotation / flip attributes).
+#[derive(Default)]
+struct RawXfrm {
+    off: Option<(f64, f64)>,
+    ext: Option<(f64, f64)>,
+    ch_off: Option<(f64, f64)>,
+    ch_ext: Option<(f64, f64)>,
+    /// Clockwise radians (DrawingML `rot` is 60000ths of a degree).
+    rot: f64,
+    flip_h: bool,
+    flip_v: bool,
+}
+
+impl RawXfrm {
+    fn rect(&self) -> Option<(f64, f64, f64, f64)> {
+        let (ox, oy) = self.off?;
+        let (ex, ey) = self.ext?;
+        Some((ox, oy, ex, ey))
+    }
+}
+
+/// Parse an `<a:xfrm>` element's contents (the element may be self-closing).
+fn parse_raw_xfrm(xfrm: &str) -> RawXfrm {
+    let mut out = RawXfrm::default();
+    let pt = |name: &str, ax: &str, ay: &str| -> Option<(f64, f64)> {
+        let i = find_open_tag(xfrm, 0, name)?;
+        let t = tag_substr(&xfrm[i..], &format!("<{}", name))?;
+        Some((attr_value(&t, ax)?.parse().ok()?, attr_value(&t, ay)?.parse().ok()?))
+    };
+    out.off = pt("a:off", "x", "y");
+    out.ext = pt("a:ext", "cx", "cy");
+    out.ch_off = pt("a:chOff", "x", "y");
+    out.ch_ext = pt("a:chExt", "cx", "cy");
+    if let Some(i) = find_open_tag(xfrm, 0, "a:xfrm") {
+        if let Some(t) = tag_substr(&xfrm[i..], "<a:xfrm") {
+            if let Some(v) = attr_value(&t, "rot").and_then(|v| v.parse::<f64>().ok()) {
+                // 60000ths of a degree → radians
+                out.rot = (v / 60_000.0).to_radians();
             }
-        }
-        if let Some((x, y, w, h)) = geo {
-            out.push(LayoutPlaceholder {
-                ph_type,
-                x,
-                y,
-                w,
-                h,
-            });
+            out.flip_h = attr_value(&t, "flipH").map(|v| v == "1" || v == "true").unwrap_or(false);
+            out.flip_v = attr_value(&t, "flipV").map(|v| v == "1" || v == "true").unwrap_or(false);
         }
     }
     out
 }
 
-fn parse_pptx_layout(doc: &Path) -> Option<SlideLayout> {
-    let file = std::fs::File::open(doc).ok()?;
-    let mut zip = zip::ZipArchive::new(file).ok()?;
-
-    // Slide dimensions live in presentation.xml as <p:sldSz cx=".." cy=".."/>.
-    let (slide_w, slide_h) = read_zip_text(&mut zip, "ppt/presentation.xml")
-        .and_then(|p| parse_slide_size(&p))
-        .unwrap_or((9_144_000.0, 6_858_000.0)); // default 4:3 (10"x7.5")
-
-    let xml = read_zip_text(&mut zip, "ppt/slides/slide1.xml")?;
-    let mut boxes = parse_slide_shapes(&xml);
-    if boxes.is_empty() {
-        return None;
+/// Compose a group's child-space map: the group's `off/ext` frame re-maps
+/// `chOff/chExt` child coordinates, flips mirror about the frame center, and
+/// everything is pre-composed with the parent map.
+fn compose_group(parent: XformMap, g: &RawXfrm) -> XformMap {
+    let (ox, oy) = g.off.unwrap_or((0.0, 0.0));
+    let (ex, ey) = g.ext.unwrap_or((0.0, 0.0));
+    let (cx, cy) = g.ch_off.unwrap_or((0.0, 0.0));
+    let (chx, chy) = g.ch_ext.unwrap_or((0.0, 0.0));
+    let sx = if chx > 0.0 { ex / chx } else { 1.0 };
+    let sy = if chy > 0.0 { ey / chy } else { 1.0 };
+    // child → parent: p = off + (q − chOff) · s
+    let mut a = sx;
+    let mut d = sy;
+    let mut e = ox - cx * sx;
+    let mut f = oy - cy * sy;
+    if g.flip_h {
+        // mirror about the group's horizontal center (in parent coords)
+        let cxp = ox + ex * 0.5;
+        a = -a;
+        e = 2.0 * cxp - e;
     }
+    if g.flip_v {
+        let cyp = oy + ey * 0.5;
+        d = -d;
+        f = 2.0 * cyp - f;
+    }
+    XformMap {
+        a: parent.a * a,
+        d: parent.d * d,
+        e: parent.a * e + parent.e,
+        f: parent.d * f + parent.f,
+    }
+}
 
-    // For placeholders that inherited their position (no xfrm in the slide), look
-    // up the REAL geometry from the slide layout, which defines where each
-    // placeholder type/idx actually sits. This matches PowerPoint far better than
-    // a generic guess. We resolve the layout that slide1 references.
-    if boxes.iter().any(|b| !b.has_xfrm) {
-        if let Some(layout_ph) = read_layout_placeholders(&mut zip) {
-            for b in boxes.iter_mut() {
-                if b.has_xfrm {
-                    continue;
+/// Index of the first `<name` at/after `pos`, requiring a tag-name boundary
+/// after the name (`<p:sp` never matches `<p:spPr>`; `<a:lvl` matches
+/// `<a:lvl3pPr>` — digits also count as boundaries).
+fn find_open_tag(hay: &str, pos: usize, name: &str) -> Option<usize> {
+    let needle = format!("<{}", name);
+    let mut from = pos;
+    while let Some(rel) = hay[from..].find(&needle) {
+        let at = from + rel;
+        let after = hay[at + needle.len()..].chars().next();
+        if matches!(
+            after,
+            Some('>') | Some(' ') | Some('\t') | Some('\n') | Some('\r') | Some('/')
+                | Some('0'..='9')
+        ) {
+            return Some(at);
+        }
+        from = at + needle.len();
+    }
+    None
+}
+
+/// Index just past the `>` of the tag starting at `open_start` (works for
+/// self-closing `<x/>` too).
+fn tag_end(hay: &str, open_start: usize) -> Option<usize> {
+    let gt = hay[open_start..].find('>')? + open_start;
+    Some(gt + 1)
+}
+
+/// Full `[start, end)` span of the element whose open tag starts at
+/// `open_start`, including its close tag (just the tag when self-closing).
+/// `close_name` is a tag name without `<`/`>` (e.g. `"p:sp"`).
+fn element_span(hay: &str, open_start: usize, close_name: &str) -> Option<(usize, usize)> {
+    let open_end = tag_end(hay, open_start)?;
+    if hay[open_start..open_end].ends_with("/>") {
+        return Some((open_start, open_end));
+    }
+    let c = find_open_tag(hay, open_end, &format!("/{}", close_name))?;
+    let end = tag_end(hay, c)?;
+    Some((open_start, end))
+}
+
+/// End index of a (possibly nested) `<p:grpSp>` whose open tag starts at
+/// `start`: depth-matched so nested groups don't end the walk early.
+fn grp_end(hay: &str, start: usize) -> Option<usize> {
+    let open_end = tag_end(hay, start)?;
+    if hay[start..open_end].ends_with("/>") {
+        return Some(open_end);
+    }
+    let mut depth = 1usize;
+    let mut pos = open_end;
+    loop {
+        let next_open = find_open_tag(hay, pos, "p:grpSp");
+        let next_close = find_open_tag(hay, pos, "/p:grpSp");
+        match (next_open, next_close) {
+            (Some(o), Some(c)) if o < c => {
+                depth += 1;
+                pos = tag_end(hay, o)?;
+            }
+            (_, Some(c)) => {
+                depth -= 1;
+                let ce = tag_end(hay, c)?;
+                if depth == 0 {
+                    return Some(ce);
                 }
-                // Match by placeholder type first; fall back to idx.
-                if let Some(geo) = layout_ph
-                    .iter()
-                    .find(|p| placeholder_types_match(&p.ph_type, &b.ph_type))
-                {
-                    b.x = geo.x;
-                    b.y = geo.y;
-                    b.w = geo.w;
-                    b.h = geo.h;
-                    b.has_xfrm = true; // now resolved
+                pos = ce;
+            }
+            (Some(o), None) => {
+                depth += 1;
+                pos = tag_end(hay, o)?;
+            }
+            (None, None) => return None,
+        }
+    }
+}
+
+/// A shape's `<p:style>` theme references: fill (`fillRef`), outline
+/// (`lnRef`), and default text color (`fontRef`), colors already
+/// shade/tint-transformed.
+struct ShapeStyle {
+    fill: Option<FillKind>,
+    line: Option<LineSpec>,
+    font_color: Option<(f64, f64, f64)>,
+}
+
+fn parse_pstyle(shape_xml: &str, theme: &ThemeColors, map: &ClrMap) -> Option<ShapeStyle> {
+    let i = find_open_tag(shape_xml, 0, "p:style")?;
+    let (s, e) = element_span(shape_xml, i, "p:style")?;
+    let style = &shape_xml[s..e];
+    let mut out = ShapeStyle { fill: None, line: None, font_color: None };
+
+    // fillRef: solid fill of its scheme color (idx 0 = "no fill from style")
+    if let Some(i) = find_open_tag(style, 0, "a:fillRef") {
+        if let Some((fs, fe)) = element_span(style, i, "a:fillRef") {
+            let frag = &style[fs..fe];
+            let idx = tag_end(frag, 0)
+                .and_then(|t| attr_value(&frag[..t], "idx"))
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(1);
+            if idx > 0 {
+                if let Some((c, a)) = parse_color_el(frag, theme, map) {
+                    out.fill = Some(FillKind::Solid(c, a));
                 }
             }
         }
     }
-
-    // Anything STILL without geometry (no layout match) gets the proportional
-    // default so it never collapses to the corner.
-    assign_default_geometry(&mut boxes, slide_w, slide_h);
-
-    Some(SlideLayout {
-        slide_w,
-        slide_h,
-        background: None,
-        elements: boxes.into_iter().map(SlideElement::Text).collect(),
-    })
+    // lnRef: outline color; width approximated from the reference index
+    if let Some(i) = find_open_tag(style, 0, "a:lnRef") {
+        if let Some((ls, le)) = element_span(style, i, "a:lnRef") {
+            let frag = &style[ls..le];
+            let idx = tag_end(frag, 0)
+                .and_then(|t| attr_value(&frag[..t], "idx"))
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(1);
+            if idx > 0 {
+                if let Some((c, a)) = parse_color_el(frag, theme, map) {
+                    let width = match idx {
+                        1 => 9_525.0,   // 0.75pt
+                        2 => 19_050.0,  // 1.5pt
+                        3 => 28_575.0,  // 2.25pt
+                        _ => 38_100.0,  // 3pt
+                    };
+                    out.line = Some(LineSpec { color: c, alpha: a, width_emu: width });
+                }
+            }
+        }
+    }
+    // fontRef: the shape's default text color
+    if let Some(i) = find_open_tag(style, 0, "a:fontRef") {
+        if let Some((fs, fe)) = element_span(style, i, "a:fontRef") {
+            out.font_color = parse_color_el(&style[fs..fe], theme, map).map(|(c, _a)| c);
+        }
+    }
+    Some(out)
 }
 
 // ── Full-fidelity PPTX rendering ──
 
-fn parse_theme_colors<R: std::io::Read + std::io::Seek>(zip: &mut zip::ZipArchive<R>) -> std::collections::HashMap<String, (f64, f64, f64)> {
-    let mut out = std::collections::HashMap::new();
-    let Some(xml) = read_zip_text(zip, "ppt/theme/theme1.xml") else { return out; };
-    for tag in ["dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink"] {
-        if let Some(s) = xml.find(&format!("<a:{}>", tag)).or_else(|| xml.find(&format!("<a:{} ", tag))) {
-            let end_rel = xml[s..].find("</a:").unwrap_or(200).min(200);
-            let frag = &xml[s..s + end_rel];
-            let clr = frag
-                .find("val=\"").and_then(|v| { let e = frag[v+5..].find('"')?; Some(&frag[v+5..v+5+e]) })
-                .or_else(|| frag.find("lastClr=\"").and_then(|v| { let e = frag[v+9..].find('"')?; Some(&frag[v+9..v+9+e]) }));
-            if let Some(hex) = clr.and_then(|h| parse_hex_color(h)) {
-                out.insert(tag.to_string(), hex);
+/// Resolved Office theme: color scheme, latin typefaces, and the background
+/// fill styles referenced by `<p:bgRef idx="1001…"/>`.
+struct ThemeColors {
+    colors: std::collections::HashMap<String, (f64, f64, f64)>,
+    major_font: String,
+    minor_font: String,
+    bg_fills: Vec<FillKind>,
+}
+
+impl ThemeColors {
+    fn color(&self, key: &str) -> Option<(f64, f64, f64)> {
+        self.colors.get(key).copied()
+    }
+}
+
+/// Office default color scheme (used when theme1.xml is missing/partial).
+fn default_theme_colors() -> std::collections::HashMap<String, (f64, f64, f64)> {
+    let mut m = std::collections::HashMap::new();
+    for (k, v) in [
+        ("dk1", "000000"),
+        ("lt1", "FFFFFF"),
+        ("dk2", "44546A"),
+        ("lt2", "E7E6E6"),
+        ("accent1", "4472C4"),
+        ("accent2", "ED7D31"),
+        ("accent3", "A5A5A5"),
+        ("accent4", "FFC000"),
+        ("accent5", "5B9BD5"),
+        ("accent6", "70AD47"),
+        ("hlink", "0563C1"),
+        ("folHlink", "954F72"),
+    ] {
+        if let Some(c) = parse_hex_color(v) {
+            m.insert(k.to_string(), c);
+        }
+    }
+    m
+}
+
+/// Load `ppt/theme/theme1.xml`: color scheme (srgbClr/sysClr slots), the
+/// major/minor latin typefaces, and `<a:bgFillStyleLst>` fills.
+fn parse_theme_colors<R: std::io::Read + std::io::Seek>(
+    zip: &mut zip::ZipArchive<R>,
+) -> ThemeColors {
+    let mut theme = ThemeColors {
+        colors: default_theme_colors(),
+        major_font: "Calibri Light".into(),
+        minor_font: "Calibri".into(),
+        bg_fills: Vec::new(),
+    };
+    let Some(xml) = read_zip_text(zip, "ppt/theme/theme1.xml") else {
+        return theme;
+    };
+
+    // color scheme slots
+    if let Some(i) = find_open_tag(&xml, 0, "a:clrScheme") {
+        if let Some((s, e)) = element_span(&xml, i, "a:clrScheme") {
+            let scheme = &xml[s..e];
+            for slot in [
+                "dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4",
+                "accent5", "accent6", "hlink", "folHlink",
+            ] {
+                if let Some(si) = find_open_tag(scheme, 0, &format!("a:{}", slot)) {
+                    if let Some((ss, se)) = element_span(scheme, si, &format!("a:{}", slot)) {
+                        if let Some(c) = literal_hex(&scheme[ss..se]) {
+                            theme.colors.insert(slot.to_string(), c);
+                        }
+                    }
+                }
             }
         }
     }
-    out
+
+    // latin typefaces (skip theme placeholders like "+mj-lt")
+    if let Some(i) = find_open_tag(&xml, 0, "a:majorFont") {
+        if let Some((s, e)) = element_span(&xml, i, "a:majorFont") {
+            if let Some(f) = latin_typeface(&xml[s..e]) {
+                theme.major_font = f;
+            }
+        }
+    }
+    if let Some(i) = find_open_tag(&xml, 0, "a:minorFont") {
+        if let Some((s, e)) = element_span(&xml, i, "a:minorFont") {
+            if let Some(f) = latin_typeface(&xml[s..e]) {
+                theme.minor_font = f;
+            }
+        }
+    }
+
+    // <a:bgFillStyleLst> — what <p:bgRef idx="1001…"> points at
+    if let Some(i) = find_open_tag(&xml, 0, "a:bgFillStyleLst") {
+        if let Some((s, e)) = element_span(&xml, i, "a:bgFillStyleLst") {
+            let list = &xml[s..e];
+            let tmap = ClrMap::default_map();
+            let mut pos = 0usize;
+            while pos < list.len() {
+                let next = ["a:solidFill", "a:gradFill"]
+                    .into_iter()
+                    .filter_map(|n| find_open_tag(list, pos, n).map(|idx| (idx, n)))
+                    .min_by_key(|(idx, _)| *idx);
+                let Some((i, name)) = next else { break };
+                let Some((fs, fe)) = element_span(list, i, name) else { break };
+                pos = fe;
+                if let Some(f) = fill_from_element(&list[fs..fe], name, &theme, &tmap) {
+                    theme.bg_fills.push(f);
+                }
+            }
+        }
+    }
+    theme
 }
 
+/// Read a literal hex color (`<a:srgbClr>` / `<a:sysClr lastClr>`) from a
+/// theme color-slot fragment — used while parsing the theme itself, before a
+/// `ThemeColors` exists.
+fn literal_hex(frag: &str) -> Option<(f64, f64, f64)> {
+    for name in ["a:srgbClr", "a:sysClr"] {
+        if let Some(i) = find_open_tag(frag, 0, name) {
+            if let Some(t) = tag_substr(&frag[i..], &format!("<{}", name)) {
+                if let Some(v) = attr_value(&t, "lastClr").or_else(|| attr_value(&t, "val")) {
+                    if let Some(c) = parse_hex_color(&v) {
+                        return Some(c);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// `<a:latin typeface="…"/>` inside a font fragment; skips theme
+/// placeholders (`+mj-lt`, `{langid…}` linked fonts).
+fn latin_typeface(frag: &str) -> Option<String> {
+    let i = find_open_tag(frag, 0, "a:latin")?;
+    let t = tag_substr(&frag[i..], "<a:latin")?;
+    let f = attr_value(&t, "typeface")?;
+    if f.is_empty() || f.starts_with('+') || f.starts_with('{') {
+        None
+    } else {
+        Some(f)
+    }
+}
+
+/// `#RRGGBB` / `RRGGBB` (or 8-digit `RRGGBBAA`, alpha ignored) → 0..1.
 fn parse_hex_color(hex: &str) -> Option<(f64, f64, f64)> {
-    let h = hex.trim_start_matches('#');
-    if h.len() == 6 {
-        let r = u8::from_str_radix(&h[0..2], 16).ok()? as f64 / 255.0;
-        let g = u8::from_str_radix(&h[2..4], 16).ok()? as f64 / 255.0;
-        let b = u8::from_str_radix(&h[4..6], 16).ok()? as f64 / 255.0;
-        Some((r, g, b))
-    } else { None }
-}
-
-fn parse_solid_fill_color(xml: &str, theme: &std::collections::HashMap<String, (f64, f64, f64)>) -> Option<(f64, f64, f64)> {
-    let s = xml.find("<a:solidFill>")? + 13;
-    let e = xml[s..].find("</a:solidFill>")? + s;
-    let frag = &xml[s..e];
-    if let Some(v) = frag.find("val=\"").and_then(|v| { let end = frag[v+5..].find('"')?; Some(&frag[v+5..v+5+end]) }) {
-        if let Some(c) = parse_hex_color(v) { return Some(c); }
-        if let Some(c) = theme.get(v) { return Some(*c); }
+    let h = hex.trim().trim_start_matches('#');
+    if !h.is_ascii() || (h.len() != 6 && h.len() != 8) {
+        return None;
     }
-    None
+    let ch = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).ok().map(|v| v as f64 / 255.0);
+    Some((ch(0)?, ch(2)?, ch(4)?))
 }
 
-fn read_zip_rel_target<R: std::io::Read + std::io::Seek>(zip: &mut zip::ZipArchive<R>, rels_path: &str, r_id: &str) -> Option<String> {
-    let rels_xml = read_zip_text(zip, rels_path)?;
-    let needle = format!("Id=\"{}\"", r_id);
-    let s = rels_xml.find(&needle)?;
-    let frag = &rels_xml[s..];
-    let t = frag.find("Target=\"")? + 8;
-    let e = frag[t..].find('"')? + t;
-    Some(frag[t..e].to_string())
-}
-
-fn resolve_zip_media<R: std::io::Read + std::io::Seek>(zip: &mut zip::ZipArchive<R>, base_dir: &str, r_id: &str) -> Option<String> {
-    let rels_path = format!("{}/_rels/{}.rels", base_dir, base_dir.rsplit('/').next()?);
-    let target = read_zip_rel_target(zip, &rels_path, r_id)?;
-    let full_path = normalize_zip_rel(base_dir, &target);
-    if zip.by_name(&full_path).is_ok() { Some(full_path) } else { None }
-}
-
-fn parse_background_xml(xml: &str, theme: &std::collections::HashMap<String, (f64, f64, f64)>) -> Option<SlideBackground> {
-    let i = xml.find("<p:bg>")?;
-    let end = xml[i..].find("</p:bg>")? + i;
-    let frag = &xml[i..end];
-    if frag.contains("<a:solidFill>") {
-        return parse_solid_fill_color(frag, theme).map(|(r,g,b)| SlideBackground::Solid(r,g,b));
+/// Resolve the color that FILLS `frag`: the `<a:srgbClr>`/`<a:schemeClr>`/
+/// `<a:sysClr>` inside its `<a:solidFill>`, else its first direct color
+/// child (`fontRef`, `fillRef`, `gs`, `bgRef` …), including
+/// `<a:alpha|tint|shade|lumMod|lumOff>` children. Colors nested deeper —
+/// a drop-shadow's black in `<a:effectLst>`, a `<a:highlight>`, an outline
+/// in `<a:ln>` — are decoration, never a fill, and are ignored.
+/// Returns `(rgb, alpha 0..1)`; None when the fragment names no fill color.
+fn parse_color_el(frag: &str, theme: &ThemeColors, map: &ClrMap) -> Option<((f64, f64, f64), f64)> {
+    let solid = find_open_tag(frag, 0, "a:solidFill")
+        .and_then(|i| element_span(frag, i, "a:solidFill"));
+    let scope: &str = match solid {
+        Some((s, e)) => &frag[s..e],
+        None => frag,
+    };
+    // First DIRECT color child of `scope`, skipping other children wholesale
+    // (effectLst/ln/highlight contain colors that are not fills).
+    let mut pos = tag_end(scope, 0)?;
+    if scope[..pos].ends_with("/>") {
+        return None;
     }
-    if frag.contains("<a:gradFill>") {
-        // Approximate gradient with the first stop color.
-        if let Some(fst) = frag.find("<a:gs pos=") {
-            if let Some(stop) = &frag[fst..].find("</a:gs>").map(|e| &frag[fst..fst+e]) {
-                if let Some(c) = parse_solid_fill_color(stop, theme) {
-                    return Some(SlideBackground::Solid(c.0, c.1, c.2));
-                }
-            }
+    let (i, name): (usize, &str) = loop {
+        let lt = pos + scope[pos..].find('<')?;
+        if scope[lt + 1..].starts_with('/') {
+            return None; // `scope` closed without a color child
         }
-    }
-    None
-}
-
-fn parse_slide_backgrounds_from_xml<R: std::io::Read + std::io::Seek>(
-    slide_xml: &str, layout_path: &str, master_path: &str, zip: &mut zip::ZipArchive<R>,
-    theme: &std::collections::HashMap<String, (f64, f64, f64)>,
-) -> Option<SlideBackground> {
-    if let Some(bg) = parse_background_xml(slide_xml, theme) { return Some(bg); }
-    if !layout_path.is_empty() {
-        if let Some(layout_xml) = read_zip_text(zip, layout_path) {
-            if let Some(bg) = parse_background_xml(&layout_xml, theme) { return Some(bg); }
+        let te = tag_end(scope, lt)?;
+        let body = &scope[lt + 1..te];
+        let nlen = body
+            .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+            .unwrap_or(body.len());
+        let tag_name = &body[..nlen];
+        let name = match tag_name {
+            "a:srgbClr" | "a:schemeClr" | "a:sysClr" => tag_name,
+            _ => "",
+        };
+        if !name.is_empty() {
+            break (lt, name);
         }
-    }
-    if !master_path.is_empty() {
-        if let Some(master_xml) = read_zip_text(zip, master_path) {
-            if let Some(bg) = parse_background_xml(&master_xml, theme) { return Some(bg); }
-        }
-    }
-    None
-}
+        pos = if scope[lt..te].ends_with("/>") {
+            te
+        } else {
+            element_span(scope, lt, tag_name)
+                .map(|(_, e)| e)
+                .unwrap_or(te)
+        };
+    };
+    let (s, e) = element_span(scope, i, name)?;
+    let el = &scope[s..e];
+    let tag = tag_end(el, 0).map(|t| &el[..t]).unwrap_or(el);
+    let val = attr_value(tag, "val")?;
 
-fn parse_slide_backgrounds<R: std::io::Read + std::io::Seek>(
-    zip: &mut zip::ZipArchive<R>, slide_xml: &str, layout_path: &str, master_path: &str,
-    theme: &std::collections::HashMap<String, (f64, f64, f64)>,
-) -> Option<SlideBackground> {
-    if let Some(bg) = parse_background_xml(slide_xml, theme) { return Some(bg); }
-    if let Some(layout_xml) = read_zip_text(zip, layout_path) {
-        if let Some(bg) = parse_background_xml(&layout_xml, theme) { return Some(bg); }
-    }
-    if let Some(master_xml) = read_zip_text(zip, master_path) {
-        if let Some(bg) = parse_background_xml(&master_xml, theme) { return Some(bg); }
-    }
-    None
-}
+    let base: (f64, f64, f64) = if name == "a:srgbClr" {
+        parse_hex_color(&val)?
+    } else if name == "a:sysClr" {
+        // sysClr: `lastClr` is the concrete color; `val` may be a system name.
+        attr_value(tag, "lastClr").and_then(|v| parse_hex_color(&v)).or_else(|| parse_hex_color(&val))?
+    } else {
+        // schemeClr: map the logical slot through the part's clrMap to a
+        // theme key (tx1 → dk1, bg1 → lt1 …) and resolve it.
+        theme.color(&map.resolve(&val))?
+    };
 
-fn parse_slide_elements<R: std::io::Read + std::io::Seek>(
-    xml: &str, slide_base_dir: &str, zip: &mut zip::ZipArchive<R>,
-    theme: &std::collections::HashMap<String, (f64, f64, f64)>,
-) -> (Vec<SlideElement>, Vec<SlideBox>) {
-    let mut elements = Vec::new();
-    let mut text_boxes = Vec::new();
-    let mut pos = 0;
-    while let Some(start) = xml[pos..].find("<p:sp>").or_else(|| xml[pos..].find("<p:sp ")) {
-        let abs = pos + start;
-        if let Some(end_rel) = xml[abs..].find("</p:sp>") {
-            let shape = &xml[abs..abs + end_rel + 7];
-            pos = abs + end_rel + 7;
-            if let Some((x, y, w, h)) = parse_xfrm(shape) {
-                let fill = shape.find("<a:solidFill>").and_then(|_| parse_solid_fill_color(shape, theme));
-                elements.push(SlideElement::Shape(x, y, w, h, fill));
-            }
-            let runs = extract_text_runs(shape, "a:t");
-            if !runs.is_empty() {
-                let color = shape.find("<a:solidFill>").and_then(|_| parse_solid_fill_color(shape, theme));
-                let ph_type = tag_substr(shape, "<p:ph").and_then(|t| attr_value(&t, "type")).unwrap_or_default();
-                let is_title = ph_type == "title" || ph_type == "ctrTitle";
-                let centered = shape.contains("algn=\"ctr\"") || is_title;
-                let (mut x, mut y, mut w, mut h) = (0.0, 0.0, 0.0, 0.0);
-                let mut has_xfrm = false;
-                if let Some((ox, oy, ow, oh)) = parse_xfrm(shape) { x = ox; y = oy; w = ow; h = oh; has_xfrm = true; }
-                text_boxes.push(SlideBox { x, y, w, h, text: runs.join(" "), is_title, centered, font_pt: find_font_size(shape), has_xfrm, ph_type, color });
-            }
-        } else { break; }
-    }
-    while let Some(start) = xml[pos..].find("<p:pic>") {
-        let abs = pos + start;
-        if let Some(end_rel) = xml[abs..].find("</p:pic>") {
-            let pic = &xml[abs..abs + end_rel + 8];
-            pos = abs + end_rel + 8;
-            if let Some((x, y, w, h)) = parse_xfrm(pic) {
-                if let Some(rid) = pic.find("r:embed=\"").and_then(|v| { let e = pic[v+9..].find('"')?; Some(&pic[v+9..v+9+e]) }) {
-                    if let Some(media) = resolve_zip_media(zip, slide_base_dir, rid) {
-                        elements.push(SlideElement::Picture(x, y, w, h, PathBuf::from(media)));
+    // child transforms
+    let mut alpha = 1.0f64;
+    let mut lum_mod = 1.0f64;
+    let mut lum_off = 0.0f64;
+    let mut tint = 1.0f64;
+    let mut shade = 1.0f64;
+    for tname in ["a:alpha", "a:lumMod", "a:lumOff", "a:tint", "a:shade"] {
+        if let Some(i) = find_open_tag(el, 0, tname) {
+            if let Some(t) = tag_substr(&el[i..], &format!("<{}", tname)) {
+                if let Some(v) = attr_value(&t, "val").and_then(|v| v.parse::<f64>().ok()) {
+                    let v = (v / 100_000.0).clamp(0.0, 1.0);
+                    match tname {
+                        "a:alpha" => alpha = v,
+                        "a:lumMod" => lum_mod = v,
+                        "a:lumOff" => lum_off = v,
+                        "a:tint" => tint = v,
+                        "a:shade" => shade = v,
+                        _ => {}
                     }
                 }
             }
-        } else { break; }
+        }
     }
-    (elements, text_boxes)
+    // luminance scale + offset (channel-wise approximation), then tint
+    // (mix toward white) / shade (scale toward black)
+    let (mut r, mut g, mut b) = base;
+    r = (r * lum_mod + lum_off).clamp(0.0, 1.0);
+    g = (g * lum_mod + lum_off).clamp(0.0, 1.0);
+    b = (b * lum_mod + lum_off).clamp(0.0, 1.0);
+    let mix_white = |c: f64| (tint * c + (1.0 - tint)).clamp(0.0, 1.0);
+    let color = (mix_white(r) * shade, mix_white(g) * shade, mix_white(b) * shade);
+    Some((color, alpha))
 }
 
-fn parse_xfrm(shape: &str) -> Option<(f64, f64, f64, f64)> {
-    let off = tag_substr(shape, "<a:off ")?;
-    let ext = tag_substr(shape, "<a:ext ")?;
-    let x = attr_value(&off, "x")?.parse::<f64>().ok()?;
-    let y = attr_value(&off, "y")?.parse::<f64>().ok()?;
-    let w = attr_value(&ext, "cx")?.parse::<f64>().ok()?;
-    let h = attr_value(&ext, "cy")?.parse::<f64>().ok()?;
-    Some((x, y, w, h))
+/// Parse a fill element (the fragment STARTS at its open tag). `name` is the
+/// fill kind: noFill/solidFill/gradFill/pattFill. `<a:blipFill>` (picture
+/// fill) and unknowns return None → the caller falls through to lower layers.
+fn fill_from_element(
+    frag: &str,
+    name: &str,
+    theme: &ThemeColors,
+    map: &ClrMap,
+) -> Option<FillKind> {
+    let (s, e) = element_span(frag, 0, name)?;
+    let el = &frag[s..e];
+    match name {
+        "a:noFill" | "a:grpFill" => Some(FillKind::None),
+        "a:solidFill" => {
+            let (c, a) = parse_color_el(el, theme, map)?;
+            Some(FillKind::Solid(c, a))
+        }
+        "a:gradFill" => parse_gradient(el, theme, map),
+        "a:pattFill" => {
+            // patterned fills approximate to their foreground color
+            let i = find_open_tag(el, 0, "a:fgClr")?;
+            let (cs, ce) = element_span(el, i, "a:fgClr")?;
+            let (c, a) = parse_color_el(&el[cs..ce], theme, map)?;
+            Some(FillKind::Solid(c, a))
+        }
+        _ => None,
+    }
 }
 
-fn resolve_media_paths_from_rels(rels_xml: &str, base_dir: &str) -> std::collections::HashMap<String, PathBuf> {
-    let mut out = std::collections::HashMap::new();
-    for rel in rels_xml.split("<Relationship") {
-        if !rel.contains("image") { continue; }
-        if let (Some(rid), Some(target)) = (attr_value(rel, "Id"), attr_value(rel, "Target")) {
-            let full = normalize_zip_rel(base_dir, &target);
-            out.insert(rid, PathBuf::from(full));
+/// The first fill element inside `frag` (e.g. an `<p:spPr>`), resolved.
+/// Returns None when no fill is named (inherit a lower layer); `<a:noFill>`
+/// yields `Some(FillKind::None)` = an explicit "stop, no fill". Candidates
+/// inside `<a:ln>` are excluded — an outline's `<a:noFill/>` must not be
+/// mistaken for the shape's fill.
+fn parse_fill_el(frag: &str, theme: &ThemeColors, map: &ClrMap) -> Option<FillKind> {
+    let ln_start = find_open_tag(frag, 0, "a:ln").unwrap_or(usize::MAX);
+    let (i, name) = ["a:noFill", "a:solidFill", "a:gradFill", "a:pattFill", "a:grpFill", "a:blipFill"]
+        .into_iter()
+        .filter_map(|n| find_open_tag(frag, 0, n).map(|idx| (idx, n)))
+        .filter(|(idx, _)| *idx < ln_start)
+        .min_by_key(|(idx, _)| *idx)?;
+    fill_from_element(&frag[i..], name, theme, map)
+}
+
+/// `<a:gradFill>` → gradient stops + direction angle (cairo convention:
+/// 0 = left→right, positive = clockwise — same as DrawingML `ang`).
+fn parse_gradient(el: &str, theme: &ThemeColors, map: &ClrMap) -> Option<FillKind> {
+    let mut stops: Vec<(f64, (f64, f64, f64), f64)> = Vec::new();
+    let mut pos = 0usize;
+    while let Some(i) = find_open_tag(el, pos, "a:gs") {
+        let Some((s, e)) = element_span(el, i, "a:gs") else { break };
+        pos = e;
+        let gs = &el[s..e];
+        let t = tag_end(gs, 0).map(|t| &gs[..t]).unwrap_or("");
+        let p = attr_value(t, "pos").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0) / 100_000.0;
+        if let Some((c, a)) = parse_color_el(gs, theme, map) {
+            stops.push((p.clamp(0.0, 1.0), c, a));
+        }
+    }
+    if stops.is_empty() {
+        return None;
+    }
+    stops.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    // direction: <a:lin ang="…" /> in 60000ths of a degree; path/circle
+    // gradients approximate to top→bottom
+    let mut angle = std::f64::consts::FRAC_PI_2;
+    if let Some(i) = find_open_tag(el, 0, "a:lin") {
+        if let Some(t) = tag_substr(&el[i..], "<a:lin") {
+            if let Some(v) = attr_value(&t, "ang").and_then(|v| v.parse::<f64>().ok()) {
+                angle = (v / 60_000.0).to_radians();
+            }
+        }
+    }
+    Some(FillKind::Gradient(stops, angle))
+}
+
+/// Outline of a shape: absent (`Inherit`), explicitly hidden, or a spec.
+enum LineChoice {
+    Inherit,
+    Hide,
+    Spec(LineSpec),
+}
+
+/// Parse `<a:ln>` from a shape's spPr fragment.
+fn parse_ln_el(frag: &str, theme: &ThemeColors, map: &ClrMap) -> LineChoice {
+    let Some(i) = find_open_tag(frag, 0, "a:ln") else { return LineChoice::Inherit };
+    let Some((s, e)) = element_span(frag, i, "a:ln") else { return LineChoice::Inherit };
+    let ln = &frag[s..e];
+    if find_open_tag(ln, 0, "a:noFill").is_some() {
+        return LineChoice::Hide;
+    }
+    let w = tag_end(ln, 0)
+        .and_then(|t| attr_value(&ln[..t], "w"))
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(12_700.0)
+        .max(1.0);
+    if let Some((c, a)) = parse_color_el(ln, theme, map) {
+        return LineChoice::Spec(LineSpec { color: c, alpha: a, width_emu: w });
+    }
+    // `<a:ln w="…">` with no color child: black hairline
+    LineChoice::Spec(LineSpec { color: (0.0, 0.0, 0.0), alpha: 1.0, width_emu: w })
+}
+
+/// Resolve one part's `<p:bg>`: picture (blip), explicit solid/gradient, or
+/// theme `<p:bgRef idx>` — None when the part names no usable background (the
+/// caller then tries the next part down the slide → layout → master chain).
+fn parse_bg_el(
+    xml: &str,
+    media: &std::collections::HashMap<String, PathBuf>,
+    theme: &ThemeColors,
+    map: &ClrMap,
+) -> Option<SlideBackground> {
+    let i = find_open_tag(xml, 0, "p:bg")?;
+    let (s, e) = element_span(xml, i, "p:bg")?;
+    let bg = &xml[s..e];
+
+    // picture background: <p:bg><a:blipFill><a:blip r:embed="rIdN"/>
+    if let Some(bi) = find_open_tag(bg, 0, "a:blip") {
+        if let Some(t) = tag_substr(&bg[bi..], "<a:blip") {
+            if let Some(rid) = attr_value(&t, "r:embed").or_else(|| attr_value(&t, "r:link")) {
+                if let Some(p) = media.get(&rid) {
+                    return Some(SlideBackground::Image(p.clone()));
+                }
+            }
+        }
+    }
+
+    // explicit fill (solid/gradient, usually inside <p:bgPr>); an explicit
+    // noFill means "keep searching" up the chain
+    if let Some(f) = parse_fill_el(bg, theme, map) {
+        match f {
+            FillKind::Solid(c, _) => return Some(SlideBackground::Solid(c.0, c.1, c.2)),
+            FillKind::Gradient(stops, ang) => return Some(SlideBackground::Gradient(stops, ang)),
+            FillKind::None => {}
+        }
+    }
+
+    // theme reference: <p:bgRef idx="1001"><a:schemeClr…/>
+    if let Some(i) = find_open_tag(bg, 0, "p:bgRef") {
+        let Some((s, e)) = element_span(bg, i, "p:bgRef") else { return None };
+        let ref_frag = &bg[s..e];
+        let idx = tag_end(ref_frag, 0)
+            .and_then(|t| attr_value(&ref_frag[..t], "idx"))
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(0);
+        if idx >= 1000 {
+            // bgFillStyleLst entries are 0-based; PowerPoint's idx counts from
+            // 1001 (try 1001-base first, then 1000-base for producers that
+            // start at 1000).
+            let n = theme.bg_fills.len();
+            let k = [idx.checked_sub(1001), idx.checked_sub(1000)]
+                .into_iter()
+                .flatten()
+                .find(|k| *k < n);
+            if let Some(k) = k {
+                match &theme.bg_fills[k] {
+                    FillKind::Solid(c, _) => return Some(SlideBackground::Solid(c.0, c.1, c.2)),
+                    FillKind::Gradient(stops, ang) => {
+                        return Some(SlideBackground::Gradient(stops.clone(), *ang));
+                    }
+                    FillKind::None => {}
+                }
+            }
+        }
+        // child color (e.g. <p:bgRef idx="1000"><a:schemeClr val="bg1"/>)
+        if let Some((c, _)) = parse_color_el(ref_frag, theme, map) {
+            return Some(SlideBackground::Solid(c.0, c.1, c.2));
+        }
+    }
+    None
+}
+
+// ── PPTX text frames: paragraphs, runs, bullets ──
+
+/// Everything `parse_tx_body` needs: the shape's style-layer stack plus a
+/// per-frame auto-numbering counter (`(kind, level) → current value`).
+struct TxEnv<'a> {
+    src: StyleSource<'a>,
+    nums: std::collections::HashMap<(String, usize), u32>,
+}
+
+impl<'a> TxEnv<'a> {
+    fn new(src: StyleSource<'a>) -> TxEnv<'a> {
+        TxEnv { src, nums: std::collections::HashMap::new() }
+    }
+}
+
+/// Parse a `<p:txBody>`: `<a:bodyPr>` (anchor / insets / normAutofit) and
+/// `<a:p>` paragraphs with per-run formatting.
+/// Returns `(paras, anchor, insets EMU, autofit scale)`.
+fn parse_tx_body(tx: &str, env: &mut TxEnv) -> (Vec<TextPara>, u8, [f64; 4], f64) {
+    // ── <a:bodyPr>: vertical anchor, text insets, autofit scale ──
+    let mut anchor = 0u8;
+    let mut insets = [91_440.0, 45_720.0, 91_440.0, 45_720.0]; // l, t, r, b (EMU)
+    let mut autofit = 1.0f64;
+    if let Some(i) = find_open_tag(tx, 0, "a:bodyPr") {
+        if let Some((s, e)) = element_span(tx, i, "a:bodyPr") {
+            let body = &tx[s..e];
+            let open = tag_end(body, 0).map(|t| &body[..t]).unwrap_or("");
+            anchor = match attr_value(open, "anchor").as_deref() {
+                Some("ctr") => 1,
+                Some("b") => 2,
+                _ => 0,
+            };
+            for (attr, slot) in [("lIns", 0usize), ("tIns", 1), ("rIns", 2), ("bIns", 3)] {
+                if let Some(v) = attr_value(open, attr).and_then(|v| v.parse::<f64>().ok()) {
+                    insets[slot] = v;
+                }
+            }
+            if let Some(fi) = find_open_tag(body, 0, "a:normAutofit") {
+                if let Some(t) = tag_substr(&body[fi..], "<a:normAutofit") {
+                    if let Some(v) = attr_value(&t, "fontScale").and_then(|v| v.parse::<f64>().ok()) {
+                        autofit = (v / 100_000.0).clamp(0.1, 4.0);
+                    }
+                }
+            }
+        }
+    }
+
+    // ── paragraphs ──
+    let mut paras = Vec::new();
+    let mut pos = 0usize;
+    while let Some(i) = find_open_tag(tx, pos, "a:p") {
+        let Some((s, e)) = element_span(tx, i, "a:p") else { break };
+        pos = e;
+        parse_paragraph(&tx[s..e], env, &mut paras);
+    }
+
+    // Trailing empty paragraphs only add dead vertical space; drop them
+    // (a body whose text lives entirely in the master's prompt text must
+    // render as nothing at all, not as a stack of blanks).
+    while paras
+        .last()
+        .map(|p| p.runs.iter().all(|r| r.text.trim().is_empty()))
+        .unwrap_or(false)
+    {
+        paras.pop();
+    }
+    (paras, anchor, insets, autofit)
+}
+
+/// Parse one `<a:p>`: paragraph properties (level, alignment, bullet,
+/// spacing, `defRPr` defaults) + content (`<a:r>`, `<a:br>` splits,
+/// `<a:fld>` fields) in document order.
+fn parse_paragraph(pfrag: &str, env: &mut TxEnv, out: &mut Vec<TextPara>) {
+    // ── <a:pPr> ──
+    let ppr: Option<&str> = find_open_tag(pfrag, 0, "a:pPr")
+        .and_then(|i| element_span(pfrag, i, "a:pPr"))
+        .map(|(s, e)| &pfrag[s..e]);
+    let ppr_tag = ppr.and_then(|p| tag_substr(p, "<a:pPr"));
+
+    let lvl = ppr_tag
+        .as_deref()
+        .and_then(|t| attr_value(t, "lvl"))
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0)
+        .min(8);
+
+    // Level defaults from the shape's style stack, heuristic gaps filled.
+    let mut base = env.src.level(lvl);
+    env.src.finish(&mut base);
+
+    // Alignment: pPr attr wins over the level's, then the heuristic default.
+    let mut algn = ppr_tag
+        .as_deref()
+        .and_then(|t| attr_value(t, "algn"))
+        .or_else(|| base.algn.clone())
+        .unwrap_or_else(|| "l".into());
+    if algn == "just" {
+        algn = "l".into(); // this Pango binding has no justify
+    }
+
+    // Bullet: pPr children win over the level's, then "no bullet".
+    let bullet_layer = ppr.map(parse_bullet_layer).unwrap_or(BulletLayer::Inherit);
+    let bullet_layer = match bullet_layer {
+        BulletLayer::Inherit => base.bullet.clone(),
+        other => other,
+    };
+    let bullet = match bullet_layer {
+        BulletLayer::Off => Some(ParaBullet::Off),
+        BulletLayer::Inherit => None,
+        BulletLayer::Char(c) => Some(ParaBullet::Char(c)),
+        BulletLayer::AutoNum(kind) => {
+            let n = env.nums.entry((kind.clone(), lvl)).or_insert(0);
+            *n += 1;
+            Some(ParaBullet::Number(kind, *n))
+        }
+    };
+
+    // marL (text column) + hanging indent: pPr attrs win over the level's,
+    // then a lvl-staggered default. `indent` is the margin-zone width (the
+    // standard pairing is indent = −marL); when absent it defaults to marL.
+    let mar_l_emu = ppr_tag
+        .as_deref()
+        .and_then(|t| attr_value(t, "marL"))
+        .and_then(|v| v.parse::<f64>().ok())
+        .or(base.mar_l_emu)
+        .unwrap_or_else(|| lvl as f64 * 342_900.0);
+    let hang_emu = ppr_tag
+        .as_deref()
+        .and_then(|t| attr_value(t, "indent"))
+        .and_then(|v| v.parse::<f64>().ok())
+        .map(|v| v.abs())
+        .unwrap_or(mar_l_emu);
+
+    // ── <a:defRPr> inside pPr: paragraph-level run defaults ──
+    if let Some(p) = ppr {
+        if let Some(i) = find_open_tag(p, 0, "a:defRPr") {
+            if let Some((s, e)) = element_span(p, i, "a:defRPr") {
+                apply_rpr(&mut base, &p[s..e], env.src.theme, env.src.map);
+            }
+        }
+    }
+
+    // ── spacing (only spcPts is meaningful for stacking) ──
+    let mut spc_bef = 0.0f64;
+    let mut spc_aft = 0.0f64;
+    if let Some(p) = ppr {
+        for (name, slot) in [("a:spcBef", 0usize), ("a:spcAft", 1)] {
+            if let Some(i) = find_open_tag(p, 0, name) {
+                if let Some((s, e)) = element_span(p, i, name) {
+                    let frag = &p[s..e];
+                    if let Some(pi) = find_open_tag(frag, 0, "a:spcPts") {
+                        if let Some(t) = tag_substr(&frag[pi..], "<a:spcPts") {
+                            if let Some(v) = attr_value(&t, "val").and_then(|v| v.parse::<f64>().ok()) {
+                                let pts = v / 100.0;
+                                if slot == 0 {
+                                    spc_bef = pts;
+                                } else {
+                                    spc_aft = pts;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── content in document order: <a:r>, <a:br>, <a:fld> ──
+    let mut cur = TextPara {
+        runs: Vec::new(),
+        algn: algn.clone(),
+        lvl,
+        bullet,
+        spc_bef_pt: spc_bef,
+        spc_aft_pt: spc_aft,
+        follow: false,
+        mar_l_emu,
+        hang_emu,
+    };
+    let mut pos = 0usize;
+    loop {
+        let next = ["a:r", "a:br", "a:fld"]
+            .iter()
+            .filter_map(|n| find_open_tag(pfrag, pos, n).map(|i| (i, *n)))
+            .min_by_key(|(i, _)| *i);
+        let Some((i, name)) = next else { break };
+        let Some((s, e)) = element_span(pfrag, i, name) else { break };
+        pos = e;
+        match name {
+            // line break: flush the current line as a paragraph, continue as
+            // a bullet-less follow-up sharing alignment (spacing stays on the
+            // last piece of the sequence)
+            "a:br" => {
+                let mut flushed = std::mem::replace(
+                    &mut cur,
+                    TextPara {
+                        runs: Vec::new(),
+                        algn: algn.clone(),
+                        lvl,
+                        bullet: None,
+                        spc_bef_pt: 0.0,
+                        spc_aft_pt: spc_aft,
+                        follow: true,
+                        mar_l_emu,
+                        hang_emu,
+                    },
+                );
+                flushed.spc_aft_pt = 0.0;
+                out.push(flushed);
+            }
+            "a:r" | "a:fld" => {
+                let run_frag = &pfrag[s..e];
+                let rpr: Option<&str> = find_open_tag(run_frag, 0, "a:rPr")
+                    .and_then(|ii| element_span(run_frag, ii, "a:rPr"))
+                    .map(|(ss, ee)| &run_frag[ss..ee]);
+                let mut run_base = base.clone();
+                if let Some(rp) = rpr {
+                    apply_rpr(&mut run_base, rp, env.src.theme, env.src.map);
+                }
+                let text = run_texts(run_frag);
+                if text.is_empty() {
+                    continue;
+                }
+                // typeface: run's concrete family, theme placeholders mapped,
+                // empty/absent falls back to the level default
+                let font = run_base
+                    .font
+                    .as_deref()
+                    .filter(|f| !f.is_empty())
+                    .and_then(|f| env.src.font_name(f))
+                    .or_else(|| base.font.clone());
+                cur.runs.push(TextRun {
+                    text,
+                    sz_pt: run_base.sz_pt,
+                    bold: run_base.bold.unwrap_or(false),
+                    italic: run_base.italic.unwrap_or(false),
+                    underline: run_base.underline.unwrap_or(false),
+                    color: run_base.color,
+                    font,
+                });
+            }
+            _ => unreachable!(),
+        }
+    }
+    out.push(cur);
+}
+
+/// Concatenated `<a:t>` text of a run/field fragment (entities decoded).
+fn run_texts(frag: &str) -> String {
+    let mut out = String::new();
+    let mut pos = 0usize;
+    while let Some(i) = find_open_tag(frag, pos, "a:t") {
+        let Some((s, e)) = element_span(frag, i, "a:t") else { break };
+        pos = e;
+        let el = &frag[s..e];
+        if el.ends_with("/>") {
+            continue; // <a:t/>
+        }
+        let body_start = match tag_end(el, 0) {
+            Some(t) => t,
+            None => continue,
+        };
+        let body_end = el.len().saturating_sub("</a:t>".len());
+        if body_end >= body_start {
+            out.push_str(&decode_xml_entities(&el[body_start..body_end]));
         }
     }
     out
 }
 
-fn parse_slide_elements_from_map(
-    xml: &str, media_map: &std::collections::HashMap<String, PathBuf>,
-    theme: &std::collections::HashMap<String, (f64, f64, f64)>,
-) -> (Vec<SlideElement>, Vec<SlideBox>) {
-    let mut elements = Vec::new();
-    let mut text_boxes = Vec::new();
-    let mut pos = 0;
-    while let Some(start) = xml[pos..].find("<p:sp>").or_else(|| xml[pos..].find("<p:sp ")) {
-        let abs = pos + start;
-        if let Some(end_rel) = xml[abs..].find("</p:sp>") {
-            let shape = &xml[abs..abs + end_rel + 7];
-            pos = abs + end_rel + 7;
-            if let Some((x, y, w, h)) = parse_xfrm(shape) {
-                let fill = shape.find("<a:solidFill>").and_then(|_| parse_solid_fill_color(shape, theme));
-                elements.push(SlideElement::Shape(x, y, w, h, fill));
+// ── Shape-tree walk: document order, groups, placeholders ──
+
+/// Which package part's shape tree is being walked.
+#[derive(Clone, Copy, PartialEq)]
+enum PartRole {
+    Master,
+    Layout,
+    Slide,
+}
+
+/// Shared inputs for walking one part's shape tree.
+struct WalkCtx<'a> {
+    role: PartRole,
+    theme: &'a ThemeColors,
+    map: &'a ClrMap,
+    /// rId → extracted media path for THIS part.
+    media: &'a std::collections::HashMap<String, PathBuf>,
+    /// Master `<p:txStyles>`.
+    tx: Option<&'a TxStyles>,
+    /// Placeholder defs already collected from the layout / master.
+    layout_ph: &'a [PhDef],
+    master_ph: &'a [PhDef],
+    /// Theme typefaces (`+mj-lt` / `+mn-lt` resolution).
+    major_font: &'a str,
+    minor_font: &'a str,
+    /// Chart rels already parsed from the zip (rId → doughnut spec). The
+    /// shape-tree walk only sees the slide XML, so `parse_pptx_slide`
+    /// pre-resolves every `<c:chart r:id>` target before walking.
+    charts: &'a std::collections::HashMap<String, DoughnutSpec>,
+}
+
+/// Walk a part's `spTree` (or a group's children) in document order — the
+/// resulting element order IS the z-order. Master/layout placeholder shapes
+/// are collected into `ph_defs` instead of being drawn (the slide
+/// instantiates them); everything else becomes drawable elements.
+fn parse_shape_tree(
+    xml: &str,
+    role: PartRole,
+    parent: XformMap,
+    ctx: &WalkCtx,
+    out: &mut Vec<SlideElement>,
+    ph_defs: &mut Vec<PhDef>,
+) {
+    // Full part or group-children fragment; use the spTree span when present
+    // so nvGrpSpPr/grpSpPr bookkeeping children are skipped.
+    let tree: &str = match find_open_tag(xml, 0, "p:spTree").and_then(|i| element_span(xml, i, "p:spTree"))
+    {
+        Some((s, e)) => &xml[s..e],
+        None => xml,
+    };
+
+    const OPENS: [(&str, &str); 5] = [
+        ("p:sp", "p:sp"),
+        ("p:pic", "p:pic"),
+        ("p:grpSp", "p:grpSp"),
+        ("p:cxnSp", "p:cxnSp"),
+        ("p:graphicFrame", "p:graphicFrame"),
+    ];
+    let mut pos = 0usize;
+    while let Some((i, name)) = OPENS
+        .iter()
+        .filter_map(|(n, c)| find_open_tag(tree, pos, n).map(|i| (i, *c)))
+        .min_by_key(|(i, _)| *i)
+    {
+        // Groups need depth-matched close tags (nested groups).
+        let span = if name == "p:grpSp" {
+            grp_end(tree, i).map(|e| (i, e))
+        } else {
+            element_span(tree, i, name)
+        };
+        let Some((s, e)) = span else { break };
+        pos = e;
+        let frag = &tree[s..e];
+        match name {
+            "p:grpSp" => {
+                // compose the group transform: off/ext frame + chOff/chExt
+                // child space + flips, applied to everything inside
+                let child_map = frag
+                    .find("<p:grpSpPr")
+                    .and_then(|_| {
+                        let gi = find_open_tag(frag, 0, "p:grpSpPr")?;
+                        let (gs, ge) = element_span(frag, gi, "p:grpSpPr")?;
+                        let pr = &frag[gs..ge];
+                        let xi = find_open_tag(pr, 0, "a:xfrm")?;
+                        let (xs, xe) = element_span(pr, xi, "a:xfrm")?;
+                        Some(parse_raw_xfrm(&pr[xs..xe]))
+                    })
+                    .map(|rx| compose_group(parent, &rx))
+                    .unwrap_or(parent);
+                // recurse with the group's CHILDREN (between its open and
+                // close tags) — passing the whole element would re-find it
+                let content_start = tag_end(tree, s).unwrap_or(e);
+                let children = &tree[content_start..e.saturating_sub("</p:grpSp>".len())];
+                parse_shape_tree(children, role, child_map, ctx, out, ph_defs);
             }
-            let runs = extract_text_runs(shape, "a:t");
-            if !runs.is_empty() {
-                let color = shape.find("<a:solidFill>").and_then(|_| parse_solid_fill_color(shape, theme));
-                let ph_type = tag_substr(shape, "<p:ph").and_then(|t| attr_value(&t, "type")).unwrap_or_default();
-                let is_title = ph_type == "title" || ph_type == "ctrTitle";
-                let centered = shape.contains("algn=\"ctr\"") || is_title;
-                let (mut x, mut y, mut w, mut h) = (0.0, 0.0, 0.0, 0.0);
-                let mut has_xfrm = false;
-                if let Some((ox, oy, ow, oh)) = parse_xfrm(shape) { x = ox; y = oy; w = ow; h = oh; has_xfrm = true; }
-                text_boxes.push(SlideBox { x, y, w, h, text: runs.join(" "), is_title, centered, font_pt: find_font_size(shape), has_xfrm, ph_type, color });
-            }
-        } else { break; }
+            "p:sp" => handle_sp(frag, parent, ctx, out, ph_defs),
+            "p:pic" => handle_pic(frag, parent, ctx, out),
+            "p:cxnSp" => handle_cxn(frag, parent, ctx, out),
+            // p:graphicFrame: doughnut charts render; tables/SmartArt and
+            // other chart types — Phase 3, skipped.
+            "p:graphicFrame" => handle_graphic_frame(frag, parent, ctx, out),
+            _ => {}
+        }
     }
-    while let Some(start) = xml[pos..].find("<p:pic>") {
-        let abs = pos + start;
-        if let Some(end_rel) = xml[abs..].find("</p:pic>") {
-            let pic = &xml[abs..abs + end_rel + 8];
-            pos = abs + end_rel + 8;
-            if let Some((x, y, w, h)) = parse_xfrm(pic) {
-                if let Some(rid) = pic.find("r:embed=\"").and_then(|v| { let e = pic[v+9..].find('"')?; Some(&pic[v+9..v+9+e]) }) {
-                    if let Some(media) = media_map.get(rid) {
-                        elements.push(SlideElement::Picture(x, y, w, h, PathBuf::from(media)));
-                    }
+}
+
+/// One `<p:sp>`: placeholder identity, geometry, fill/line/style, text.
+/// Placeholders in layout/master parts become inheritance definitions
+/// (`PhDef`); everything else renders as Shape + inline Text in that order.
+#[allow(clippy::too_many_arguments)]
+fn handle_sp(
+    frag: &str,
+    parent: XformMap,
+    ctx: &WalkCtx,
+    out: &mut Vec<SlideElement>,
+    ph_defs: &mut Vec<PhDef>,
+) {
+    // ── identity: placeholder type / idx ──
+    let ph_tag = find_open_tag(frag, 0, "p:ph").and_then(|i| tag_substr(&frag[i..], "<p:ph"));
+    let ph_idx = ph_tag
+        .as_deref()
+        .and_then(|t| attr_value(t, "idx"))
+        .and_then(|v| v.parse::<u32>().ok());
+    // ECMA default placeholder type is "obj".
+    let ph_type = ph_tag
+        .as_deref()
+        .and_then(|t| attr_value(t, "type"))
+        .unwrap_or_else(|| "obj".into());
+    let is_ph = ph_tag.is_some();
+
+    // ── spPr: geometry, fill, line, preset ──
+    let sp_pr: Option<&str> = find_open_tag(frag, 0, "p:spPr")
+        .and_then(|i| element_span(frag, i, "p:spPr"))
+        .map(|(s, e)| &frag[s..e]);
+    let xfrm: Option<RawXfrm> = sp_pr.and_then(|spr| {
+        let xi = find_open_tag(spr, 0, "a:xfrm")?;
+        let (xs, xe) = element_span(spr, xi, "a:xfrm")?;
+        Some(parse_raw_xfrm(&spr[xs..xe]))
+    });
+    let own_geo = xfrm
+        .as_ref()
+        .and_then(|x| x.rect())
+        .map(|(x, y, w, h)| parent.apply_rect(x, y, w, h));
+    let (rot, flip_h, flip_v) = xfrm
+        .as_ref()
+        .map(|x| (x.rot, x.flip_h, x.flip_v))
+        .unwrap_or((0.0, false, false));
+    let explicit_fill: Option<FillKind> = sp_pr.and_then(|s| parse_fill_el(s, ctx.theme, ctx.map));
+    let explicit_line: LineChoice =
+        sp_pr.map(|s| parse_ln_el(s, ctx.theme, ctx.map)).unwrap_or(LineChoice::Inherit);
+    let prst = sp_pr
+        .and_then(|spr| {
+            let gi = find_open_tag(spr, 0, "a:prstGeom")?;
+            let t = tag_substr(&spr[gi..], "<a:prstGeom")?;
+            attr_value(&t, "prst")
+        })
+        .unwrap_or_else(|| "rect".into());
+    // `<a:custGeom>` freeform geometry (world-map style artwork); None →
+    // the preset path above applies instead.
+    let freeform = sp_pr.and_then(parse_freeform_paths);
+    let style = parse_pstyle(frag, ctx.theme, ctx.map);
+
+    // ── master / layout: placeholders become definitions ──
+    if ctx.role != PartRole::Slide && is_ph {
+        let lst = find_open_tag(frag, 0, "a:lstStyle")
+            .and_then(|i| element_span(frag, i, "a:lstStyle"))
+            .map(|(s, e)| parse_lst_style(&frag[s..e], ctx.theme, ctx.map))
+            .unwrap_or_default();
+        // fill/line: explicit spPr wins, else this part's own p:style
+        let fill = explicit_fill.or_else(|| style.as_ref().and_then(|s| s.fill.clone()));
+        let line = match explicit_line {
+            LineChoice::Spec(l) => Some(l),
+            LineChoice::Hide => None,
+            LineChoice::Inherit => style.as_ref().and_then(|s| s.line.clone()),
+        };
+        ph_defs.push(PhDef { ph_type, idx: ph_idx, geo: own_geo, fill, line, lst });
+        return;
+    }
+
+    // ── resolve inheritance (slide placeholders only) ──
+    let (layout_def, master_def) = if is_ph && ctx.role == PartRole::Slide {
+        (find_ph(ctx.layout_ph, &ph_type, ph_idx), find_ph(ctx.master_ph, &ph_type, ph_idx))
+    } else {
+        (None, None)
+    };
+    let geo = own_geo
+        .or_else(|| layout_def.and_then(|d| d.geo))
+        .or_else(|| master_def.and_then(|d| d.geo));
+
+    // Fill chain: own spPr explicit (incl. noFill stop) → layout ph →
+    // master ph → own p:style fillRef.
+    let fill: Option<FillKind> = explicit_fill
+        .or_else(|| layout_def.and_then(|d| d.fill.clone()))
+        .or_else(|| master_def.and_then(|d| d.fill.clone()))
+        .or_else(|| style.as_ref().and_then(|s| s.fill.clone()));
+    // Line chain: same precedence; explicit noFill hides the outline.
+    let line: Option<LineSpec> = match explicit_line {
+        LineChoice::Spec(l) => Some(l),
+        LineChoice::Hide => None,
+        LineChoice::Inherit => layout_def
+            .and_then(|d| d.line.clone())
+            .or_else(|| master_def.and_then(|d| d.line.clone()))
+            .or_else(|| style.as_ref().and_then(|s| s.line.clone())),
+    };
+
+    // ── drawable box (only when something is actually painted) ──
+    if let Some(g) = geo {
+        let fill_visible = matches!(fill, Some(FillKind::Solid(..)) | Some(FillKind::Gradient(..)));
+        if fill_visible || line.is_some() {
+            out.push(SlideElement::Shape(DrawShape {
+                x: g.0,
+                y: g.1,
+                w: g.2,
+                h: g.3,
+                prst: prst.clone(),
+                fill,
+                line,
+                rot,
+                flip_h,
+                flip_v,
+                freeform,
+            }));
+        }
+    }
+
+    // ── text: only the part's OWN txBody (master/layout prompts and "Click
+    // to add…" instructions are placeholders, which returned above) ──
+    if let Some(tx) = find_open_tag(frag, 0, "p:txBody")
+        .and_then(|i| element_span(frag, i, "p:txBody"))
+        .map(|(s, e)| &frag[s..e])
+    {
+        let kind = if is_ph { ph_kind_of(&ph_type) } else { PhKind::Other };
+        let src = StyleSource {
+            kind,
+            centered_title: ph_type == "ctrTitle",
+            layout_ph: layout_def,
+            master_ph: master_def,
+            tx: ctx.tx,
+            font_ref_color: style.as_ref().and_then(|s| s.font_color),
+            major_font: ctx.major_font,
+            minor_font: ctx.minor_font,
+            theme: ctx.theme,
+            map: ctx.map,
+        };
+        let mut env = TxEnv::new(src);
+        let (paras, anchor, insets, autofit) = parse_tx_body(tx, &mut env);
+        let has_text = paras
+            .iter()
+            .any(|p| p.runs.iter().any(|r| !r.text.trim().is_empty()));
+        if has_text {
+            let g = geo.unwrap_or((0.0, 0.0, 0.0, 0.0)); // filled in later if absent
+            let is_title = matches!(ph_type.as_str(), "title" | "ctrTitle");
+            out.push(SlideElement::Text(SlideBox {
+                x: g.0,
+                y: g.1,
+                w: g.2,
+                h: g.3,
+                text: plain_text(&paras),
+                is_title,
+                centered: paras.first().map(|p| p.algn == "ctr").unwrap_or(false),
+                font_pt: paras.iter().flat_map(|p| p.runs.iter()).find_map(|r| r.sz_pt),
+                has_xfrm: geo.is_some(),
+                ph_type,
+                color: paras.iter().flat_map(|p| p.runs.iter()).find_map(|r| r.color),
+                paras: Some(paras),
+                anchor,
+                insets,
+                autofit_scale: autofit,
+            }));
+        }
+    }
+}
+
+/// Parse an `<a:lstStyle>` (`lvl1pPr`…`lvl9pPr`) into per-level defs.
+fn parse_lst_style(frag: &str, theme: &ThemeColors, map: &ClrMap) -> Vec<TextStyleDef> {
+    parse_levels(frag, theme, map)
+}
+
+/// Plain concatenated text of resolved paragraphs (for info cards/debug).
+fn plain_text(paras: &[TextPara]) -> String {
+    let mut s = String::new();
+    for p in paras {
+        for r in &p.runs {
+            s.push_str(&r.text);
+        }
+        s.push('\n');
+    }
+    s.trim_end_matches('\n').to_string()
+}
+
+/// One `<p:pic>`: absolute rect, embedded image, `srcRect` crop, outline.
+/// The blip + crop live in `<p:blipFill>`, a sibling of `<p:spPr>`, so the
+/// whole element is searched.
+fn handle_pic(frag: &str, parent: XformMap, ctx: &WalkCtx, out: &mut Vec<SlideElement>) {
+    let sp_pr = find_open_tag(frag, 0, "p:spPr")
+        .and_then(|i| element_span(frag, i, "p:spPr"))
+        .map(|(s, e)| &frag[s..e]);
+    let xfrm: Option<RawXfrm> = sp_pr.and_then(|spr| {
+        let xi = find_open_tag(spr, 0, "a:xfrm")?;
+        let (xs, xe) = element_span(spr, xi, "a:xfrm")?;
+        Some(parse_raw_xfrm(&spr[xs..xe]))
+    });
+    let Some(x) = xfrm else { return };
+    let Some((ox, oy, w, h)) = x.rect() else { return };
+    let (px, py, pw, ph) = parent.apply_rect(ox, oy, w, h);
+    if pw <= 0.0 || ph <= 0.0 {
+        return;
+    }
+
+    let rid = find_open_tag(frag, 0, "a:blip")
+        .and_then(|i| tag_substr(&frag[i..], "<a:blip"))
+        .and_then(|t| attr_value(&t, "r:embed").or_else(|| attr_value(&t, "r:link")));
+    let Some(path) = rid.and_then(|r| ctx.media.get(&r).cloned()) else { return };
+
+    // <a:srcRect l="…" t="…" r="…" b="…" /> — fractions of 100000 cut off
+    let mut crop = [0.0f64; 4];
+    if let Some(i) = find_open_tag(frag, 0, "a:srcRect") {
+        if let Some(t) = tag_substr(&frag[i..], "<a:srcRect") {
+            for (attr, k) in [("l", 0usize), ("t", 1), ("r", 2), ("b", 3)] {
+                if let Some(v) = attr_value(&t, attr).and_then(|v| v.parse::<f64>().ok()) {
+                    crop[k] = (v / 100_000.0).clamp(0.0, 0.9);
                 }
             }
-        } else { break; }
+        }
     }
-    (elements, text_boxes)
+
+    let line = match sp_pr.map(|s| parse_ln_el(s, ctx.theme, ctx.map)).unwrap_or(LineChoice::Inherit)
+    {
+        LineChoice::Spec(l) => Some(l),
+        LineChoice::Hide => None,
+        LineChoice::Inherit => parse_pstyle(frag, ctx.theme, ctx.map).and_then(|s| s.line),
+    };
+
+    out.push(SlideElement::Picture(DrawPicture {
+        x: px,
+        y: py,
+        w: pw,
+        h: ph,
+        path,
+        crop,
+        line,
+        rot: x.rot,
+        flip_h: x.flip_h,
+        flip_v: x.flip_v,
+    }));
+}
+
+/// One `<p:cxnSp>` (connector): a stroked line between rect corners —
+/// no fill, outline from `<a:ln>` or the style's `lnRef`.
+fn handle_cxn(frag: &str, parent: XformMap, ctx: &WalkCtx, out: &mut Vec<SlideElement>) {
+    let sp_pr = find_open_tag(frag, 0, "p:spPr")
+        .and_then(|i| element_span(frag, i, "p:spPr"))
+        .map(|(s, e)| &frag[s..e]);
+    let xfrm: Option<RawXfrm> = sp_pr.and_then(|spr| {
+        let xi = find_open_tag(spr, 0, "a:xfrm")?;
+        let (xs, xe) = element_span(spr, xi, "a:xfrm")?;
+        Some(parse_raw_xfrm(&spr[xs..xe]))
+    });
+    let Some(x) = xfrm else { return };
+    let Some((ox, oy, w, h)) = x.rect() else { return };
+    let (px, py, pw, ph) = parent.apply_rect(ox, oy, w, h);
+    if pw <= 0.0 || ph <= 0.0 {
+        return;
+    }
+    let prst = sp_pr
+        .and_then(|spr| {
+            let gi = find_open_tag(spr, 0, "a:prstGeom")?;
+            let t = tag_substr(&spr[gi..], "<a:prstGeom")?;
+            attr_value(&t, "prst")
+        })
+        .unwrap_or_else(|| "line".into());
+
+    let style = parse_pstyle(frag, ctx.theme, ctx.map);
+    let line = match sp_pr.map(|s| parse_ln_el(s, ctx.theme, ctx.map)).unwrap_or(LineChoice::Inherit)
+    {
+        LineChoice::Spec(l) => Some(l),
+        LineChoice::Hide => return, // explicitly unfilled outline → invisible
+        LineChoice::Inherit => style.and_then(|s| s.line),
+    }
+    .unwrap_or(LineSpec { color: (0.0, 0.0, 0.0), alpha: 1.0, width_emu: 12_700.0 });
+
+    out.push(SlideElement::Shape(DrawShape {
+        x: px,
+        y: py,
+        w: pw,
+        h: ph,
+        prst,
+        fill: None,
+        line: Some(line),
+        rot: x.rot,
+        flip_h: x.flip_h,
+        flip_v: x.flip_v,
+        freeform: None,
+    }));
+}
+
+/// Parse a shape's `<a:custGeom><a:pathLst>` into freeform paths (the
+/// world-map / artwork geometry PowerPoint uses for anything not preset).
+/// Returns None when there's no custGeom — the caller keeps preset geom.
+fn parse_freeform_paths(spr: &str) -> Option<Vec<FreeformPath>> {
+    let ci = find_open_tag(spr, 0, "a:custGeom")?;
+    let (cs, ce) = element_span(spr, ci, "a:custGeom")?;
+    let geom = &spr[cs..ce];
+    let pi = find_open_tag(geom, 0, "a:pathLst")?;
+    let (ps, pe) = element_span(geom, pi, "a:pathLst")?;
+    let lst = &geom[ps..pe];
+
+    let mut paths = Vec::new();
+    let mut ppos = 0usize;
+    while let Some(i) = find_open_tag(lst, ppos, "a:path") {
+        let Some((s, e)) = element_span(lst, i, "a:path") else { break };
+        let open = tag_end(lst, i).map(|t| &lst[i..t]).unwrap_or("");
+        ppos = e;
+        let path_w = attr_value(open, "w").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+        let path_h = attr_value(open, "h").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+        let fill = attr_value(open, "fill").map(|v| v != "none").unwrap_or(true);
+
+        let body = &lst[s..e];
+        let mut cmds: Vec<PathCmd> = Vec::new();
+        let mut cur = (0.0f64, 0.0f64); // path-space current point
+        let mut start = (0.0f64, 0.0f64); // subpath start (for `close` + arcTo)
+        let mut max_pt = 1.0f64;
+        let mut pos = 0usize;
+        loop {
+            // Commands appear in document order; take whichever comes next.
+            let next = ["a:moveTo", "a:lnTo", "a:cubicBezTo", "a:quadBezTo", "a:arcTo", "a:close"]
+                .into_iter()
+                .filter_map(|n| find_open_tag(body, pos, n).map(|idx| (idx, n)))
+                .min_by_key(|(idx, _)| *idx);
+            let Some((i, name)) = next else { break };
+            let Some((fs, fe)) = element_span(body, i, name) else { break };
+            pos = fe;
+            let frag = &body[fs..fe];
+
+            // collect this command's `<a:pt x y>` points in order
+            let mut pts: Vec<(f64, f64)> = Vec::new();
+            let mut qpos = 0usize;
+            while let Some(qi) = find_open_tag(frag, qpos, "a:pt") {
+                let Some((_, qe)) = element_span(frag, qi, "a:pt") else { break };
+                qpos = qe;
+                let t = tag_end(frag, qi).map(|t| &frag[qi..t]).unwrap_or("");
+                if let (Some(x), Some(y)) = (
+                    attr_value(t, "x").and_then(|v| v.parse::<f64>().ok()),
+                    attr_value(t, "y").and_then(|v| v.parse::<f64>().ok()),
+                ) {
+                    max_pt = max_pt.max(x.abs()).max(y.abs());
+                    pts.push((x, y));
+                }
+            }
+
+            match name {
+                "a:moveTo" => {
+                    if let Some(&(x, y)) = pts.first() {
+                        cmds.push(PathCmd::MoveTo(x, y));
+                        cur = (x, y);
+                        start = (x, y);
+                    }
+                }
+                "a:lnTo" => {
+                    if let Some(&(x, y)) = pts.first() {
+                        cmds.push(PathCmd::LineTo(x, y));
+                        cur = (x, y);
+                    }
+                }
+                "a:cubicBezTo" if pts.len() >= 3 => {
+                    cmds.push(PathCmd::CubicBezTo([
+                        pts[0].0, pts[0].1, pts[1].0, pts[1].1, pts[2].0, pts[2].1,
+                    ]));
+                    cur = pts[2];
+                }
+                "a:quadBezTo" if pts.len() >= 2 => {
+                    cmds.push(PathCmd::QuadBezTo([pts[0].0, pts[0].1, pts[1].0, pts[1].1]));
+                    cur = pts[1];
+                }
+                "a:arcTo" => {
+                    // Rare; approximate by the arc's true endpoint (angles are
+                    // 1/60000°, radii path-space; ellipse center derives from
+                    // the current point and stAng).
+                    let num = |k: &str| {
+                        attr_value(frag, k).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0)
+                    };
+                    let (wr, hr) = (num("wR"), num("hR"));
+                    let st = (num("stAng") / 60_000.0).to_radians();
+                    let sw = (num("swAng") / 60_000.0).to_radians();
+                    let (ccx, ccy) = (cur.0 - wr * st.cos(), cur.1 - hr * st.sin());
+                    let end = (ccx + wr * (st + sw).cos(), ccy + hr * (st + sw).sin());
+                    cmds.push(PathCmd::LineTo(end.0, end.1));
+                    max_pt = max_pt.max(end.0.abs()).max(end.1.abs());
+                    cur = end;
+                }
+                "a:close" => {
+                    cmds.push(PathCmd::Close);
+                    cur = start;
+                }
+                _ => {}
+            }
+        }
+
+        if !cmds.is_empty() {
+            // Path coordinate space defaults to the extent of its own points
+            // when `<a:path>` omits w/h.
+            let (fw, fh) = if path_w > 0.0 && path_h > 0.0 {
+                (path_w, path_h)
+            } else {
+                (max_pt, max_pt)
+            };
+            paths.push(FreeformPath { w: fw, h: fh, fill, cmds });
+        }
+    }
+    (!paths.is_empty()).then_some(paths)
+}
+
+/// Parse a chart part's `c:doughnutChart`: data values, per-point colors,
+/// hole size and start angle. Other chart types (bar/line/pie…) return None
+/// — they stay Phase 3.
+fn parse_doughnut_chart(xml: &str, theme: &ThemeColors, map: &ClrMap) -> Option<DoughnutSpec> {
+    let di = find_open_tag(xml, 0, "c:doughnutChart")?;
+    let (ds, de) = element_span(xml, di, "c:doughnutChart")?;
+    let chart = &xml[ds..de];
+    // Doughnut charts carry a single series.
+    let si = find_open_tag(chart, 0, "c:ser")?;
+    let (ss, se) = element_span(chart, si, "c:ser")?;
+    let ser = &chart[ss..se];
+
+    // ── values: `<c:val>…<c:pt idx="i"><c:v>65</c:v></c:pt>` ──
+    let vi = find_open_tag(ser, 0, "c:val")?;
+    let (vs, ve) = element_span(ser, vi, "c:val")?;
+    let val = &ser[vs..ve];
+    let mut points: Vec<(usize, f64)> = Vec::new();
+    let mut vpos = 0usize;
+    while let Some(qi) = find_open_tag(val, vpos, "c:pt") {
+        let Some((qs, qe)) = element_span(val, qi, "c:pt") else { break };
+        vpos = qe;
+        let tg = tag_end(val, qi).map(|t| &val[qi..t]).unwrap_or("");
+        let idx = attr_value(tg, "idx").and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(points.len());
+        let vfrag = &val[qs..qe];
+        if let Some(vi2) = find_open_tag(vfrag, 0, "c:v") {
+            if let Some((vs2, ve2)) = element_span(vfrag, vi2, "c:v") {
+                let start = tag_end(vfrag, vi2).unwrap_or(vs2);
+                let end = ve2.saturating_sub("</c:v>".len()).max(start);
+                if let Ok(f) = vfrag[start..end].trim().parse::<f64>() {
+                    points.push((idx, f));
+                }
+            }
+        }
+    }
+    let max_idx = points.iter().map(|(i, _)| *i).max()?;
+    let mut values = vec![0.0f64; max_idx + 1];
+    for (i, v) in points {
+        values[i] = v;
+    }
+    if values.iter().all(|v| *v <= 0.0) {
+        return None; // nothing drawable
+    }
+
+    // ── per-point colors: `<c:dPt><c:idx val="i"/><c:spPr>…` ──
+    let mut colors: Vec<Option<(f64, f64, f64)>> = vec![None; values.len()];
+    let mut dpos = 0usize;
+    while let Some(di2) = find_open_tag(ser, dpos, "c:dPt") {
+        let Some((ds2, de2)) = element_span(ser, di2, "c:dPt") else { break };
+        dpos = de2;
+        let dfrag = &ser[ds2..de2];
+        let idx = find_open_tag(dfrag, 0, "c:idx")
+            .and_then(|i| tag_substr(&dfrag[i..], "<c:idx"))
+            .and_then(|t| attr_value(&t, "val"))
+            .and_then(|v| v.parse::<usize>().ok());
+        let Some(idx) = idx else { continue };
+        if let Some(slot) = colors.get_mut(idx) {
+            *slot = parse_color_el(dfrag, theme, map).map(|(c, _a)| c);
+        }
+    }
+
+    // ── fallback palette ──
+    // The series' own `<c:spPr>` (scoped so nested dPt fills don't leak in):
+    // no explicit point colors → every point shares it; otherwise missing
+    // points cycle the theme accents (varyColors) or fall back to the series
+    // color, then accent1.
+    let ser_fill = find_open_tag(ser, 0, "c:spPr")
+        .and_then(|i| element_span(ser, i, "c:spPr"))
+        .and_then(|(s, e)| parse_color_el(&ser[s..e], theme, map))
+        .map(|(c, _a)| c);
+    let vary = find_open_tag(chart, 0, "c:varyColors")
+        .and_then(|i| tag_substr(&chart[i..], "<c:varyColors"))
+        .and_then(|t| attr_value(&t, "val"))
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+    let any_explicit = colors.iter().any(|c| c.is_some());
+    for (i, slot) in colors.iter_mut().enumerate() {
+        if slot.is_none() {
+            let fallback = if !any_explicit || !vary {
+                ser_fill
+            } else {
+                theme.color(&format!("accent{}", (i % 6) + 1)).or(ser_fill)
+            };
+            *slot = Some(
+                fallback
+                    .or_else(|| theme.color("accent1"))
+                    .unwrap_or((0.6, 0.6, 0.6)),
+            );
+        }
+    }
+
+    let hole_pct = find_open_tag(chart, 0, "c:holeSize")
+        .and_then(|i| tag_substr(&chart[i..], "<c:holeSize"))
+        .and_then(|t| attr_value(&t, "val"))
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(50.0) // PowerPoint's default hole
+        .clamp(1.0, 95.0);
+    let first_ang_deg = find_open_tag(chart, 0, "c:firstSliceAng")
+        .and_then(|i| tag_substr(&chart[i..], "<c:firstSliceAng"))
+        .and_then(|t| attr_value(&t, "val"))
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0)
+        .rem_euclid(360.0);
+
+    Some(DoughnutSpec { values, colors, hole_pct, first_ang_deg })
+}
+
+/// One `<p:graphicFrame>`: position via `<p:xfrm>` (graphic frames don't use
+/// `<a:xfrm>`), content by `<c:chart r:id>` resolved through `ctx.charts`.
+/// Tables/SmartArt/unknown chart types have no resolved spec → skipped.
+fn handle_graphic_frame(
+    frag: &str,
+    parent: XformMap,
+    ctx: &WalkCtx,
+    out: &mut Vec<SlideElement>,
+) {
+    let rid = find_open_tag(frag, 0, "c:chart")
+        .and_then(|i| tag_substr(&frag[i..], "<c:chart"))
+        .and_then(|t| attr_value(&t, "r:id"));
+    let Some(rid) = rid else { return };
+    let Some(spec) = ctx.charts.get(&rid) else { return };
+
+    // graphic frames position themselves with `<p:xfrm>` (not `<a:xfrm>`)
+    let Some((xs, xe)) = find_open_tag(frag, 0, "p:xfrm")
+        .and_then(|i| element_span(frag, i, "p:xfrm"))
+    else {
+        return;
+    };
+    let x = parse_raw_xfrm(&frag[xs..xe]);
+    let Some((ox, oy, w, h)) = x.rect() else { return };
+    let (px, py, pw, ph) = parent.apply_rect(ox, oy, w, h);
+    if pw <= 0.0 || ph <= 0.0 {
+        return;
+    }
+    out.push(SlideElement::Chart(DrawChart {
+        x: px,
+        y: py,
+        w: pw,
+        h: ph,
+        doughnut: spec.clone(),
+    }));
 }
 
 fn extract_pptx_media_from_dir<R: std::io::Read + std::io::Seek>(
@@ -3990,149 +5911,273 @@ fn extract_pptx_media_from_dir<R: std::io::Read + std::io::Seek>(
     }
 }
 
-/// Extract the background blipFill image from a slide/layout/master rels,
-/// returning the extracted file path (if any) and its rId.
-fn extract_background_from_part<R: std::io::Read + std::io::Seek>(
-    zip: &mut zip::ZipArchive<R>, part_path: &str, media_cache: &Path,
-) -> Option<PathBuf> {
-    let base_dir = part_path.rsplit_once('/').map(|(b, _)| b).unwrap_or("");
-    let file_name = part_path.rsplit_once('/').map(|(_, f)| f).unwrap_or(part_path);
-    let rels_path = format!("{}/_rels/{}.rels", base_dir, file_name);
-    let rels_xml = read_zip_text(zip, &rels_path)?;
-    let mut bg_map = std::collections::HashMap::new();
-    extract_pptx_media_from_dir(zip, part_path, media_cache, &mut bg_map);
-    // Find the background's rId.
-    let part_xml = read_zip_text(zip, part_path)?;
-    let bg_pos = part_xml.find("<p:bg>")?;
-    let bg_end = part_xml[bg_pos..].find("</p:bg>").map(|e| bg_pos + e).unwrap_or(part_xml.len());
-    let frag = &part_xml[bg_pos..bg_end];
-    let rid = frag.find("r:embed=\"").and_then(|v| { let e = frag[v+9..].find('"')?; Some(&frag[v+9..v+9+e]) })?;
-    bg_map.remove(rid).or_else(|| {
-        // rId might not be an image (it's in rels as image type though). If not found,
-        // resolve from the rels XML directly.
-        for rel in rels_xml.split("<Relationship") {
-            if attr_value(rel, "Id").as_deref() == Some(rid) {
-                if let Some(target) = attr_value(rel, "Target") {
-                    let full = normalize_zip_rel(base_dir, &target);
-                    let out = media_cache.join(format!("{}.bin", crate::md5::hex(full.as_bytes())));
-                    if !out.exists() {
-                        if let Ok(mut entry) = zip.by_name(&full) {
-                            let mut data = Vec::new();
-                            use std::io::Read;
-                            let _ = entry.read_to_end(&mut data);
-                            if !data.is_empty() { let _ = std::fs::write(&out, &data); }
-                        }
-                    }
-                    return Some(out);
-                }
-            }
-        }
-        None
-    })
+/// Extract one part's image relationships into the on-disk media cache and
+/// return its rId → path map (per-part maps avoid rId collisions across
+/// slide/layout/master).
+fn extract_part_media<R: std::io::Read + std::io::Seek>(
+    zip: &mut zip::ZipArchive<R>,
+    doc: &Path,
+    part_path: &str,
+) -> std::collections::HashMap<String, PathBuf> {
+    // Keyed by (path, mtime) like the slide PNG cache: editing the deck must
+    // invalidate extracted media too, or a replaced picture keeps rendering
+    // from the old bytes forever (`!out.exists()` below reuses old files).
+    let media_cache = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(format!(
+            "spotty/pptx-media/{}-{}",
+            crate::md5::hex(doc.to_string_lossy().as_bytes()),
+            doc_mtime_secs(doc)
+        ));
+    let _ = std::fs::create_dir_all(&media_cache);
+    let mut map = std::collections::HashMap::new();
+    extract_pptx_media_from_dir(zip, part_path, &media_cache, &mut map);
+    map
 }
 
-fn extract_all_pptx_media<R: std::io::Read + std::io::Seek>(
-    zip: &mut zip::ZipArchive<R>, doc: &Path, slide_part: &str,
-) -> (std::collections::HashMap<String, PathBuf>, Option<SlideBackground>) {
-    let media_cache = dirs::cache_dir().unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(format!("spotty/pptx-media/{}", crate::md5::hex(doc.to_string_lossy().as_bytes())));
-    let _ = std::fs::create_dir_all(&media_cache);
+/// Resolve a relationship `Target` of the given type (`needle`, e.g.
+/// `"slideLayout"`) from a part's `.rels` file, normalized into a zip path.
+fn rel_target<R: std::io::Read + std::io::Seek>(
+    zip: &mut zip::ZipArchive<R>,
+    part: &str,
+    needle: &str,
+) -> Option<String> {
+    let base = part.rsplit_once('/').map(|(b, _)| b).unwrap_or("");
+    let file = part.rsplit_once('/').map(|(_, f)| f).unwrap_or(part);
+    let xml = read_zip_text(zip, &format!("{}/_rels/{}.rels", base, file))?;
+    let rel = xml.split("<Relationship").find(|r| r.contains(needle))?;
+    let t = attr_value(rel, "Target")?;
+    Some(normalize_zip_rel(base, &t))
+}
 
-    // Per-part media maps to avoid rId collisions.
-    let mut slide_media = std::collections::HashMap::new();
-    extract_pptx_media_from_dir(zip, slide_part, &media_cache, &mut slide_media);
+/// Resolve a relationship by its exact `Id` from a part's `.rels` file,
+/// normalized into a zip path (used for chart refs: `<c:chart r:id=…>`).
+fn rel_target_by_id<R: std::io::Read + std::io::Seek>(
+    zip: &mut zip::ZipArchive<R>,
+    part: &str,
+    rid: &str,
+) -> Option<String> {
+    let base = part.rsplit_once('/').map(|(b, _)| b).unwrap_or("");
+    let file = part.rsplit_once('/').map(|(_, f)| f).unwrap_or(part);
+    let xml = read_zip_text(zip, &format!("{}/_rels/{}.rels", base, file))?;
+    let rel = xml
+        .split("<Relationship")
+        .find(|r| attr_value(r, "Id").as_deref() == Some(rid))?;
+    let t = attr_value(rel, "Target")?;
+    Some(normalize_zip_rel(base, &t))
+}
 
-    let mut bg: Option<SlideBackground> = None;
+/// Parse one slide end-to-end: theme + color map, master/layout composition
+/// (background chain, decorative shapes, placeholder geometry/fill/text
+/// styles), then the slide's own shape tree in document order.
+fn parse_pptx_slide(doc: &Path, slide_no: usize) -> Option<SlideLayout> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(doc).ok()?).ok()?;
 
-    // Resolve layout → background image.
-    let slide_rels_path = {
-        let base = slide_part.rsplit_once('/').map(|(b, _)| b).unwrap_or("ppt/slides");
-        let file = slide_part.rsplit_once('/').map(|(_, f)| f).unwrap_or(slide_part);
-        format!("{}/_rels/{}.rels", base, file)
-    };
-    if let Some(rels_xml) = read_zip_text(zip, &slide_rels_path) {
-        if let Some(layout_target) = rels_xml.split("<Relationship").find(|x| x.contains("slideLayout")).and_then(|x| attr_value(x, "Target")) {
-            let layout_path = normalize_zip_rel(
-                slide_part.rsplit_once('/').map(|(b, _)| b).unwrap_or("ppt/slides"),
-                &layout_target,
-            );
-            extract_pptx_media_from_dir(zip, &layout_path, &media_cache, &mut slide_media);
-            bg = extract_background_from_part(zip, &layout_path, &media_cache).map(SlideBackground::Image);
+    // slide size from presentation.xml (fallback: 10″ × 7.5″ 4:3)
+    let (slide_w, slide_h) = read_zip_text(&mut zip, "ppt/presentation.xml")
+        .and_then(|p| parse_slide_size(&p))
+        .unwrap_or((9_144_000.0, 6_858_000.0));
+    if slide_w <= 0.0 || slide_h <= 0.0 {
+        return None;
+    }
 
-            // Fallback: solid-fill background from layout or master.
-            if bg.is_none() {
-                if let Some(layout_xml) = read_zip_text(zip, &layout_path) {
-                    if let Some(sbg) = parse_background_xml(&layout_xml, &std::collections::HashMap::new()) {
-                        bg = Some(sbg);
-                    }
-                }
-                if bg.is_none() {
-                    if let Some(lr_path) = layout_path.rsplit('/').next()
-                        .map(|n| format!("{}/_rels/{}.rels", layout_path.rsplit_once('/').map(|(b,_)| b).unwrap_or(""), n))
-                    {
-                        if let Some(layout_rels_xml) = read_zip_text(zip, &lr_path) {
-                            if let Some(master_target) = layout_rels_xml.split("<Relationship").find(|x| x.contains("slideMaster")).and_then(|x| attr_value(x, "Target")) {
-                                let master_path = normalize_zip_rel(&layout_path.rsplit_once('/').map(|(b,_)| b).unwrap_or(""), &master_target);
-                                bg = extract_background_from_part(zip, &master_path, &media_cache).map(SlideBackground::Image);
-                                if bg.is_none() {
-                                    if let Some(master_xml) = read_zip_text(zip, &master_path) {
-                                        if let Some(sbg) = parse_background_xml(&master_xml, &std::collections::HashMap::new()) {
-                                            bg = Some(sbg);
-                                        }
-                                    }
-                                }
-                            }
-                        }
+    let theme = parse_theme_colors(&mut zip);
+
+    // slide part: ppt/slides/slide{n}.xml in numeric order
+    let mut slide_parts: Vec<(usize, String)> = (0..zip.len())
+        .filter_map(|i| zip.by_index(i).ok().map(|e| e.name().to_string()))
+        .filter_map(|n| {
+            let num = n.strip_prefix("ppt/slides/slide").and_then(|s| s.strip_suffix(".xml"))?;
+            if !num.is_empty() && num.chars().all(|c| c.is_ascii_digit()) {
+                num.parse().ok().map(|v| (v, n))
+            } else {
+                None
+            }
+        })
+        .collect();
+    slide_parts.sort_by_key(|(n, _)| *n);
+    let slide_part = slide_parts.get(slide_no.checked_sub(1)?)?.1.clone();
+    let slide_xml = read_zip_text(&mut zip, &slide_part)?;
+
+    // relationships: slide → layout → master
+    let layout_path = rel_target(&mut zip, &slide_part, "slideLayout");
+    let master_path = layout_path.as_ref().and_then(|p| rel_target(&mut zip, p, "slideMaster"));
+    let layout_xml = layout_path.as_ref().and_then(|p| read_zip_text(&mut zip, p));
+    let master_xml = master_path.as_ref().and_then(|p| read_zip_text(&mut zip, p));
+
+    // ── color map: master's <p:clrMap>, overridable per part ──
+    fn override_clr_map(xml: &str) -> Option<ClrMap> {
+        // `<a:overrideClrMapping …/>` inside `<p:clrMapOvr>`; when the part
+        // instead says `<a:masterClrMapping/>` this returns None → inherit.
+        let i = find_open_tag(xml, 0, "a:overrideClrMapping")?;
+        let t = tag_substr(&xml[i..], "<a:overrideClrMapping")?;
+        Some(ClrMap::from_override(&t))
+    }
+    let mut clr_map = master_xml
+        .as_deref()
+        .map(ClrMap::from_master)
+        .unwrap_or_else(ClrMap::default_map);
+    if let Some(m) = layout_xml.as_deref().and_then(override_clr_map) {
+        clr_map = m;
+    }
+    if let Some(m) = override_clr_map(&slide_xml) {
+        clr_map = m;
+    }
+
+    let tx_styles = master_xml
+        .as_deref()
+        .map(|m| TxStyles::from_master(m, &theme, &clr_map))
+        .unwrap_or_else(TxStyles::empty);
+
+    // ── per-part media (rid → extracted path) ──
+    let slide_media = extract_part_media(&mut zip, doc, &slide_part);
+    let layout_media = layout_path
+        .as_ref()
+        .map(|p| extract_part_media(&mut zip, doc, p))
+        .unwrap_or_default();
+    let master_media = master_path
+        .as_ref()
+        .map(|p| extract_part_media(&mut zip, doc, p))
+        .unwrap_or_default();
+
+    // ── doughnut charts: pre-resolve every `<c:chart r:id>` on this slide.
+    // The shape-tree walk only carries the slide XML (no zip access), so the
+    // chart parts are parsed here and handed to the walk via `ctx.charts`.
+    let mut charts: std::collections::HashMap<String, DoughnutSpec> =
+        std::collections::HashMap::new();
+    {
+        let mut cpos = 0usize;
+        while let Some(i) = find_open_tag(&slide_xml, cpos, "c:chart") {
+            let Some(t) = tag_substr(&slide_xml[i..], "<c:chart") else { break };
+            cpos = i + t.len();
+            let Some(rid) = attr_value(&t, "r:id") else { continue };
+            if charts.contains_key(&rid) {
+                continue;
+            }
+            if let Some(target) = rel_target_by_id(&mut zip, &slide_part, &rid) {
+                if let Some(cxml) = read_zip_text(&mut zip, &target) {
+                    if let Some(spec) = parse_doughnut_chart(&cxml, &theme, &clr_map) {
+                        log::info!(
+                            "pptx: slide {} — doughnut chart {} ({} points, hole {}%)",
+                            slide_no,
+                            rid,
+                            spec.values.len(),
+                            spec.hole_pct as u32
+                        );
+                        charts.insert(rid, spec);
                     }
                 }
             }
         }
     }
 
-    (slide_media, bg)
+    // ── background: slide → layout → master (solid/gradient/picture/bgRef) ──
+    let bg = parse_bg_el(&slide_xml, &slide_media, &theme, &clr_map)
+        .or_else(|| {
+            layout_xml.as_deref().and_then(|x| parse_bg_el(x, &layout_media, &theme, &clr_map))
+        })
+        .or_else(|| {
+            master_xml.as_deref().and_then(|x| parse_bg_el(x, &master_media, &theme, &clr_map))
+        });
+
+    // ── composition: master (decor) → layout (decor + ph defs) → slide ──
+    let mut elements = Vec::new();
+    let mut master_ph: Vec<PhDef> = Vec::new();
+    let mut layout_ph: Vec<PhDef> = Vec::new();
+
+    let ctx_master = WalkCtx {
+        role: PartRole::Master,
+        theme: &theme,
+        map: &clr_map,
+        media: &master_media,
+        tx: Some(&tx_styles),
+        layout_ph: &[],
+        master_ph: &[],
+        major_font: &theme.major_font,
+        minor_font: &theme.minor_font,
+        charts: &charts,
+    };
+    let mut master_elems = Vec::new();
+    if let Some(m) = master_xml.as_deref() {
+        // master ph defs are collected even when the decor is hidden below —
+        // the slide's placeholders still inherit from them
+        parse_shape_tree(
+            m,
+            PartRole::Master,
+            XformMap::ID,
+            &ctx_master,
+            &mut master_elems,
+            &mut master_ph,
+        );
+    }
+
+    // `showMasterSp="0"` on the layout (or slide) hides master decorations
+    // (bio.pptx's layout1 sets it to hide the master behind its own logo).
+    let show_master = layout_xml.as_deref().map(show_master_sp).unwrap_or(true)
+        && show_master_sp(&slide_xml);
+    if show_master {
+        elements.append(&mut master_elems);
+    }
+
+    if let Some(l) = layout_xml.as_deref() {
+        let ctx_layout = WalkCtx {
+            role: PartRole::Layout,
+            theme: &theme,
+            map: &clr_map,
+            media: &layout_media,
+            tx: Some(&tx_styles),
+            layout_ph: &[],
+            master_ph: &master_ph,
+            major_font: &theme.major_font,
+            minor_font: &theme.minor_font,
+            charts: &charts,
+        };
+        let mut layout_elems = Vec::new();
+        parse_shape_tree(
+            l,
+            PartRole::Layout,
+            XformMap::ID,
+            &ctx_layout,
+            &mut layout_elems,
+            &mut layout_ph,
+        );
+        elements.append(&mut layout_elems);
+    }
+
+    {
+        let ctx_slide = WalkCtx {
+            role: PartRole::Slide,
+            theme: &theme,
+            map: &clr_map,
+            media: &slide_media,
+            tx: Some(&tx_styles),
+            layout_ph: &layout_ph,
+            master_ph: &master_ph,
+            major_font: &theme.major_font,
+            minor_font: &theme.minor_font,
+            charts: &charts,
+        };
+        parse_shape_tree(
+            &slide_xml,
+            PartRole::Slide,
+            XformMap::ID,
+            &ctx_slide,
+            &mut elements,
+            &mut Vec::new(),
+        );
+    }
+
+    // Fallback placement for text boxes that had no geometry anywhere.
+    assign_default_geometry_from_elements(&mut elements, slide_w, slide_h);
+
+    log::info!("pptx: slide {} — {} elements, bg={}", slide_no, elements.len(), bg.is_some());
+    Some(SlideLayout { slide_w, slide_h, background: bg, elements })
 }
 
-fn parse_pptx_slide(doc: &Path, slide_no: usize) -> Option<SlideLayout> {
-    let mut zip = zip::ZipArchive::new(std::fs::File::open(doc).ok()?).ok()?;
-    let (slide_w, slide_h) = read_zip_text(&mut zip, "ppt/presentation.xml").and_then(|p| parse_slide_size(&p)).unwrap_or((9_144_000.0, 6_858_000.0));
-    let theme = parse_theme_colors(&mut zip);
-
-    // Collect slide entries sorted numerically.
-    let mut slide_entries: Vec<(usize, String)> = (0..zip.len())
-        .filter_map(|i| zip.by_index(i).ok().map(|e| e.name().to_string()))
-        .filter(|n| n.starts_with("ppt/slides/slide") && n.ends_with(".xml"))
-        .filter_map(|n| n.strip_prefix("ppt/slides/slide").and_then(|s| s.strip_suffix(".xml")).and_then(|s| s.parse::<usize>().ok()).map(|num| (num, n)))
-        .collect();
-    slide_entries.sort_by_key(|(num, _)| *num);
-    let (_, slide_part) = slide_entries.get(slide_no.saturating_sub(1))?;
-    let slide_xml = read_zip_text(&mut zip, slide_part)?;
-
-    let (slide_media, layout_bg) = extract_all_pptx_media(&mut zip, doc, slide_part);
-
-    // Background: try layout (blipFill/solid/grad), then slide-level, then master solid.
-    let bg = layout_bg.or_else(|| {
-        // Slide-level solid/grad background.
-        if let Some(sbg) = parse_background_xml(&slide_xml, &theme) {
-            return Some(sbg);
-        }
-        // Slide-level blipFill background (extract from slide media).
-        if let Some(bg_pos) = slide_xml.find("<p:bg>") {
-            let bg_end = slide_xml[bg_pos..].find("</p:bg>").map(|e| bg_pos + e).unwrap_or(slide_xml.len());
-            let frag = &slide_xml[bg_pos..bg_end];
-            if let Some(rid) = frag.find("r:embed=\"").and_then(|v| { let e = frag[v+9..].find('"')?; Some(&frag[v+9..v+9+e]) }) {
-                if let Some(path) = slide_media.get(rid) { return Some(SlideBackground::Image(path.clone())); }
-            }
-        }
-        None
-    });
-
-    let (elements, text_boxes) = parse_slide_elements_from_map(&slide_xml, &slide_media, &theme);
-    let mut all = elements;
-    all.extend(text_boxes.into_iter().map(SlideElement::Text));
-    assign_default_geometry_from_elements(&mut all, slide_w, slide_h);
-
-    log::info!("pptx: slide {} — {} elements, bg={}", slide_no, all.len(), bg.is_some());
-    Some(SlideLayout { slide_w, slide_h, background: bg, elements: all })
+/// `showMasterSp="0"` (searched wherever the part declares it — layout and
+/// slide roots both carry it) hides master shapes and pictures.
+fn show_master_sp(xml: &str) -> bool {
+    !(xml.contains("showMasterSp=\"0\"") || xml.contains("showMasterSp=\"false\""))
 }
 
 fn assign_default_geometry_from_elements(elements: &mut [SlideElement], sw: f64, sh: f64) {
@@ -4156,124 +6201,6 @@ fn assign_default_geometry_from_elements(elements: &mut [SlideElement], sw: f64,
                 b.x = mx + col_w * body_idx as f64; b.y = body_top; b.w = col_w; b.h = body_h;
                 body_idx += 1;
             }
-        }
-    }
-}
-
-/// Parse ALL slides from a PPTX file using the new element model (for backward compat).
-fn parse_pptx_all_slides(doc: &Path) -> Option<(f64, f64, Vec<Vec<SlideBox>>)> {
-    let mut zip = zip::ZipArchive::new(std::fs::File::open(doc).ok()?).ok()?;
-    let (slide_w, slide_h) = read_zip_text(&mut zip, "ppt/presentation.xml").and_then(|p| parse_slide_size(&p)).unwrap_or((9_144_000.0, 6_858_000.0));
-    let theme = parse_theme_colors(&mut zip);
-
-    let mut slide_entries: Vec<(usize, String)> = (0..zip.len())
-        .filter_map(|i| zip.by_index(i).ok().map(|e| e.name().to_string()))
-        .filter(|n| n.starts_with("ppt/slides/slide") && n.ends_with(".xml"))
-        .filter_map(|n| n.strip_prefix("ppt/slides/slide").and_then(|s| s.strip_suffix(".xml")).and_then(|s| s.parse::<usize>().ok()).map(|num| (num, n)))
-        .collect();
-    slide_entries.sort_by_key(|(num, _)| *num);
-
-    let mut slides = Vec::new();
-    for (_, target) in &slide_entries {
-        let slide_xml = match read_zip_text(&mut zip, target) { Some(x) => x, None => continue };
-        let slide_base = target.rsplit_once('/').unwrap_or(("","ppt/slides")).0;
-        let rels_path = format!("{}/_rels/{}.rels", slide_base, target.rsplit('/').next()?);
-        let rels_xml = read_zip_text(&mut zip, &rels_path).unwrap_or_default();
-        let media_map = resolve_media_paths_from_rels(&rels_xml, slide_base);
-        let (elements, text_boxes) = parse_slide_elements_from_map(&slide_xml.as_str(), &media_map, &theme);
-        let mut tb: Vec<SlideBox> = elements.into_iter().filter_map(|e| match e { SlideElement::Text(b) => Some(b), _ => None }).collect();
-        tb.extend(text_boxes);
-        assign_default_geometry(&mut tb, slide_w, slide_h);
-        if !tb.is_empty() { slides.push(tb); }
-    }
-    if slides.is_empty() { return None; }
-    Some((slide_w, slide_h, slides))
-}
-
-/// Render ALL slides of a PPTX to PNGs. Returns vec of (path, slide_number).
-fn render_pptx_all_slides(doc: &Path) -> Vec<(std::path::PathBuf, usize)> {
-    // Get slide count from the zip.
-    let slide_count = {
-        let Ok(file) = std::fs::File::open(doc) else { return vec![] };
-        let Ok(mut zip) = zip::ZipArchive::new(file) else { return vec![] };
-        (0..zip.len()).filter_map(|i| zip.by_index(i).ok().map(|e| e.name().to_string()))
-            .filter(|n| n.starts_with("ppt/slides/slide") && n.ends_with(".xml"))
-            .count()
-    };
-    if slide_count == 0 { return vec![]; }
-    let hash = crate::md5::hex(doc.to_string_lossy().as_bytes());
-    let mtime = std::fs::metadata(doc).ok().and_then(|m| m.modified().ok())
-        .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
-        .unwrap_or(0);
-    let cache_root = dirs::cache_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-        .join("spotty/pptx")
-        .join(format!("spotty/pptx/v{}", PPTX_RENDER_VERSION))
-        .join(format!("{}-{}", hash, mtime));
-
-    let mut results = Vec::new();
-    for i in 1..=slide_count {
-        if let Some(layout) = parse_pptx_slide(doc, i) {
-            if let Some(png) = render_slide_layout(&layout) {
-                let page_path = cache_root.join(format!("slide-{}.png", i));
-                if page_path.exists() {
-                    results.push((page_path, i));
-                    continue;
-                }
-                let _ = std::fs::create_dir_all(cache_root.parent().unwrap_or(&cache_root));
-                if std::fs::write(&page_path, &png).is_ok() {
-                    results.push((page_path, i));
-                }
-            }
-        }
-    }
-    results
-}
-
-/// Fill in positions for placeholders that had no explicit xfrm, using the
-/// conventional PowerPoint layout (title across the top, body filling the area
-/// beneath it). Shapes that DID have an xfrm are left untouched.
-fn assign_default_geometry(boxes: &mut [SlideBox], sw: f64, sh: f64) {
-    // Standard margins as a fraction of the slide.
-    let mx = sw * 0.06; // left/right margin
-    let title_y = sh * 0.04; // title top
-    let title_h = sh * 0.18; // title height
-    let body_top = sh * 0.26; // body starts below title
-    let body_h = sh * 0.66; // body height
-    let content_w = sw - mx * 2.0;
-
-    // Count body placeholders to split horizontal space if there are several.
-    let body_count = boxes
-        .iter()
-        .filter(|b| !b.has_xfrm && !(b.ph_type == "title" || b.ph_type == "ctrTitle"))
-        .count()
-        .max(1);
-    let mut body_idx = 0usize;
-
-    for b in boxes.iter_mut() {
-        if b.has_xfrm {
-            continue; // explicit geometry — trust it
-        }
-        if b.is_title || b.ph_type == "title" || b.ph_type == "ctrTitle" {
-            b.x = mx;
-            b.y = title_y;
-            b.w = content_w;
-            b.h = title_h;
-        } else if b.ph_type == "subTitle" {
-            // Subtitle sits just under a centered title (common on title slides).
-            b.x = mx;
-            b.y = sh * 0.50;
-            b.w = content_w;
-            b.h = sh * 0.20;
-        } else {
-            // Body / content placeholders: split the body area into columns if
-            // there is more than one.
-            let col_w = content_w / body_count as f64;
-            b.x = mx + col_w * body_idx as f64;
-            b.y = body_top;
-            b.w = col_w;
-            b.h = body_h;
-            body_idx += 1;
         }
     }
 }
@@ -4309,295 +6236,824 @@ fn attr_value(tag: &str, name: &str) -> Option<String> {
     Some(tag[start..end].to_string())
 }
 
-/// Parse each <p:sp> (shape) into a SlideBox, honoring position/size/placeholder.
-fn parse_slide_shapes(xml: &str) -> Vec<SlideBox> {
-    let mut boxes = Vec::new();
-
-    // Iterate shape elements. We split on "<p:sp>" / "<p:sp " openings and take
-    // up to the matching "</p:sp>". Nested sp (group shapes) are rare in simple
-    // decks; we handle the common flat case.
-    let mut pos = 0;
-    while let Some(rel) = xml[pos..]
-        .find("<p:sp>")
-        .or_else(|| xml[pos..].find("<p:sp "))
-    {
-        let start = pos + rel;
-        let Some(end_rel) = xml[start..].find("</p:sp>") else {
-            break;
-        };
-        let shape = &xml[start..start + end_rel];
-        pos = start + end_rel + "</p:sp>".len();
-
-        // Placeholder type: <p:ph type="title"/>, "ctrTitle", "subTitle", "body".
-        // If a <p:ph> has no type attribute it's a generic body placeholder.
-        let ph_type = if let Some(ph_tag) = tag_substr(shape, "<p:ph") {
-            attr_value(&ph_tag, "type").unwrap_or_else(|| "body".to_string())
-        } else {
-            String::new()
-        };
-        let is_title = ph_type == "title" || ph_type == "ctrTitle";
-
-        // Position/size from <a:off x= y=> and <a:ext cx= cy=> inside the
-        // shape's own <a:spPr><a:xfrm>. Many placeholders OMIT this (they inherit
-        // geometry from the slide layout/master), in which case we must assign a
-        // default position by role rather than leaving everything at (0,0).
-        let mut has_xfrm = false;
-        let (mut x, mut y, mut w, mut h) = (0.0, 0.0, 0.0, 0.0);
-        if let Some(tag) = tag_substr(shape, "<a:off ") {
-            let ox = attr_value(&tag, "x").and_then(|v| v.parse::<f64>().ok());
-            let oy = attr_value(&tag, "y").and_then(|v| v.parse::<f64>().ok());
-            if let (Some(ax), Some(ay)) = (ox, oy) {
-                x = ax;
-                y = ay;
-                if let Some(etag) = tag_substr(shape, "<a:ext ") {
-                    let ew = attr_value(&etag, "cx").and_then(|v| v.parse::<f64>().ok());
-                    let eh = attr_value(&etag, "cy").and_then(|v| v.parse::<f64>().ok());
-                    if let (Some(aw), Some(ah)) = (ew, eh) {
-                        w = aw;
-                        h = ah;
-                        has_xfrm = true;
-                    }
-                }
-            }
-        }
-
-        // Text content of the shape.
-        let runs = extract_text_runs(shape, "a:t");
-        if runs.is_empty() {
-            continue;
-        }
-        let text = runs.join(" ");
-
-        // Alignment: <a:pPr algn="ctr">.
-        let centered = shape.contains("algn=\"ctr\"") || is_title;
-
-        // Font size: first <a:rPr ... sz="2800"> (hundredths of a point). Require
-        // the sz= to sit inside an rPr/defRPr/endParaRPr run-properties tag.
-        let font_pt = find_font_size(shape);
-
-        boxes.push(SlideBox {
-            x,
-            y,
-            w,
-            h,
-            text,
-            is_title,
-            centered,
-            font_pt,
-            has_xfrm,
-            ph_type,
-            color: None,
-        });
-    }
-
-    boxes
-}
-
-/// Find the first run-property font size (sz="hundredths-of-pt") in a shape.
-fn find_font_size(shape: &str) -> Option<f64> {
-    // Look only at run-property tags so we don't pick up unrelated sz attrs.
-    for marker in ["<a:rPr", "<a:defRPr", "<a:endParaRPr"] {
-        let mut search = 0;
-        while let Some(rel) = shape[search..].find(marker) {
-            let abs = search + rel;
-            if let Some(tag) = tag_substr(&shape[abs..], marker) {
-                if let Some(v) = attr_value(&tag, "sz") {
-                    if let Ok(n) = v.parse::<f64>() {
-                        return Some(n / 100.0);
-                    }
-                }
-            }
-            search = abs + marker.len();
-        }
-    }
-    None
-}
-
-/// Render a parsed slide layout to PNG bytes with backgrounds, pictures, shape
-/// fills, and colored text — preserving z-order of the original document.
+/// Render a parsed slide layout to PNG bytes: background, shapes (fills,
+/// gradients, outlines, presets, rotation/flips), pictures (stretch +
+/// srcRect crop), and Pango-laid-out text — all in the original z-order.
 fn render_slide_layout(layout: &SlideLayout) -> Option<Vec<u8>> {
-    use gtk::cairo;
+    use pangocairo::pango::prelude::*;
+    // Context at 72 dpi: markup `size` (1/1024 units) then maps 1 unit = 1
+    // canvas px, so sizes computed from pt·EMU·scale land exactly as written
+    // regardless of the desktop's font DPI.
+    let font_map = pangocairo::FontMap::new();
+    let pango_ctx = font_map.create_context();
+    pangocairo::functions::context_set_resolution(&pango_ctx, 72.0);
+
+    // Uniform scale: long canvas side ≈1920 px, aspect from the slide size.
     let aspect = layout.slide_w / layout.slide_h;
-    let (cw, ch) = if aspect >= 1.0 { (1920.0, 1920.0 / aspect) } else { (1920.0 * aspect, 1920.0) };
-    let sx = cw / layout.slide_w;
-    let sy = ch / layout.slide_h;
-    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, cw.round() as i32, ch.round() as i32).ok()?;
-    let cr = cairo::Context::new(&surface).ok()?;
+    let (cw, ch) = if aspect >= 1.0 {
+        (1920.0, 1920.0 / aspect)
+    } else {
+        (1920.0 * aspect, 1920.0)
+    };
+    let s = cw / layout.slide_w; // px per EMU (== ch / slide_h)
+    let (surface, cr) = new_surface(cw.round() as i32, ch.round() as i32)?;
 
-    // ── Background ──
-    match &layout.background {
-        Some(SlideBackground::Solid(r, g, b)) => {
-            cr.set_source_rgb(*r, *g, *b);
-            cr.paint().ok()?;
-        }
-        Some(SlideBackground::Image(path_str)) => {
-            let bg_path = std::path::Path::new(path_str);
-            if bg_path.exists() {
-                if let Ok(bytes) = std::fs::read(bg_path) {
-                    if let Ok(img) = image::load_from_memory(&bytes) {
-                        let rgba = img.to_rgba8();
-                        let iw = rgba.width();
-                        let ih = rgba.height();
-                        if iw > 0 && ih > 0 {
-                            let (dw, dh) = if cw / ch > iw as f64 / ih as f64 {
-                                (cw, ch * iw as f64 / ih as f64)
-                            } else {
-                                (ch * iw as f64 / ih as f64, ch)
-                            };
-                            let dx = (cw - dw) / 2.0;
-                            let dy = (ch - dh) / 2.0;
-                            if let Some(is) = cairo_image_from_rgba(&rgba, iw, ih) {
-                                cr.set_source_surface(&is, dx, dy).ok()?;
-                                cr.rectangle(0.0, 0.0, cw, ch);
-                                cr.clip();
-                                cr.paint().ok()?;
-                                cr.reset_clip();
-                            }
-                        }
-                    }
-                }
-            } else {
-                cr.set_source_rgb(1.0, 1.0, 1.0);
-                cr.paint().ok()?;
-            }
-        }
-        None => {
-            cr.set_source_rgb(1.0, 1.0, 1.0);
-            cr.paint().ok()?;
-        }
-    }
+    paint_background(&cr, &layout.background, cw, ch);
 
-    // ── Elements in document order (z-order preserved) ──
     for elem in &layout.elements {
         match elem {
-            SlideElement::Shape(x, y, w, h, fill) => {
-                if let Some((r, g, b)) = fill {
-                    cr.set_source_rgb(*r, *g, *b);
-                    cr.rectangle(x * sx, y * sy, w * sx, h * sy);
-                    cr.fill().ok()?;
-                }
-            }
-            SlideElement::Picture(x, y, w, h, media_path) => {
-                if media_path.exists() {
-                    if let Ok(bytes) = std::fs::read(media_path) {
-                        if let Ok(img) = image::load_from_memory(&bytes) {
-                            let rgba = img.to_rgba8();
-                            let iw = rgba.width();
-                            let ih = rgba.height();
-                            if iw > 0 && ih > 0 {
-                                let pw = w * sx;
-                                let ph = h * sy;
-                                let (dw, dh) = if pw / ph > iw as f64 / ih as f64 {
-                                    (pw, ph * iw as f64 / ih as f64)
-                                } else {
-                                    (ph * iw as f64 / ih as f64, ph)
-                                };
-                                let dx = x * sx + (pw - dw) / 2.0;
-                                let dy = y * sy + (ph - dh) / 2.0;
-                                if let Some(is) = cairo_image_from_rgba(&rgba, iw, ih) {
-                                    cr.save().ok()?;
-                                    cr.rectangle(x * sx, y * sy, pw, ph);
-                                    cr.clip();
-                                    cr.set_source_surface(&is, dx, dy).ok()?;
-                                    cr.paint().ok()?;
-                                    cr.restore().ok()?;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            SlideElement::Text(_) => {} // drawn below
+            SlideElement::Shape(sh) => draw_slide_shape(&cr, sh, s),
+            SlideElement::Picture(p) => draw_slide_picture(&cr, p, s),
+            SlideElement::Chart(c) => draw_slide_chart(&cr, c, s),
+            SlideElement::Text(b) => draw_slide_text_box(&cr, b, s, &pango_ctx),
         }
     }
 
-    draw_slide_text_overlay(&cr, layout, cw, ch, sx, sy)?;
-
-    drop(cr);
-    let mut buf: Vec<u8> = Vec::new();
-    surface.write_to_png(&mut buf).ok()?;
-    Some(buf)
+    let mut png = Vec::new();
+    surface.write_to_png(&mut png).ok()?;
+    if png.is_empty() {
+        None
+    } else {
+        Some(png)
+    }
 }
 
-fn draw_slide_text_overlay(
-    cr: &gtk::cairo::Context,
-    layout: &SlideLayout,
-    cw: f64,
-    ch: f64,
-    sx: f64,
-    sy: f64,
-) -> Option<()> {
-    use gtk::cairo;
-
-    let pt_to_px = sy * 12_700.0;
-    let default_text_color = (0.10, 0.10, 0.14);
-
-    for elem in &layout.elements {
-        let SlideElement::Text(b) = elem else { continue };
-        let bx = b.x * sx;
-        let by = b.y * sy;
-        let bw = if b.w > 0.0 { b.w * sx } else { cw - bx };
-        let bh = if b.h > 0.0 { b.h * sy } else { ch - by };
-
-        let size_px = match b.font_pt {
-            Some(pt) => (pt * pt_to_px).clamp(8.0, 44.0),
-            None if b.is_title => (32.0 * pt_to_px).clamp(13.0, 36.0),
-            None if b.ph_type == "subTitle" => (22.0 * pt_to_px).clamp(10.0, 24.0),
-            None => (18.0 * pt_to_px).clamp(8.0, 20.0),
-        };
-
-        let (fg_r, fg_g, fg_b) = b.color.unwrap_or(default_text_color);
-        let halo_r;
-        let halo_g;
-        let halo_b;
-        let halo_a;
-        let luma = 0.299 * fg_r + 0.587 * fg_g + 0.114 * fg_b;
-        if luma > 0.5 {
-            halo_r = 0.0; halo_g = 0.0; halo_b = 0.0; halo_a = 0.70;
-        } else {
-            halo_r = 1.0; halo_g = 1.0; halo_b = 1.0;
-            halo_a = if b.is_title { 0.98 } else { 0.94 };
+/// Paint the slide background: white default, solid, linear gradient, or a
+/// picture letterboxed (aspect-preserved, centered) on white.
+fn paint_background(cr: &gtk::cairo::Context, bg: &Option<SlideBackground>, cw: f64, ch: f64) {
+    // white base — also the letterbox color behind pictures
+    cr.set_source_rgb(1.0, 1.0, 1.0);
+    let _ = cr.paint();
+    let Some(bg) = bg else { return };
+    match bg {
+        SlideBackground::Solid(r, g, b) => {
+            cr.set_source_rgb(*r, *g, *b);
+            let _ = cr.paint();
         }
-
-        cr.select_font_face(
-            "Sans",
-            cairo::FontSlant::Normal,
-            if b.is_title { cairo::FontWeight::Bold } else { cairo::FontWeight::Normal },
-        );
-        cr.set_font_size(size_px);
-
-        let pad = 4.0;
-        let max_w = (bw - pad * 2.0).max(8.0);
-        let lines = wrap_text(cr, &b.text, max_w);
-        if lines.is_empty() { continue; }
-
-        let line_h = size_px * 1.28;
-        let block_h = line_h * lines.len() as f64;
-        let mut ty = by + ((bh - block_h) / 2.0).max(0.0) + size_px;
-
-        for line in &lines {
-            if ty > ch + line_h { break; }
-            let tw = cr.text_extents(line).map(|e| e.width()).unwrap_or(0.0);
-            let tx = if b.centered { bx + (bw - tw) / 2.0 } else { bx + pad };
-            let tx = tx.max(bx).min(cw - tw.min(bw)).max(2.0);
-
-            for (ox, oy) in [(-1.2, 0.0), (1.2, 0.0), (0.0, -1.2), (0.0, 1.2)] {
-                cr.set_source_rgba(halo_r, halo_g, halo_b, halo_a);
-                cr.move_to(tx + ox, ty + oy);
-                let _ = cr.show_text(line);
+        SlideBackground::Gradient(stops, angle) => {
+            if let Some(grad) = linear_gradient(0.0, 0.0, cw, ch, stops, *angle) {
+                let _ = cr.set_source(&grad);
+                let _ = cr.paint();
             }
-            cr.set_source_rgb(fg_r, fg_g, fg_b);
-            cr.move_to(tx, ty);
-            let _ = cr.show_text(line);
-            ty += line_h;
+        }
+        SlideBackground::Image(path) => {
+            let Ok(bytes) = std::fs::read(path) else { return };
+            let Ok(img) = image::load_from_memory(&bytes) else { return };
+            let rgba = img.to_rgba8();
+            let (iw, ih) = (rgba.width() as f64, rgba.height() as f64);
+            if iw <= 0.0 || ih <= 0.0 {
+                return;
+            }
+            let Some(surf) = cairo_image_from_rgba(&rgba, rgba.width(), rgba.height()) else {
+                return;
+            };
+            let scale = (cw / iw).min(ch / ih);
+            let (dw, dh) = (iw * scale, ih * scale);
+            let (dx, dy) = ((cw - dw) / 2.0, (ch - dh) / 2.0);
+            let _ = cr.save();
+            cr.translate(dx, dy);
+            cr.scale(scale, scale);
+            let _ = cr.set_source_surface(&surf, 0.0, 0.0);
+            let _ = cr.paint();
+            let _ = cr.restore();
         }
     }
-    Some(())
+}
+
+/// Linear gradient across a rect along `angle` (rad; 0 = left→right,
+/// positive = clockwise — DrawingML and cairo share this convention).
+/// The gradient line runs through the rect center, extended to cover all
+/// corners at any angle.
+fn linear_gradient(
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    stops: &[(f64, (f64, f64, f64), f64)],
+    angle: f64,
+) -> Option<gtk::cairo::LinearGradient> {
+    if stops.is_empty() {
+        return None;
+    }
+    let (sn, cs) = angle.sin_cos();
+    let len = (w * cs.abs() + h * sn.abs()).max(1.0);
+    let (cx, cyy) = (x + w / 2.0, y + h / 2.0);
+    let grad = gtk::cairo::LinearGradient::new(
+        cx - cs * len / 2.0,
+        cyy - sn * len / 2.0,
+        cx + cs * len / 2.0,
+        cyy + sn * len / 2.0,
+    );
+    for (pos, c, a) in stops {
+        grad.add_color_stop_rgba(*pos, c.0, c.1, c.2, *a);
+    }
+    Some(grad)
+}
+
+/// One shape: preset path, optional fill (solid/gradient), outline, with the
+/// box's rotation/flips applied about its center. Everything — including
+/// path construction and consumption — happens inside one save/restore.
+fn draw_slide_shape(cr: &gtk::cairo::Context, sh: &DrawShape, s: f64) {
+    let x = sh.x * s;
+    let y = sh.y * s;
+    let w = sh.w * s;
+    let h = sh.h * s;
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+
+    let _ = cr.save();
+    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    if sh.rot != 0.0 || sh.flip_h || sh.flip_v {
+        cr.translate(cx, cy);
+        if sh.rot != 0.0 {
+            cr.rotate(sh.rot);
+        }
+        if sh.flip_h || sh.flip_v {
+            cr.scale(
+                if sh.flip_h { -1.0 } else { 1.0 },
+                if sh.flip_v { -1.0 } else { 1.0 },
+            );
+        }
+        cr.translate(-cx, -cy);
+    }
+
+    // `<a:custGeom>` freeform: its own path tracing + fill/stroke rules
+    // (the preset below would only ever produce a bounding rectangle).
+    if let Some(paths) = &sh.freeform {
+        draw_freeform_shape(cr, sh, paths, x, y, w, h, s);
+        let _ = cr.restore();
+        return;
+    }
+
+    build_shape_path(cr, &sh.prst, x, y, w, h, sh.flip_h, sh.flip_v);
+
+    let mut filled = false;
+    if let Some(fill) = &sh.fill {
+        filled = match fill {
+            FillKind::Solid(c, a) => {
+                cr.set_source_rgba(c.0, c.1, c.2, *a);
+                true
+            }
+            FillKind::Gradient(stops, ang) => match linear_gradient(x, y, w, h, stops, *ang) {
+                Some(g) => {
+                    let _ = cr.set_source(&g);
+                    true
+                }
+                None => false,
+            },
+            FillKind::None => false,
+        };
+        if filled {
+            // keep the path only when a stroke is about to consume it
+            let _ = if sh.line.is_some() { cr.fill_preserve() } else { cr.fill() };
+        }
+    }
+    if let Some(ln) = &sh.line {
+        cr.set_source_rgba(ln.color.0, ln.color.1, ln.color.2, ln.alpha);
+        cr.set_line_width((ln.width_emu * s).max(0.75));
+        let _ = cr.stroke();
+    } else if !filled {
+        cr.new_path();
+    }
+    let _ = cr.restore();
+}
+
+/// A `<a:custGeom>` shape: fill only the subpaths marked fillable (cairo's
+/// nonzero winding rule turns reversed inner contours into holes), then
+/// stroke everything — same fill/outline precedence as `draw_slide_shape`.
+fn draw_freeform_shape(
+    cr: &gtk::cairo::Context,
+    sh: &DrawShape,
+    paths: &[FreeformPath],
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    s: f64,
+) {
+    let mut filled = false;
+    if let Some(fill) = &sh.fill {
+        cr.new_path();
+        let mut traced_fillable = false;
+        for p in paths.iter().filter(|p| p.fill) {
+            trace_freeform_path(cr, p, x, y, w, h);
+            traced_fillable = true;
+        }
+        if traced_fillable {
+            filled = match fill {
+                FillKind::Solid(c, a) => {
+                    cr.set_source_rgba(c.0, c.1, c.2, *a);
+                    true
+                }
+                FillKind::Gradient(stops, ang) => match linear_gradient(x, y, w, h, stops, *ang) {
+                    Some(g) => {
+                        let _ = cr.set_source(&g);
+                        true
+                    }
+                    None => false,
+                },
+                FillKind::None => false,
+            };
+            if filled {
+                // keep the path only when a stroke is about to consume it
+                let _ = if sh.line.is_some() { cr.fill_preserve() } else { cr.fill() };
+            }
+        }
+    }
+    if let Some(ln) = &sh.line {
+        if filled {
+            // the fillable subpaths are already in the path — append the rest
+            for p in paths.iter().filter(|p| !p.fill) {
+                trace_freeform_path(cr, p, x, y, w, h);
+            }
+        } else {
+            cr.new_path();
+            for p in paths.iter() {
+                trace_freeform_path(cr, p, x, y, w, h);
+            }
+        }
+        cr.set_source_rgba(ln.color.0, ln.color.1, ln.color.2, ln.alpha);
+        cr.set_line_width((ln.width_emu * s).max(0.75));
+        let _ = cr.stroke();
+    } else if !filled {
+        cr.new_path();
+    }
+}
+
+/// Trace one freeform subpath into the current path, mapping path-space
+/// coordinates onto the shape rect (`pt` → `x + pt_x/path_w·w`).
+fn trace_freeform_path(
+    cr: &gtk::cairo::Context,
+    p: &FreeformPath,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+) {
+    let (pw, ph) = (p.w.max(1.0), p.h.max(1.0));
+    let mx = |px: f64| x + px / pw * w;
+    let my = |py: f64| y + py / ph * h;
+    let mut cur = (0.0f64, 0.0f64); // path-space current point
+    let mut start = (0.0f64, 0.0f64); // subpath start (for `close`)
+    for cmd in &p.cmds {
+        match *cmd {
+            PathCmd::MoveTo(a, b) => {
+                cr.move_to(mx(a), my(b));
+                cur = (a, b);
+                start = (a, b);
+            }
+            PathCmd::LineTo(a, b) => {
+                cr.line_to(mx(a), my(b));
+                cur = (a, b);
+            }
+            PathCmd::CubicBezTo(c) => {
+                cr.curve_to(mx(c[0]), my(c[1]), mx(c[2]), my(c[3]), mx(c[4]), my(c[5]));
+                cur = (c[4], c[5]);
+            }
+            PathCmd::QuadBezTo(q) => {
+                // cairo has no quadratic — elevate to cubic (its control
+                // points sit 2/3 of the way toward the quadratic control)
+                let (sx, sy) = cur;
+                let (c1x, c1y) = (sx + 2.0 * (q[0] - sx) / 3.0, sy + 2.0 * (q[1] - sy) / 3.0);
+                let (c2x, c2y) =
+                    (q[2] + 2.0 * (q[0] - q[2]) / 3.0, q[3] + 2.0 * (q[1] - q[3]) / 3.0);
+                cr.curve_to(mx(c1x), my(c1y), mx(c2x), my(c2y), mx(q[2]), my(q[3]));
+                cur = (q[2], q[3]);
+            }
+            PathCmd::Close => {
+                cr.close_path();
+                cur = start;
+            }
+        }
+    }
+}
+
+/// A doughnut chart: ring segments stroked as butt-capped arcs.
+/// `firstSliceAng` 0° = 12 o'clock, sweeping clockwise (y-down matches
+/// cairo). A ~0.1° epsilon overdraw hides the antialiasing seams where
+/// two segments meet.
+fn draw_slide_chart(cr: &gtk::cairo::Context, ch: &DrawChart, s: f64) {
+    let (x, y, w, h) = (ch.x * s, ch.y * s, ch.w * s, ch.h * s);
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let d = &ch.doughnut;
+    let total: f64 = d.values.iter().filter(|v| **v > 0.0).sum();
+    if total <= 0.0 {
+        return;
+    }
+    let r_out = w.min(h) / 2.0; // inscribed in the chart's frame
+    if r_out <= 0.5 {
+        return;
+    }
+    let r_in = r_out * (d.hole_pct / 100.0).clamp(0.0, 0.95);
+    let mid_r = (r_out + r_in) / 2.0;
+    let thickness = (r_out - r_in).max(1.0);
+    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    const EPS: f64 = 0.002;
+    let mut ang = (d.first_ang_deg - 90.0).to_radians();
+    for (i, v) in d.values.iter().enumerate() {
+        if *v <= 0.0 {
+            continue;
+        }
+        let sweep = v / total * std::f64::consts::TAU;
+        let color =
+            d.colors.get(i).copied().flatten().unwrap_or((0.55, 0.55, 0.55));
+        let _ = cr.save();
+        cr.set_source_rgba(color.0, color.1, color.2, 1.0);
+        cr.set_line_width(thickness);
+        cr.new_path();
+        cr.arc(cx, cy, mid_r, ang, ang + sweep + EPS);
+        let _ = cr.stroke();
+        let _ = cr.restore();
+        ang += sweep;
+    }
+}
+
+/// Trace the preset geometry into the current path (canvas px). Connectors
+/// run corner-to-corner; flips choose the diagonal. Unknown presets fall
+/// back to a rectangle.
+fn build_shape_path(
+    cr: &gtk::cairo::Context,
+    prst: &str,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    flip_h: bool,
+    flip_v: bool,
+) {
+    use std::f64::consts::{FRAC_PI_2, PI};
+    cr.new_path();
+    let poly = |pts: &[(f64, f64)]| {
+        if let Some((first, rest)) = pts.split_first() {
+            cr.move_to(first.0, first.1);
+            for p in rest {
+                cr.line_to(p.0, p.1);
+            }
+            cr.close_path();
+        }
+    };
+    match prst {
+        "ellipse" | "circle" => {
+            // scale + arc, then restore the CTM before the fill: cairo bakes
+            // path points to device space at add-time, so the ellipse stays put
+            let (ccx, ccy) = (x + w / 2.0, y + h / 2.0);
+            let _ = cr.save();
+            cr.translate(ccx, ccy);
+            cr.scale(w / 2.0, h / 2.0);
+            cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
+            let _ = cr.restore();
+        }
+        "roundRect" => {
+            let r = (w.min(h) / 6.0).min(w / 2.0).min(h / 2.0); // default adj 16667
+            cr.move_to(x + r, y);
+            cr.line_to(x + w - r, y);
+            cr.arc(x + w - r, y + r, r, -FRAC_PI_2, 0.0);
+            cr.line_to(x + w, y + h - r);
+            cr.arc(x + w - r, y + h - r, r, 0.0, FRAC_PI_2);
+            cr.line_to(x + r, y + h);
+            cr.arc(x + r, y + h - r, r, FRAC_PI_2, PI);
+            cr.line_to(x, y + r);
+            cr.arc(x + r, y + r, r, PI, PI + FRAC_PI_2);
+            cr.close_path();
+        }
+        "triangle" => poly(&[(x + w / 2.0, y), (x + w, y + h), (x, y + h)]),
+        "rtTriangle" => poly(&[(x, y), (x, y + h), (x + w, y + h)]),
+        "diamond" => poly(&[
+            (x + w / 2.0, y),
+            (x + w, y + h / 2.0),
+            (x + w / 2.0, y + h),
+            (x, y + h / 2.0),
+        ]),
+        "parallelogram" => poly(&[
+            (x + 0.25 * w, y),
+            (x + w, y),
+            (x + 0.75 * w, y + h),
+            (x, y + h),
+        ]),
+        "trapezoid" => poly(&[
+            (x + 0.25 * w, y),
+            (x + 0.75 * w, y),
+            (x + w, y + h),
+            (x, y + h),
+        ]),
+        "hexagon" => poly(&[
+            (x + 0.25 * w, y),
+            (x + 0.75 * w, y),
+            (x + w, y + h / 2.0),
+            (x + 0.75 * w, y + h),
+            (x + 0.25 * w, y + h),
+            (x, y + h / 2.0),
+        ]),
+        "pentagon" | "homePlate" => poly(&[
+            (x + w / 2.0, y),
+            (x + w, y + 0.382 * h),
+            (x + 0.809 * w, y + h),
+            (x + 0.191 * w, y + h),
+            (x, y + 0.382 * h),
+        ]),
+        "chevron" => poly(&[
+            (x, y),
+            (x + 0.75 * w, y),
+            (x + w, y + h / 2.0),
+            (x + 0.75 * w, y + h),
+            (x, y + h),
+            (x + 0.25 * w, y + h / 2.0),
+        ]),
+        "star4" | "star5" | "star6" | "star8" => {
+            let n = match prst {
+                "star4" => 4.0,
+                "star6" => 6.0,
+                "star8" => 8.0,
+                _ => 5.0,
+            };
+            let (mcx, mcy) = (x + w / 2.0, y + h / 2.0);
+            let (rx, ry) = (w / 2.0, h / 2.0);
+            let inner = 0.38;
+            let total = (n as usize) * 2;
+            for i in 0..total {
+                let t = (i as f64) * PI / n - FRAC_PI_2;
+                let f = if i % 2 == 0 { 1.0 } else { inner };
+                let px = mcx + t.cos() * rx * f;
+                let py = mcy + t.sin() * ry * f;
+                if i == 0 {
+                    cr.move_to(px, py);
+                } else {
+                    cr.line_to(px, py);
+                }
+            }
+            cr.close_path();
+        }
+        // connectors + plain lines: corner-to-corner diagonal
+        "line" | "straightConnector1" | "bentConnector2" | "bentConnector3"
+        | "bentConnector4" | "bentConnector5" => {
+            if flip_h != flip_v {
+                cr.move_to(x + w, y);
+                cr.line_to(x, y + h);
+            } else {
+                cr.move_to(x, y);
+                cr.line_to(x + w, y + h);
+            }
+        }
+        _ => cr.rectangle(x, y, w, h), // rect, custGeom fallback, …
+    }
+}
+
+/// One picture: the `srcRect` sub-rectangle is mapped onto the destination
+/// rect (OOXML stretches, it does not letterbox), then rotation/flips apply.
+fn draw_slide_picture(cr: &gtk::cairo::Context, pic: &DrawPicture, s: f64) {
+    use gtk::cairo;
+    let x = pic.x * s;
+    let y = pic.y * s;
+    let w = pic.w * s;
+    let h = pic.h * s;
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let Ok(bytes) = std::fs::read(&pic.path) else { return };
+    let Ok(img) = image::load_from_memory(&bytes) else { return };
+    let rgba = img.to_rgba8();
+    let (iw, ih) = (rgba.width() as f64, rgba.height() as f64);
+    if iw <= 0.0 || ih <= 0.0 {
+        return;
+    }
+    let Some(surf) = cairo_image_from_rgba(&rgba, rgba.width(), rgba.height()) else { return };
+
+    // source sub-rect in px (crop = fractions cut from each edge)
+    let (cl, ct, cr_, cb) = (
+        pic.crop[0].clamp(0.0, 0.9),
+        pic.crop[1].clamp(0.0, 0.9),
+        pic.crop[2].clamp(0.0, 0.9),
+        pic.crop[3].clamp(0.0, 0.9),
+    );
+    if 1.0 - cl - cr_ <= 0.0 || 1.0 - ct - cb <= 0.0 {
+        return;
+    }
+    let (sx0, sy0) = (cl * iw, ct * ih);
+    let (sw, shp) = ((1.0 - cl - cr_) * iw, (1.0 - ct - cb) * ih);
+
+    let _ = cr.save();
+    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    if pic.rot != 0.0 || pic.flip_h || pic.flip_v {
+        cr.translate(cx, cy);
+        if pic.rot != 0.0 {
+            cr.rotate(pic.rot);
+        }
+        if pic.flip_h || pic.flip_v {
+            cr.scale(
+                if pic.flip_h { -1.0 } else { 1.0 },
+                if pic.flip_v { -1.0 } else { 1.0 },
+            );
+        }
+        cr.translate(-cx, -cy);
+    }
+    // map source sub-rect → dest rect (stretch); set_source_surface under
+    // this CTM places source px (sx0, sy0) exactly at (x, y)
+    let m = cairo::Matrix::new(
+        w / sw,
+        0.0,
+        0.0,
+        h / shp,
+        x - sx0 * (w / sw),
+        y - sy0 * (h / shp),
+    );
+    cr.transform(m);
+    let _ = cr.set_source_surface(&surf, 0.0, 0.0);
+    let _ = cr.paint();
+    let _ = cr.restore();
+
+    // optional outline (same rotation/flip box)
+    if let Some(ln) = &pic.line {
+        let _ = cr.save();
+        if pic.rot != 0.0 || pic.flip_h || pic.flip_v {
+            cr.translate(cx, cy);
+            if pic.rot != 0.0 {
+                cr.rotate(pic.rot);
+            }
+            if pic.flip_h || pic.flip_v {
+                cr.scale(
+                    if pic.flip_h { -1.0 } else { 1.0 },
+                    if pic.flip_v { -1.0 } else { 1.0 },
+                );
+            }
+            cr.translate(-cx, -cy);
+        }
+        cr.rectangle(x, y, w, h);
+        cr.set_source_rgba(ln.color.0, ln.color.1, ln.color.2, ln.alpha);
+        cr.set_line_width((ln.width_emu * s).max(0.75));
+        let _ = cr.stroke();
+        let _ = cr.restore();
+    }
+}
+
+/// One text box, drawn with Pango: one `Layout` per paragraph stacked by
+/// measured height, per-run markup (size/weight/slant/underline/color/face),
+/// vertical anchor + insets honored, light text haloed for contrast. Boxes
+/// without structured `paras` (legacy .ppt) are synthesized into one run.
+fn draw_slide_text_box(
+    cr: &gtk::cairo::Context,
+    b: &SlideBox,
+    s: f64,
+    pctx: &pangocairo::pango::Context,
+) {
+    use pangocairo::pango;
+
+    // legacy .ppt boxes carry plain text only — wrap them in one paragraph
+    let legacy;
+    let paras: &[TextPara] = match &b.paras {
+        Some(p) => p,
+        None => {
+            legacy = vec![TextPara {
+                runs: vec![TextRun {
+                    text: b.text.clone(),
+                    sz_pt: b.font_pt,
+                    bold: b.is_title,
+                    italic: false,
+                    underline: false,
+                    color: b.color,
+                    font: Some("Sans".into()),
+                }],
+                algn: if b.centered { "ctr".into() } else { "l".into() },
+                lvl: 0,
+                bullet: None,
+                spc_bef_pt: 0.0,
+                spc_aft_pt: 0.0,
+                follow: false,
+                mar_l_emu: 0.0,
+                hang_emu: 0.0,
+            }];
+            &legacy
+        }
+    };
+    if paras.is_empty() {
+        return;
+    }
+
+    let bx = b.x * s;
+    let by = b.y * s;
+    let bw = b.w * s;
+    let bh = b.h * s;
+    if bw <= 1.0 {
+        return;
+    }
+    let insets = [
+        b.insets[0] * s,
+        b.insets[1] * s,
+        b.insets[2] * s,
+        b.insets[3] * s,
+    ];
+    let right_edge = bx + bw - insets[2];
+
+    struct Piece {
+        layout: pangocairo::pango::Layout,
+        x: f64,
+        h: f64,
+        gap_before: f64,
+        gap_after: f64,
+        color: (f64, f64, f64),
+        light: bool,
+    }
+    let mut pieces: Vec<Piece> = Vec::new();
+
+    for para in paras {
+        if pieces.len() > 48 {
+            break; // pathological decks: hard cap
+        }
+        let marker = if para.follow { String::new() } else { bullet_marker(para) };
+
+        let mut markup = String::new();
+        let mut first = true;
+        for run in &para.runs {
+            let text = if first && !marker.is_empty() {
+                format!("{}{}", marker, run.text)
+            } else {
+                run.text.clone()
+            };
+            first = false;
+            markup.push_str(&run_markup(run, &text, b.autofit_scale, s));
+        }
+        if para.runs.is_empty() {
+            // blank paragraph: keep one line of vertical space
+            markup = format!(
+                "<span size=\"{}\"> </span>",
+                default_size_units(b, s)
+            );
+        }
+
+        // Text column: box left inset + marL (level/paragraph). The bullet
+        // marker hangs into the margin so wrapped lines land exactly under
+        // the run text: the first line starts marker-width left of the
+        // column, and Pango's negative indent brings subsequent lines back
+        // to it (Pango applies negative indents to non-first lines).
+        let mar_px = para.mar_l_emu * s;
+        let x_col = bx + insets[0] + mar_px;
+        let mut marker_w = 0.0;
+        if !marker.is_empty() && !para.runs.is_empty() && para.hang_emu > 0.0 && para.algn != "ctr"
+        {
+            let probe = pangocairo::pango::Layout::new(pctx);
+            let probe_markup = run_markup(&para.runs[0], &marker, b.autofit_scale, s);
+            if let Ok((attrs, text, _)) = pango::parse_markup(&probe_markup, '\u{0}') {
+                probe.set_attributes(Some(&attrs));
+                probe.set_text(&text);
+                marker_w = probe.pixel_size().0 as f64;
+            }
+        }
+        let hang_px = marker_w.min(mar_px);
+        let x_first = x_col - hang_px;
+        let width_px = (right_edge - x_first).max(8.0);
+
+        let layout = pangocairo::pango::Layout::new(pctx);
+        layout.set_width((width_px * 1024.0) as i32);
+        layout.set_wrap(pango::WrapMode::WordChar);
+        layout.set_alignment(match para.algn.as_str() {
+            "ctr" => pango::Alignment::Center,
+            "r" => pango::Alignment::Right,
+            _ => pango::Alignment::Left,
+        });
+        if hang_px > 0.0 {
+            layout.set_indent((-(hang_px * 1024.0)) as i32);
+        }
+
+        match pango::parse_markup(&markup, '\u{0}') {
+            Ok((attrs, text, _)) => {
+                layout.set_attributes(Some(&attrs));
+                layout.set_text(&text);
+            }
+            Err(_) => layout.set_text(&strip_markup_lossy(&markup)),
+        }
+
+        let (_, ph) = layout.pixel_size();
+        let color = para
+            .runs
+            .iter()
+            .find_map(|r| r.color)
+            .or(b.color)
+            .unwrap_or((0.10, 0.10, 0.14));
+        let luma = 0.2126 * color.0 + 0.7152 * color.1 + 0.0722 * color.2;
+        pieces.push(Piece {
+            layout,
+            x: x_first,
+            h: ph as f64,
+            gap_before: if pieces.is_empty() || para.follow {
+                0.0
+            } else {
+                para.spc_bef_pt * 12_700.0 * s
+            },
+            gap_after: para.spc_aft_pt * 12_700.0 * s,
+            color,
+            light: luma > 0.55,
+        });
+    }
+    if pieces.is_empty() {
+        return;
+    }
+
+    // vertical anchor over the inset box
+    let total: f64 = pieces.iter().map(|p| p.gap_before + p.h + p.gap_after).sum();
+    let top_limit = by + insets[1];
+    let bottom_limit = by + bh - insets[3];
+    let mut y = match b.anchor {
+        1 => ((top_limit + bottom_limit) / 2.0 - total / 2.0).max(top_limit),
+        2 => (bottom_limit - total).max(top_limit),
+        _ => top_limit,
+    };
+
+    for piece in &pieces {
+        pangocairo::functions::update_layout(cr, &piece.layout);
+        y += piece.gap_before;
+        if piece.light {
+            // soft dark halo so light text survives photos and gradients
+            for (ox, oy) in [
+                (-1.5, 0.0),
+                (1.5, 0.0),
+                (0.0, -1.5),
+                (0.0, 1.5),
+                (-1.0, -1.0),
+                (1.0, 1.0),
+                (-1.0, 1.0),
+                (1.0, -1.0),
+            ] {
+                cr.set_source_rgba(0.0, 0.0, 0.0, 0.55);
+                cr.move_to(piece.x + ox, y + oy);
+                pangocairo::functions::show_layout(cr, &piece.layout);
+            }
+        }
+        cr.set_source_rgba(piece.color.0, piece.color.1, piece.color.2, 1.0);
+        cr.move_to(piece.x, y);
+        pangocairo::functions::show_layout(cr, &piece.layout);
+        y += piece.h + piece.gap_after;
+    }
+}
+
+/// One run as Pango markup. At 72 dpi context resolution, markup `size`
+/// (1/1024) behaves as canvas px: size = pt · 12700 · (px/EMU) · 1024.
+fn run_markup(run: &TextRun, text: &str, autofit: f64, s: f64) -> String {
+    let esc = |t: &str| t.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let pt = run.sz_pt.unwrap_or(18.0) * autofit;
+    let px = (pt * 12_700.0 * s).max(1.0);
+    let mut attrs = format!(" size=\"{}\"", (px * 1024.0).round() as i64);
+    if run.bold {
+        attrs.push_str(" weight=\"bold\"");
+    }
+    if run.italic {
+        attrs.push_str(" style=\"italic\"");
+    }
+    if run.underline {
+        attrs.push_str(" underline=\"single\"");
+    }
+    if let Some(c) = run.color {
+        let ch = |v: f64| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+        attrs.push_str(&format!(" foreground=\"#{:02x}{:02x}{:02x}\"", ch(c.0), ch(c.1), ch(c.2)));
+    }
+    if let Some(f) = run.font.as_deref().filter(|f| !f.is_empty()) {
+        attrs.push_str(&format!(" face=\"{}\"", esc(f)));
+    }
+    format!("<span{}>{}</span>", attrs, esc(text))
+}
+
+/// Markup size for an empty paragraph (so blank lines keep line height).
+fn default_size_units(b: &SlideBox, s: f64) -> i64 {
+    let pt = b.font_pt.unwrap_or(18.0) * b.autofit_scale;
+    ((pt * 12_700.0 * s).max(1.0) * 1024.0).round() as i64
+}
+
+/// Bullet marker text for a paragraph's first line (char + nbsp).
+fn bullet_marker(para: &TextPara) -> String {
+    match &para.bullet {
+        None | Some(ParaBullet::Off) => String::new(),
+        Some(ParaBullet::Char(c)) => format!("{}\u{a0}", c),
+        Some(ParaBullet::Number(kind, n)) => {
+            let n = (*n).max(1);
+            let label = match kind.as_str() {
+                "alphaLcPeriod" => format!("{}.", (b'a' + ((n - 1) % 26) as u8) as char),
+                "alphaUcPeriod" => format!("{}.", (b'A' + ((n - 1) % 26) as u8) as char),
+                _ => format!("{}.", n),
+            };
+            format!("{}\u{a0}", label)
+        }
+    }
+}
+
+/// Strip Pango markup when parsing fails: drop tags, decode the entities.
+fn strip_markup_lossy(markup: &str) -> String {
+    let mut out = String::new();
+    let mut in_tag = false;
+    for ch in markup.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    decode_xml_entities(&out)
 }
 
 /// Convert an `image::RgbaImage` to a Cairo ImageSurface.
-/// Writes the image as PNG to a temp buffer, then loads via gdk::Texture.
-fn cairo_image_from_rgba(rgba: &image::RgbaImage, _w: u32, _h: u32) -> Option<gtk::cairo::ImageSurface> {
+/// Writes the image as PNG to a temp buffer, then loads it via Cairo.
+pub(crate) fn cairo_image_from_rgba(rgba: &image::RgbaImage, _w: u32, _h: u32) -> Option<gtk::cairo::ImageSurface> {
     use gtk::cairo;
     let dyn_img = image::DynamicImage::ImageRgba8(rgba.clone());
     let mut png_buf = std::io::Cursor::new(Vec::new());
@@ -4607,7 +7063,7 @@ fn cairo_image_from_rgba(rgba: &image::RgbaImage, _w: u32, _h: u32) -> Option<gt
 }
 
 /// Greedy word-wrap for Cairo text within a pixel width.
-fn wrap_text(cr: &gtk::cairo::Context, text: &str, max_w: f64) -> Vec<String> {
+pub(crate) fn wrap_text(cr: &gtk::cairo::Context, text: &str, max_w: f64) -> Vec<String> {
     let mut lines = Vec::new();
     let mut cur = String::new();
     for word in text.split_whitespace() {
@@ -4880,5 +7336,814 @@ line2
         let payload = compute_preview(&p);
         assert!(matches!(payload, PreviewPayload::Info));
         let _ = fs::remove_dir_all(&d);
+    }
+
+    // ── PPTX native renderer (Phases 1–2) ──────────────────────────────
+
+    const THEME_XML: &str = r#"<a:theme xmlns:a="a"><a:themeElements>
+<a:clrScheme name="T">
+<a:dk1><a:srgbClr val="000000"/></a:dk1><a:lt1><a:srgbClr val="FFFFFF"/></a:lt1>
+<a:dk2><a:srgbClr val="44546A"/></a:dk2><a:lt2><a:srgbClr val="E7E6E6"/></a:lt2>
+<a:accent1><a:srgbClr val="4472C4"/></a:accent1><a:accent2><a:srgbClr val="ED7D31"/></a:accent2>
+<a:accent3><a:srgbClr val="A5A5A5"/></a:accent3><a:accent4><a:srgbClr val="FFC000"/></a:accent4>
+<a:accent5><a:srgbClr val="5B9BD5"/></a:accent5><a:accent6><a:srgbClr val="70AD47"/></a:accent6>
+<a:hlink><a:srgbClr val="0563C1"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink>
+</a:clrScheme>
+<a:majorFont><a:latin typeface="Contoso Display"/></a:majorFont>
+<a:minorFont><a:latin typeface="Contoso Sans"/></a:minorFont>
+<a:fmtScheme name="F"><a:bgFillStyleLst>
+<a:solidFill><a:schemeClr val="lt1"/></a:solidFill>
+<a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="000000"/></a:gs><a:gs pos="100000"><a:srgbClr val="FFFFFF"/></a:gs></a:gsLst><a:lin ang="5400000"/></a:gradFill>
+</a:bgFillStyleLst></a:fmtScheme>
+</a:themeElements></a:theme>"#;
+
+    const TX_STYLES: &str = r#"<p:txStyles>
+<p:titleStyle><a:lvl1pPr algn="ctr"><a:buNone/><a:defRPr sz="3600" b="1">
+<a:solidFill><a:schemeClr val="dk1"/></a:solidFill><a:latin typeface="+mj-lt"/></a:defRPr></a:lvl1pPr></p:titleStyle>
+<p:bodyStyle><a:lvl1pPr algn="l" marL="342900" indent="-342900"><a:buChar char="&#x2022;"/>
+<a:defRPr sz="1800"><a:latin typeface="+mn-lt"/></a:defRPr></a:lvl1pPr></p:bodyStyle>
+<p:otherStyle><a:lvl1pPr><a:buNone/><a:defRPr sz="1400"/></a:lvl1pPr></p:otherStyle>
+</p:txStyles>"#;
+
+    /// ECMA-376 default color map (what a real master carries).
+    const DEFAULT_CLR_MAP: &str = r#"<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2"
+accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4"
+accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
+
+    /// A tiny real PNG for `ppt/media/image1.png`.
+    fn tiny_png() -> Vec<u8> {
+        let img = image::RgbaImage::from_pixel(2, 2, image::Rgba([10, 200, 30, 255]));
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        png
+    }
+
+    fn build_deck_zip(name: &str, parts: &[(String, Vec<u8>)]) -> std::path::PathBuf {
+        let d = td(name);
+        let path = d.join("deck.pptx");
+        let f = fs::File::create(&path).unwrap();
+        let mut w = zip::ZipWriter::new(f);
+        for (n, data) in parts {
+            w.start_file(n.as_str(), zip::write::FileOptions::default()).unwrap();
+            w.write_all(data).unwrap();
+        }
+        w.finish().unwrap();
+        path
+    }
+
+    /// Build a minimal single-slide PPTX. Shape-tree strings are the direct
+    /// children of each part's `<p:spTree>`; `slide_bg` is the slide's
+    /// `<p:bg>…</p:bg>` (or empty); `layout_root` carries extra root
+    /// attributes (e.g. `showMasterSp="0"`); `clr_map` replaces the master's
+    /// `<p:clrMap>` when non-empty. Returns the deck path.
+    #[allow(clippy::too_many_arguments)]
+    fn build_deck(
+        name: &str,
+        slide_bg: &str,
+        slide_elements: &str,
+        layout_root: &str,
+        layout_elements: &str,
+        master_elements: &str,
+        clr_map: &str,
+    ) -> std::path::PathBuf {
+        let strs: Vec<(String, String)> = vec![
+            (
+                "ppt/presentation.xml".into(),
+                r#"<p:presentation><p:sldSz cx="9144000" cy="6858000"/></p:presentation>"#.into(),
+            ),
+            ("ppt/theme/theme1.xml".into(), THEME_XML.into()),
+            (
+                "ppt/slideMasters/slideMaster1.xml".into(),
+                format!(
+                    "<p:sldMaster><p:cSld><p:spTree>{}</p:spTree></p:cSld>{}{}</p:sldMaster>",
+                    master_elements,
+                    if clr_map.is_empty() { DEFAULT_CLR_MAP } else { clr_map },
+                    TX_STYLES
+                ),
+            ),
+            (
+                "ppt/slideLayouts/slideLayout1.xml".into(),
+                format!(
+                    "<p:sldLayout {}><p:cSld><p:spTree>{}</p:spTree></p:cSld></p:sldLayout>",
+                    layout_root, layout_elements
+                ),
+            ),
+            (
+                "ppt/slideLayouts/_rels/slideLayout1.xml.rels".into(),
+                r#"<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/></Relationships>"#.into(),
+            ),
+            (
+                "ppt/slides/slide1.xml".into(),
+                format!(
+                    "<p:sld><p:cSld>{}<p:spTree>{}</p:spTree></p:cSld></p:sld>",
+                    slide_bg, slide_elements
+                ),
+            ),
+            (
+                "ppt/slides/_rels/slide1.xml.rels".into(),
+                r#"<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/></Relationships>"#.into(),
+            ),
+        ];
+        let mut parts: Vec<(String, Vec<u8>)> = strs
+            .into_iter()
+            .map(|(n, d)| (n, d.into_bytes()))
+            .collect();
+        parts.push(("ppt/media/image1.png".into(), tiny_png()));
+        build_deck_zip(name, &parts)
+    }
+
+    fn filled_rect(id: u32, x: i64, y: i64, cx: i64, cy: i64, color: &str) -> String {
+        format!(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="{id}" name="R{id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:srgbClr val="{color}"/></a:solidFill></p:spPr></p:sp>"#
+        )
+    }
+
+    fn text_sp(ph: &str, tx_body: &str, xfrm: &str) -> String {
+        format!(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="9" name="T"/><p:cNvSpPr/><p:nvPr>{ph}</p:nvPr></p:nvSpPr><p:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom>{xfrm}</p:spPr><p:txBody><a:bodyPr/>{tx_body}</p:txBody></p:sp>"#
+        )
+    }
+
+    fn the_pic(xfrm: &str, src_rect: &str) -> String {
+        format!(
+            r#"<p:pic><p:nvPicPr><p:cNvPr id="5" name="P"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr><p:blipFill><a:blip r:embed="rId1"/>{src_rect}<a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>{xfrm}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>"#
+        )
+    }
+
+    /// Regression: a picture listed AFTER a shape must draw after it — the old
+    /// string-scan renderer dropped every picture it passed. Element order is
+    /// z-order, so Shape → Picture → Text here.
+    #[test]
+    fn pptx_picture_after_shape_keeps_z_order() {
+        let rect = filled_rect(2, 0, 0, 9_144_000, 6_858_000, "FFEEDD");
+        let pic = the_pic(
+            r#"<a:xfrm><a:off x="100000" y="100000"/><a:ext cx="500000" cy="500000"/></a:xfrm>"#,
+            "",
+        );
+        let title = text_sp(
+            r#"<p:ph type="title"/>"#,
+            r#"<a:p><a:r><a:t>Hello</a:t></a:r></a:p>"#,
+            r#"<a:xfrm><a:off x="0" y="0"/><a:ext cx="9144000" cy="1000000"/></a:xfrm>"#,
+        );
+        let deck = build_deck(
+            "pptx_zorder",
+            "",
+            &format!("{}{}{}", rect, pic, title),
+            "",
+            "",
+            "",
+            "",
+        );
+        let layout = parse_pptx_slide(&deck, 1).expect("parse slide 1");
+        assert_eq!(layout.elements.len(), 3, "all three elements present");
+        assert!(matches!(layout.elements[0], SlideElement::Shape(_)));
+        assert!(matches!(layout.elements[1], SlideElement::Picture(_)));
+        assert!(matches!(layout.elements[2], SlideElement::Text(_)));
+        if let SlideElement::Picture(p) = &layout.elements[1] {
+            assert!(p.path.exists(), "extracted image path exists: {:?}", p.path);
+            assert_eq!(p.crop, [0.0; 4], "no srcRect → no crop");
+            assert_eq!((p.x, p.y), (100_000.0, 100_000.0));
+        }
+        let _ = fs::remove_dir_all(deck.parent().unwrap());
+    }
+
+    /// `<a:srcRect>` fractions become the picture's crop.
+    #[test]
+    fn pptx_picture_srcrect_crop() {
+        let pic = the_pic(
+            r#"<a:xfrm><a:off x="0" y="0"/><a:ext cx="1" cy="1"/></a:xfrm>"#,
+            r#"<a:srcRect l="25000" t="0" r="50000" b="12500"/>"#,
+        );
+        let deck = build_deck("pptx_srcrect", "", &pic, "", "", "", "");
+        let layout = parse_pptx_slide(&deck, 1).unwrap();
+        match &layout.elements[0] {
+            SlideElement::Picture(p) => {
+                assert_eq!(p.crop, [0.25, 0.0, 0.5, 0.125]);
+            }
+            other => panic!("expected picture, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(deck.parent().unwrap());
+    }
+
+    /// Group `off/ext/chOff/chExt` + flips compose onto every child.
+    #[test]
+    fn pptx_group_transform_math() {
+        // child space 4000000×2000000 shown in a 2000000×1000000 box at
+        // (1000000, 1000000) → children scale ×0.5 and shift
+        let group = format!(
+            r#"<p:grpSp><p:nvGrpSpPr><p:cNvPr id="6" name="G"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="1000000" y="1000000"/><a:ext cx="2000000" cy="1000000"/><a:chOff x="0" y="0"/><a:chExt cx="4000000" cy="2000000"/></a:xfrm></p:grpSpPr>{}</p:grpSp>"#,
+            filled_rect(7, 0, 0, 4_000_000, 2_000_000, "ABCDEF")
+        );
+        let deck = build_deck("pptx_group", "", &group, "", "", "", "");
+        let layout = parse_pptx_slide(&deck, 1).unwrap();
+        match &layout.elements[0] {
+            SlideElement::Shape(sh) => {
+                assert_eq!(
+                    (sh.x, sh.y, sh.w, sh.h),
+                    (1_000_000.0, 1_000_000.0, 2_000_000.0, 1_000_000.0)
+                );
+            }
+            other => panic!("expected shape, got {other:?}"),
+        }
+
+        // flips mirror about the group frame center: frame [100, 400] →
+        // center 250, so x' = 500 − (100 + x) = 400 − x
+        let parent = XformMap::ID;
+        let rx = RawXfrm {
+            off: Some((100.0, 0.0)),
+            ext: Some((300.0, 100.0)),
+            ch_off: Some((0.0, 0.0)),
+            ch_ext: Some((300.0, 100.0)),
+            rot: 0.0,
+            flip_h: true,
+            flip_v: false,
+        };
+        let m = compose_group(parent, &rx);
+        assert_eq!(m.apply(0.0, 0.0), (400.0, 0.0));
+        assert_eq!(m.apply(300.0, 100.0), (100.0, 100.0));
+        let _ = fs::remove_dir_all(deck.parent().unwrap());
+    }
+
+    /// Layout placeholder geometry is inherited when the slide placeholder
+    /// has no `xfrm`; layout decorations render before slide content; and
+    /// `showMasterSp="0"` hides the master's shapes.
+    #[test]
+    fn pptx_layout_placeholder_inheritance_and_ordering() {
+        let layout_decor = filled_rect(3, 0, 6_500_000, 9_144_000, 358_000, "112233");
+        let layout_title_ph = format!(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="4" name="L"/><p:cNvSpPr/><p:nvPr><p:ph type="title" idx="0"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="500000" y="400000"/><a:ext cx="8000000" cy="900000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:sp>"#
+        );
+        let master_decor = filled_rect(8, 0, 0, 100, 100, "999999");
+        // slide title placeholder WITHOUT xfrm → inherits layout's geometry
+        let slide_title = text_sp(
+            r#"<p:ph type="title" idx="0"/>"#,
+            r#"<a:p><a:r><a:t>Inherited</a:t></a:r></a:p>"#,
+            "",
+        );
+        let layout_tree = format!("{}{}", layout_decor, layout_title_ph);
+
+        // with showMasterSp="0": master decor hidden, layout decor first
+        let deck = build_deck(
+            "pptx_ph_hide",
+            "",
+            &slide_title,
+            r#"showMasterSp="0""#,
+            &layout_tree,
+            &master_decor,
+            "",
+        );
+        let layout = parse_pptx_slide(&deck, 1).unwrap();
+        assert_eq!(layout.elements.len(), 2, "master decor hidden, no stray boxes");
+        match &layout.elements[0] {
+            SlideElement::Shape(sh) => {
+                assert_eq!((sh.x, sh.y, sh.h), (0.0, 6_500_000.0, 358_000.0))
+            }
+            other => panic!("layout decor first, got {other:?}"),
+        }
+        match &layout.elements[1] {
+            SlideElement::Text(b) => {
+                assert!(b.has_xfrm, "geometry resolved from layout");
+                assert_eq!(
+                    (b.x, b.y, b.w, b.h),
+                    (500_000.0, 400_000.0, 8_000_000.0, 900_000.0)
+                );
+                assert!(b.is_title);
+                assert_eq!(b.text, "Inherited");
+            }
+            other => panic!("slide title last, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(deck.parent().unwrap());
+
+        // without showMasterSp: master decor is visible first
+        let deck2 = build_deck("pptx_ph_show", "", &slide_title, "", &layout_tree, &master_decor, "");
+        let layout2 = parse_pptx_slide(&deck2, 1).unwrap();
+        assert_eq!(layout2.elements.len(), 3, "master decor visible");
+        assert!(matches!(layout2.elements[0], SlideElement::Shape(_)));
+        let _ = fs::remove_dir_all(deck2.parent().unwrap());
+    }
+
+    /// Per-run formatting, paragraph alignment/level, bullets, and `<a:br>`
+    /// continuation splitting survive parsing into structured paragraphs.
+    #[test]
+    fn pptx_paragraph_run_formatting() {
+        let body = r#"<a:p>
+<a:pPr algn="ctr" lvl="1"><a:buChar char="&#x2192;"/><a:defRPr sz="900"/></a:pPr>
+<a:r><a:rPr sz="2400" b="1"><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill><a:latin typeface="Comic Sans MS"/></a:rPr><a:t>Bold</a:t></a:r>
+<a:br/>
+<a:r><a:rPr sz="1200" i="1" u="sng"><a:solidFill><a:srgbClr val="00FF00"/></a:solidFill></a:rPr><a:t>rest</a:t></a:r>
+</a:p>"#;
+        let sp = text_sp(
+            r#"<p:ph type="obj" idx="1"/>"#,
+            body,
+            r#"<a:xfrm><a:off x="5" y="6"/><a:ext cx="7" cy="8"/></a:xfrm>"#,
+        );
+        let deck = build_deck("pptx_runs", "", &sp, "", "", "", "");
+        let layout = parse_pptx_slide(&deck, 1).unwrap();
+        let SlideElement::Text(b) = &layout.elements[0] else {
+            panic!("expected text")
+        };
+        let paras = b.paras.as_ref().unwrap();
+        assert_eq!(paras.len(), 2, "<a:br> splits one <a:p> into two pieces");
+        assert_eq!(paras[0].algn, "ctr");
+        assert_eq!(paras[0].lvl, 1);
+        assert!(matches!(&paras[0].bullet, Some(ParaBullet::Char(c)) if c == "→"));
+        let r0 = &paras[0].runs[0];
+        assert_eq!(r0.text, "Bold");
+        assert_eq!(r0.sz_pt, Some(24.0));
+        assert!(r0.bold);
+        assert_eq!(r0.color.map(|c| (c.0 * 255.0) as u8), Some(255));
+        assert_eq!(r0.font.as_deref(), Some("Comic Sans MS"));
+        let r1 = &paras[1].runs[0];
+        assert_eq!(r1.text, "rest");
+        assert!(r1.italic && r1.underline);
+        assert_eq!(r1.sz_pt, Some(12.0));
+        assert!(paras[1].follow, "continuation piece after <a:br>");
+        assert!(paras[1].bullet.is_none(), "continuation carries no bullet");
+        assert_eq!(b.font_pt, Some(24.0), "first run size feeds the box");
+        let _ = fs::remove_dir_all(deck.parent().unwrap());
+    }
+
+    /// schemeClr resolution goes slot → clrMap → theme key → hex, with
+    /// shade transforms; `<p:bgRef idx="1001">` picks the theme's first
+    /// background fill; an explicit `<a:ln><a:noFill/>` hides the outline.
+    #[test]
+    fn pptx_schemeclr_clrmap_theme_and_bgref() {
+        let clr_override = r#"<p:clrMap bg1="lt2" tx1="accent1" bg2="bg2" tx2="tx2"
+accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4"
+accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
+        let sp = r#"<p:sp><p:nvSpPr><p:cNvPr id="2" name="C"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="10" cy="10"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:solidFill><a:schemeClr val="tx1"/></a:solidFill><a:ln w="25400"><a:noFill/></a:ln></p:spPr></p:sp>"#;
+        let bg = r#"<p:bg><p:bgPr><a:solidFill><a:schemeClr val="accent1"><a:shade val="50000"/></a:schemeClr></a:solidFill></p:bgPr></p:bg>"#;
+        let deck = build_deck("pptx_scheme", bg, sp, "", "", "", clr_override);
+        let layout = parse_pptx_slide(&deck, 1).unwrap();
+        // bg: accent1 (4472C4) shaded 50%
+        match &layout.background {
+            Some(SlideBackground::Solid(r, g, b)) => {
+                assert!((r - (0x44 as f64 / 255.0) * 0.5).abs() < 0.01, "r={r}");
+                assert!((g - (0x72 as f64 / 255.0) * 0.5).abs() < 0.01, "g={g}");
+                assert!((b - (0xC4 as f64 / 255.0) * 0.5).abs() < 0.01, "b={b}");
+            }
+            other => panic!("expected shaded solid bg, got {other:?}"),
+        }
+        // shape fill: schemeClr tx1 → clrMap tx1 → accent1 (4472C4)
+        match &layout.elements[0] {
+            SlideElement::Shape(sh) => match &sh.fill {
+                Some(FillKind::Solid(c, _)) => {
+                    assert!((c.0 - 0x44 as f64 / 255.0).abs() < 0.005, "r={:?}", c.0);
+                    assert!((c.1 - 0x72 as f64 / 255.0).abs() < 0.005, "g={:?}", c.1);
+                    assert!((c.2 - 0xC4 as f64 / 255.0).abs() < 0.005, "b={:?}", c.2);
+                }
+                other => panic!("expected solid accent1 fill, got {other:?}"),
+            },
+            other => panic!("expected shape, got {other:?}"),
+        }
+        // `<a:ln><a:noFill/></a:ln>` explicitly hides the outline
+        assert!(matches!(&layout.elements[0], SlideElement::Shape(sh) if sh.line.is_none()));
+
+        // bgRef path: theme bgFillStyleLst[0] (solid lt1 → white)
+        let deck2 = build_deck(
+            "pptx_bgref",
+            r#"<p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg>"#,
+            "",
+            "",
+            "",
+            "",
+            "",
+        );
+        let layout2 = parse_pptx_slide(&deck2, 1).unwrap();
+        assert!(
+            matches!(&layout2.background, Some(SlideBackground::Solid(r, g, b)) if *r == 1.0 && *g == 1.0 && *b == 1.0),
+            "bgRef 1001 → first bgFillStyleLst entry (lt1 white), got {:?}",
+            layout2.background
+        );
+        let _ = fs::remove_dir_all(deck.parent().unwrap());
+        let _ = fs::remove_dir_all(deck2.parent().unwrap());
+    }
+
+    /// Master txStyles set title style (36pt bold, centered, theme major
+    /// font); body placeholders inherit their level's bullet + 18pt.
+    #[test]
+    fn pptx_master_txstyles_flow_into_text() {
+        let title = text_sp(
+            r#"<p:ph type="title"/>"#,
+            r#"<a:p><a:r><a:t>T</a:t></a:r></a:p>"#,
+            r#"<a:xfrm><a:off x="0" y="0"/><a:ext cx="9" cy="9"/></a:xfrm>"#,
+        );
+        let body = text_sp(
+            r#"<p:ph type="body" idx="1"/>"#,
+            r#"<a:p><a:r><a:t>point</a:t></a:r></a:p>"#,
+            r#"<a:xfrm><a:off x="1" y="1"/><a:ext cx="2" cy="2"/></a:xfrm>"#,
+        );
+        let deck = build_deck("pptx_txstyles", "", &format!("{}{}", title, body), "", "", "", "");
+        let layout = parse_pptx_slide(&deck, 1).unwrap();
+        let SlideElement::Text(t) = &layout.elements[0] else {
+            panic!("title")
+        };
+        let tp = t.paras.as_ref().unwrap();
+        assert_eq!(tp[0].algn, "ctr", "titleStyle algn=ctr");
+        let r = &tp[0].runs[0];
+        assert_eq!(r.sz_pt, Some(36.0), "titleStyle sz=3600");
+        assert!(r.bold, "titleStyle b=1");
+        assert_eq!(r.font.as_deref(), Some("Contoso Display"), "+mj-lt → theme major");
+        assert!(t.centered && t.is_title);
+
+        let SlideElement::Text(b) = &layout.elements[1] else {
+            panic!("body")
+        };
+        let bp = b.paras.as_ref().unwrap();
+        assert!(
+            matches!(&bp[0].bullet, Some(ParaBullet::Char(c)) if c == "•"),
+            "bodyStyle buChar &#x2022; decoded, got {:?}",
+            bp[0].bullet
+        );
+        assert_eq!(bp[0].runs[0].sz_pt, Some(18.0), "bodyStyle sz=1800");
+        assert_eq!(
+            bp[0].runs[0].font.as_deref(),
+            Some("Contoso Sans"),
+            "+mn-lt → theme minor"
+        );
+        let _ = fs::remove_dir_all(deck.parent().unwrap());
+    }
+
+    /// Symbol-font bullets (`buChar` PUA + `buFont`) map to real Unicode
+    /// glyphs instead of tofu, and `marL`/`indent` reach the paragraph so the
+    /// draw path can build the hanging indent.
+    #[test]
+    fn pptx_bullet_pua_mapping_and_indent_fields() {
+        let sp = format!(
+            r#"<p:sp><p:nvSpPr><p:cNvPr id="9" name="T"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="10" cy="10"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr/><a:p><a:pPr marL="722313" indent="-273050"><a:buFont typeface="Wingdings 2"/><a:buChar char="{}"/></a:pPr><a:r><a:t>x</a:t></a:r></a:p><a:p><a:r><a:t>y</a:t></a:r></a:p></p:txBody></p:sp>"#,
+            '\u{f097}'
+        );
+        let deck = build_deck("pptx_pua", "", &sp, "", "", "", "");
+        let layout = parse_pptx_slide(&deck, 1).unwrap();
+        let SlideElement::Text(b) = &layout.elements[0] else {
+            panic!("expected text")
+        };
+        let paras = b.paras.as_ref().unwrap();
+        assert_eq!(paras.len(), 2);
+        assert!(
+            matches!(&paras[0].bullet, Some(ParaBullet::Char(c)) if c == "●"),
+            "Wingdings 2 0xF097 → ●, got {:?}",
+            paras[0].bullet
+        );
+        assert_eq!(paras[0].mar_l_emu, 722_313.0, "pPr marL");
+        assert_eq!(paras[0].hang_emu, 273_050.0, "|pPr indent|");
+        assert_eq!(paras[1].mar_l_emu, 342_900.0, "level marL");
+        assert_eq!(paras[1].hang_emu, 342_900.0, "hang defaults to marL");
+        let _ = fs::remove_dir_all(deck.parent().unwrap());
+    }
+
+    /// A drop-shadow's `<a:srgbClr>` is decoration, not a fill: an rPr with
+    /// no `solidFill` must inherit the level color instead of picking up the
+    /// shadow's black. `solidFill` beats any other child; a direct color
+    /// child (fontRef-style) still resolves.
+    #[test]
+    fn pptx_shadow_color_is_not_fill_color() {
+        let theme = ThemeColors {
+            colors: default_theme_colors(),
+            major_font: "M".into(),
+            minor_font: "m".into(),
+            bg_fills: Vec::new(),
+        };
+        let map = ClrMap::default_map();
+
+        let shadow_only = r#"<a:rPr lang="en-CA" sz="3000" dirty="0"><a:effectLst><a:outerShdw blurRad="50800" dist="38100" dir="2700000"><a:srgbClr val="000000"><a:alpha val="43000"/></a:srgbClr></a:outerShdw></a:effectLst><a:latin typeface="Arial"/></a:rPr>"#;
+        assert_eq!(
+            parse_color_el(shadow_only, &theme, &map),
+            None,
+            "shadow black must not become the text color"
+        );
+
+        let solid_then_shadow = r#"<a:rPr sz="3000"><a:solidFill><a:schemeClr val="accent1"/></a:solidFill><a:effectLst><a:outerShdw><a:srgbClr val="000000"/></a:outerShdw></a:effectLst></a:rPr>"#;
+        assert_eq!(
+            parse_color_el(solid_then_shadow, &theme, &map).map(|(c, _a)| c),
+            parse_hex_color("4472C4"),
+            "solidFill wins over the shadow"
+        );
+
+        let font_ref = r#"<a:fontRef idx="minor"><a:schemeClr val="accent3"/></a:fontRef>"#;
+        assert_eq!(
+            parse_color_el(font_ref, &theme, &map).map(|(c, _a)| c),
+            parse_hex_color("A5A5A5"),
+            "direct color child still resolves"
+        );
+    }
+
+    /// End-to-end smoke: parsing + Pango/Cairo rendering yields a real PNG.
+    #[test]
+    fn pptx_render_smoke_png() {
+        let rect = filled_rect(2, 0, 0, 9_144_000, 6_858_000, "FFEEDD");
+        let grad = r#"<p:sp><p:nvSpPr><p:cNvPr id="3" name="G"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="500000" y="500000"/><a:ext cx="4000000" cy="3000000"/></a:xfrm><a:prstGeom prst="roundRect"><a:avLst/></a:prstGeom><a:gradFill><a:gsLst><a:gs pos="0"><a:srgbClr val="FF0000"/></a:gs><a:gs pos="100000"><a:srgbClr val="0000FF"/></a:gs></a:gsLst><a:lin ang="0"/></a:gradFill><a:ln w="38100"><a:solidFill><a:srgbClr val="000000"/></a:solidFill></a:ln></p:spPr></p:sp>"#;
+        let pic = the_pic(
+            r#"<a:xfrm><a:off x="5000000" y="500000"/><a:ext cx="3000000" cy="2000000"/></a:xfrm>"#,
+            "",
+        );
+        let title = text_sp(
+            r#"<p:ph type="title"/>"#,
+            r#"<a:p><a:r><a:t>Render &gt; smoke</a:t></a:r></a:p>"#,
+            r#"<a:xfrm><a:off x="400000" y="400000"/><a:ext cx="8000000" cy="900000"/></a:xfrm>"#,
+        );
+        let deck = build_deck(
+            "pptx_smoke",
+            "",
+            &format!("{}{}{}{}", rect, grad, pic, title),
+            "",
+            "",
+            "",
+            "",
+        );
+        let layout = parse_pptx_slide(&deck, 1).unwrap();
+        let png = render_slide_layout(&layout).expect("render");
+        assert!(png.len() > 1000, "png has content ({} bytes)", png.len());
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n", "png magic");
+        let _ = fs::remove_dir_all(deck.parent().unwrap());
+    }
+
+    /// End-to-end: the app's real entry point (`compute_preview`, used by
+    /// the preview pane) must yield a rendered slide image — this covers the
+    /// slide-count, cache lookup, on-demand render, file write, and image
+    /// decode glue that the other tests bypass.
+    #[test]
+    fn pptx_compute_preview_returns_image() {
+        let rect = filled_rect(2, 0, 0, 9_144_000, 6_858_000, "FFEEDD");
+        let title = text_sp(
+            r#"<p:ph type="title"/>"#,
+            r#"<a:p><a:r><a:t>Entry point</a:t></a:r></a:p>"#,
+            r#"<a:xfrm><a:off x="400000" y="400000"/><a:ext cx="8000000" cy="900000"/></a:xfrm>"#,
+        );
+        let deck = build_deck(
+            "pptx_e2e",
+            "",
+            &format!("{}{}", rect, title),
+            "",
+            "",
+            "",
+            "",
+        );
+        match compute_preview(&deck) {
+            PreviewPayload::Image { w, h, total_pages, page, .. } => {
+                assert_eq!(total_pages, Some(1), "slide count");
+                assert_eq!(page, Some(1), "first slide");
+                assert!(w > 100 && h > 100, "real slide size, got {w}x{h}");
+            }
+            _ => panic!("compute_preview must return a rendered slide image for a pptx"),
+        }
+        // The native renderer (not the office fallback) must have produced it.
+        let cached = cached_pptx_slide(&deck, 1).expect("native slide cache written");
+        // Clean up: temp deck + the render this test wrote into the shared cache.
+        if let Some(dir) = cached.parent() {
+            let _ = fs::remove_dir_all(dir);
+        }
+        let _ = fs::remove_dir_all(deck.parent().unwrap());
+    }
+
+    /// A chart part parsed as a doughnut: values, per-point colors (theme
+    /// scheme + luminance transforms), hole size, start angle.
+    const DOUGHNUT_XML: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><c:chart><c:plotArea><c:doughnutChart><c:varyColors val="1"/><c:ser><c:idx val="0"/><c:order val="0"/><c:spPr><a:ln><a:noFill/></a:ln></c:spPr><c:dPt><c:idx val="0"/><c:spPr><a:solidFill><a:schemeClr val="accent4"/></a:solidFill></c:spPr></c:dPt><c:dPt><c:idx val="1"/><c:spPr><a:solidFill><a:schemeClr val="bg1"><a:lumMod val="75000"/></a:schemeClr></a:solidFill></c:spPr></c:dPt><c:val><c:numRef><c:f>Sheet1!$B$2:$B$3</c:f><c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="2"/><c:pt idx="0"><c:v>65</c:v></c:pt><c:pt idx="1"><c:v>35</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser><c:firstSliceAng val="0"/><c:holeSize val="75"/></c:doughnutChart></c:plotArea></c:chart></c:chartSpace>"#;
+
+    #[test]
+    fn pptx_doughnut_chart_xml_parses() {
+        let theme = ThemeColors {
+            colors: default_theme_colors(),
+            major_font: "M".into(),
+            minor_font: "m".into(),
+            bg_fills: Vec::new(),
+        };
+        let map = ClrMap::default_map();
+        let d = parse_doughnut_chart(DOUGHNUT_XML, &theme, &map).expect("doughnut parses");
+        assert_eq!(d.values, vec![65.0, 35.0]);
+        assert_eq!(d.hole_pct, 75.0);
+        assert_eq!(d.first_ang_deg, 0.0);
+        assert_eq!(d.colors[0], parse_hex_color("FFC000"), "dPt0 = accent4");
+        let c1 = d.colors[1].expect("dPt1 color");
+        assert!(
+            (c1.0 - 0.75).abs() < 0.01 && (c1.1 - 0.75).abs() < 0.01
+                && (c1.2 - 0.75).abs() < 0.01,
+            "dPt1 = bg1 lumMod 75% (gray), got {c1:?}"
+        );
+
+        // Non-doughnut chart types stay Phase 3 (skipped, not mis-drawn).
+        let bar = r#"<c:chartSpace><c:chart><c:plotArea><c:barChart><c:ser><c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>1</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser></c:barChart></c:plotArea></c:chart></c:chartSpace>"#;
+        assert!(
+            parse_doughnut_chart(bar, &theme, &map).is_none(),
+            "bar charts must not parse as doughnut"
+        );
+    }
+
+    /// `<a:custGeom>` paths parse into freeform commands — the world-map
+    /// style geometry that used to fall back to bounding rectangles.
+    #[test]
+    fn pptx_freeform_custgeom_parses() {
+        let sp = r#"<p:sp><p:nvSpPr><p:cNvPr id="7" name="F"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="100000" y="200000"/><a:ext cx="4000000" cy="3000000"/></a:xfrm><a:custGeom><a:avLst/><a:pathLst><a:path w="1000" h="500" fill="norm"><a:moveTo><a:pt x="0" y="0"/></a:moveTo><a:lnTo><a:pt x="1000" y="0"/></a:lnTo><a:cubicBezTo><a:pt x="900" y="100"/><a:pt x="800" y="200"/><a:pt x="700" y="500"/></a:cubicBezTo><a:quadBezTo><a:pt x="500" y="400"/><a:pt x="300" y="500"/></a:quadBezTo><a:close/></a:path><a:path w="1000" h="500" fill="none"><a:moveTo><a:pt x="10" y="10"/></a:moveTo><a:lnTo><a:pt x="20" y="20"/></a:lnTo><a:close/></a:path></a:pathLst></a:custGeom><a:solidFill><a:srgbClr val="FF0000"/></a:solidFill></p:spPr><p:txBody><a:bodyPr/><a:p/></p:txBody></p:sp>"#;
+        let deck = build_deck("pptx_freeform", "", sp, "", "", "", "");
+        let layout = parse_pptx_slide(&deck, 1).unwrap();
+        match &layout.elements[0] {
+            SlideElement::Shape(sh) => {
+                let ff = sh.freeform.as_ref().expect("custGeom → freeform paths");
+                assert_eq!(ff.len(), 2, "both <a:path> subpaths");
+                assert_eq!((ff[0].w, ff[0].h, ff[0].fill), (1000.0, 500.0, true));
+                assert_eq!(ff[0].cmds.len(), 5, "move/ln/cubic/quad/close");
+                match ff[0].cmds[0] {
+                    PathCmd::MoveTo(a, b) => assert_eq!((a, b), (0.0, 0.0)),
+                    ref other => panic!("expected MoveTo, got {other:?}"),
+                }
+                match ff[0].cmds[1] {
+                    PathCmd::LineTo(a, b) => assert_eq!((a, b), (1000.0, 0.0)),
+                    ref other => panic!("expected LineTo, got {other:?}"),
+                }
+                match ff[0].cmds[2] {
+                    PathCmd::CubicBezTo(c) => {
+                        assert_eq!(c, [900.0, 100.0, 800.0, 200.0, 700.0, 500.0])
+                    }
+                    ref other => panic!("expected CubicBezTo, got {other:?}"),
+                }
+                match ff[0].cmds[3] {
+                    PathCmd::QuadBezTo(q) => assert_eq!(q, [500.0, 400.0, 300.0, 500.0]),
+                    ref other => panic!("expected QuadBezTo, got {other:?}"),
+                }
+                assert!(matches!(ff[0].cmds[4], PathCmd::Close));
+                assert!(!ff[1].fill, "fill=\"none\" subpath is stroke-only");
+            }
+            other => panic!("expected freeform shape, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(deck.parent().unwrap());
+    }
+
+    /// custGeom triangle: filled inside its real outline, background outside
+    /// — the bounding box of a freeform must NOT be painted.
+    #[test]
+    fn pptx_freeform_renders_filled_region() {
+        let layout = SlideLayout {
+            slide_w: 9_144_000.0,
+            slide_h: 6_858_000.0,
+            background: None,
+            elements: vec![SlideElement::Shape(DrawShape {
+                x: 1_000_000.0,
+                y: 1_000_000.0,
+                w: 3_000_000.0,
+                h: 3_000_000.0,
+                prst: "rect".into(),
+                fill: Some(FillKind::Solid((1.0, 0.0, 0.0), 1.0)),
+                line: None,
+                rot: 0.0,
+                flip_h: false,
+                flip_v: false,
+                freeform: Some(vec![FreeformPath {
+                    w: 1000.0,
+                    h: 1000.0,
+                    fill: true,
+                    cmds: vec![
+                        PathCmd::MoveTo(0.0, 0.0),
+                        PathCmd::LineTo(1000.0, 0.0),
+                        PathCmd::LineTo(500.0, 1000.0),
+                        PathCmd::Close,
+                    ],
+                }]),
+            })],
+        };
+        let png = render_slide_layout(&layout).expect("render");
+        let img = image::load_from_memory(&png).unwrap().to_rgba8();
+        let s = img.width() as f64 / 9_144_000.0;
+        // inside: center of the triangle at 20% height (full-width top edge)
+        let inside =
+            img.get_pixel(((1_000_000.0 + 1_500_000.0) * s) as u32, ((1_000_000.0 + 600_000.0) * s) as u32).0;
+        assert!(inside[0] > 200 && inside[1] < 80 && inside[2] < 80, "inside = red, got {inside:?}");
+        // outside: bottom-left corner of the shape box (a rectangle fallback
+        // would paint this red — the bug this test pins)
+        let outside =
+            img.get_pixel(((1_000_000.0 + 100_000.0) * s) as u32, ((1_000_000.0 + 2_950_000.0) * s) as u32).0;
+        assert!(
+            outside[0] > 240 && outside[1] > 240 && outside[2] > 240,
+            "outside = white bg, got {outside:?}"
+        );
+    }
+
+    /// Doughnut chart: white hole in the middle, red first segment (65% =
+    /// 234° clockwise from top), blue remainder.
+    #[test]
+    fn pptx_doughnut_ring_renders() {
+        let layout = SlideLayout {
+            slide_w: 9_144_000.0,
+            slide_h: 6_858_000.0,
+            background: None,
+            elements: vec![SlideElement::Chart(DrawChart {
+                x: 1_000_000.0,
+                y: 1_000_000.0,
+                w: 4_000_000.0,
+                h: 4_000_000.0,
+                doughnut: DoughnutSpec {
+                    values: vec![65.0, 35.0],
+                    colors: vec![Some((1.0, 0.0, 0.0)), Some((0.0, 0.0, 1.0))],
+                    hole_pct: 75.0,
+                    first_ang_deg: 0.0,
+                },
+            })],
+        };
+        let png = render_slide_layout(&layout).expect("render");
+        let img = image::load_from_memory(&png).unwrap().to_rgba8();
+        let s = img.width() as f64 / 9_144_000.0;
+        let cx = (1_000_000.0 + 2_000_000.0) * s;
+        let cy = (1_000_000.0 + 2_000_000.0) * s;
+        let r = 2_000_000.0 * s; // outer radius
+        let at = |dx: f64, dy: f64| {
+            img.get_pixel((cx + dx).round() as u32, (cy + dy).round() as u32).0
+        };
+        let hole = at(0.0, 0.0);
+        assert!(hole[0] > 240 && hole[1] > 240 && hole[2] > 240, "hole = white, got {hole:?}");
+        // 15° clockwise from top — well inside segment 0. (Exactly 12 o'clock
+        // is the wrap seam where segment 1 overdraws into segment 0's start;
+        // sampling there gets a deliberate blend, not either colour.)
+        let top = at(0.259 * 0.875 * r, -0.966 * 0.875 * r);
+        assert!(top[0] > 180 && top[1] < 90 && top[2] < 90, "top ring = red, got {top:?}");
+        let bottom = at(0.0, 0.875 * r); // 180° < 234° — still segment 0
+        assert!(bottom[0] > 180 && bottom[1] < 90, "bottom ring = red, got {bottom:?}");
+        let left = at(-0.875 * r, 0.0); // 270° — segment 1
+        assert!(left[2] > 180 && left[0] < 90, "left ring = blue, got {left:?}");
+    }
+
+    /// Append `ppt/charts/chart1.xml` + a slide rel (`rId50`) to a deck built
+    /// by `build_deck`, returning the new deck path — the wiring test for
+    /// `<p:graphicFrame>` → rId → chart part → parsed doughnut.
+    fn add_chart(deck: &std::path::Path, chart_xml: &str) -> std::path::PathBuf {
+        use std::io::Read;
+        let mut src = zip::ZipArchive::new(fs::File::open(deck).unwrap()).unwrap();
+        let mut parts: Vec<(String, Vec<u8>)> = Vec::new();
+        for i in 0..src.len() {
+            let mut e = src.by_index(i).unwrap();
+            let name = e.name().to_string();
+            let mut data = Vec::new();
+            e.read_to_end(&mut data).unwrap();
+            parts.push((name, data));
+        }
+        for (name, data) in parts.iter_mut() {
+            if name == "ppt/slides/_rels/slide1.xml.rels" {
+                let mut s = String::from_utf8_lossy(data).to_string();
+                s = s.replace(
+                    "</Relationships>",
+                    r#"<Relationship Id="rId50" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/></Relationships>"#,
+                );
+                *data = s.into_bytes();
+            }
+        }
+        parts.push(("ppt/charts/chart1.xml".into(), chart_xml.as_bytes().to_vec()));
+        let stem = deck
+            .parent()
+            .and_then(|d| d.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "deck".into());
+        build_deck_zip(&format!("{}_chart", stem), &parts)
+    }
+
+    /// End-to-end chart wiring: a chart graphicFrame resolves its rel and
+    /// parses; without the chart part it is skipped like before.
+    #[test]
+    fn pptx_chart_graphicframe_wiring() {
+        let frame = r#"<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="86" name="Chart 85"/><p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr><p:xfrm><a:off x="10267819" y="4584096"/><a:ext cx="1484845" cy="1610359"/></p:xfrm><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart r:id="rId50"/></a:graphicData></a:graphic></p:graphicFrame>"#;
+        let deck = build_deck("pptx_chart_frame", "", frame, "", "", "", "");
+        // no chart part → skipped (Phase 3 behavior preserved)
+        let before = parse_pptx_slide(&deck, 1).unwrap();
+        assert!(before.elements.is_empty(), "unresolved chart ref is skipped");
+
+        let deck2 = add_chart(&deck, DOUGHNUT_XML);
+        let layout = parse_pptx_slide(&deck2, 1).unwrap();
+        match &layout.elements[0] {
+            SlideElement::Chart(c) => {
+                assert_eq!(
+                    (c.x, c.y, c.w, c.h),
+                    (10_267_819.0, 4_584_096.0, 1_484_845.0, 1_610_359.0),
+                    "frame position from <p:xfrm>"
+                );
+                assert_eq!(c.doughnut.values, vec![65.0, 35.0]);
+                assert_eq!(c.doughnut.hole_pct, 75.0);
+                assert!(c.doughnut.colors.iter().all(|c| c.is_some()), "colors resolved");
+            }
+            other => panic!("expected chart element, got {other:?}"),
+        }
+        let _ = fs::remove_dir_all(deck.parent().unwrap());
+        let _ = fs::remove_dir_all(deck2.parent().unwrap());
+    }
+
+    /// QA harness: render every slide of a real deck for visual inspection.
+    /// Skips (passes) unless both env vars are set:
+    /// `SPOTTY_QA_PPTX=/path/deck.pptx SPOTTY_QA_OUT=/tmp/qa cargo test pptx_qa`
+    #[test]
+    fn pptx_qa_render_all_slides() {
+        let (Ok(src), Ok(out)) = (std::env::var("SPOTTY_QA_PPTX"), std::env::var("SPOTTY_QA_OUT"))
+        else {
+            return; // gated
+        };
+        let doc = std::path::Path::new(&src);
+        let n = pptx_slide_count(doc).expect("slide count");
+        fs::create_dir_all(&out).unwrap();
+        for slide in 1..=n {
+            let layout =
+                parse_pptx_slide(doc, slide).unwrap_or_else(|| panic!("parse slide {slide}"));
+            let png =
+                render_slide_layout(&layout).unwrap_or_else(|| panic!("render slide {slide}"));
+            fs::write(format!("{}/slide-{}.png", out, slide), &png).unwrap();
+        }
+        println!("rendered {n} slides to {out}");
     }
 }

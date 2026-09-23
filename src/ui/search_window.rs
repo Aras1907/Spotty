@@ -3167,6 +3167,12 @@ impl SearchWindow {
         (self.refresh_ops)();
     }
 
+    /// Let a preview showing a since-modified file re-render (live edit
+    /// tracking — the pane also runs its own 1 s staleness check).
+    pub fn refresh_preview_if_stale(&self) {
+        self.preview.refresh_if_stale();
+    }
+
     pub fn refresh_ops_indicator(&self) {
         // Priority: ops > bt action > bt scan > find-mode > hidden.
         if let Some((title, fraction)) = crate::operations::active_op_progress() {

@@ -108,6 +108,14 @@ impl ResultRow {
                     ResultKind::Emoji => "face-smile-symbolic",
                 }));
             }
+            // Request a thumbnail for office files (pptx/xlsx).
+            if let Some(path) = match &r.action {
+                crate::search::Action::OpenPath(p) => Some(p),
+                crate::search::Action::BrowseInto(p) => Some(p),
+                _ => None,
+            } {
+                crate::thumbnails::request(&icon, path);
+            }
             c.append(&icon);
             if r.title.starts_with("Install: ") {
                 icon.set_opacity(0.45);

@@ -39,6 +39,7 @@ mod recent_paths;
 mod search;
 mod keybindings;
 mod ocr;
+mod thumbnails;
 mod ui;
 fn main() -> glib::ExitCode {
     let args: Vec<String> = std::env::args().collect();

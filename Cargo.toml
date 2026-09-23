@@ -27,7 +27,9 @@ infer = "0.16"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 flate2 = "1.1.9"
 cairo-rs = { version = "0.20", features = ["png"] }
+pangocairo = "0.20"
 cfb = "0.7"
+calamine = { version = "0.36", features = ["picture"] }
 image = { version = "0.25", features = ["avif-native"] }
 resvg = "0.44"
 tiny-skia = "0.11"
