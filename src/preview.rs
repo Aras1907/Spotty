@@ -170,6 +170,10 @@ pub struct PreviewPane {
     list_refresh_id: std::rc::Rc<std::cell::Cell<Option<gtk::glib::SourceId>>>,
     // Persistent 1 s stat-timer driving refresh_if_stale().
     stale_poll_id: std::rc::Rc<std::cell::Cell<Option<gtk::glib::SourceId>>>,
+    // Wheel stepping (preview nav): accumulated vertical scroll delta and
+    // the instant of the last step (~200 ms debounce, one notch = one page).
+    wheel_delta: std::rc::Rc<std::cell::Cell<f64>>,
+    wheel_last: std::rc::Rc<std::cell::Cell<Option<std::time::Instant>>>,
 }
 
 impl PreviewPane {
@@ -469,6 +473,8 @@ impl PreviewPane {
             current_stamp: std::rc::Rc::new(std::cell::Cell::new((0, 0))),
             list_refresh_id: std::rc::Rc::new(std::cell::Cell::new(None)),
             stale_poll_id: std::rc::Rc::new(std::cell::Cell::new(None)),
+            wheel_delta: std::rc::Rc::new(std::cell::Cell::new(0.0)),
+            wheel_last: std::rc::Rc::new(std::cell::Cell::new(None)),
         };
 
         // Start a persistent poll to deliver async preview decode results.
@@ -488,6 +494,24 @@ impl PreviewPane {
             gtk::glib::ControlFlow::Continue
         });
         pane.stale_poll_id.set(Some(stale_id));
+
+        // Wheel over the preview steps multi-page documents (one notch =
+        // one slide/page, ~200 ms debounce). Capture phase: the event is
+        // ours before any inner ScrolledWindow can claim it; pages without
+        // a multi-page image preview return Proceed untouched.
+        // VERTICAL only: no KINETIC flag → no momentum continuation.
+        let wheel = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+        wheel.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let pane_wheel = pane.clone();
+        wheel.connect_scroll(move |_ctl, _dx, dy| {
+            if pane_wheel.wheel_step(dy) {
+                gtk::glib::Propagation::Stop
+            } else {
+                gtk::glib::Propagation::Proceed
+            }
+        });
+        pane.container.add_controller(wheel);
+
         pane
     }
 
@@ -683,7 +707,7 @@ impl PreviewPane {
             .unwrap_or("")
             .to_ascii_lowercase();
         let nav_ok = *self.nav_file_path.borrow() == p
-            && matches!(ext.as_str(), "pptx" | "ppsx" | "pps" | "odp" | "pdf");
+            && matches!(ext.as_str(), "pptx" | "ppsx" | "pps" | "odp" | "ppt" | "pdf");
         if nav_ok {
             self.show_slide(self.current_slide.get());
         } else {
@@ -779,15 +803,16 @@ impl PreviewPane {
                 if is_ocrable_image(path) {
                     self.refresh_ocr_text(path);
                 }
-                // Set up nav bar for multi-page documents (PDF/PPTX).
+                // Set up nav bar for multi-page documents (PDF/PPTX/legacy PPT).
                 if let Some(&total) = total_pages.as_ref() {
+                    let page = page.unwrap_or(1);
                     self.total_slides.set(total);
-                    self.current_slide.set(page.unwrap_or(1));
+                    self.current_slide.set(page);
                     *self.nav_file_path.borrow_mut() = path.to_path_buf();
                     self.slide_paths.borrow_mut().clear();
                     self.nav_box.set_visible(total > 1);
-                    self.nav_prev.set_sensitive(total > 1);
-                    self.nav_next.set_sensitive(total > 1);
+                    self.nav_prev.set_sensitive(page > 1);
+                    self.nav_next.set_sensitive(page < total);
                     self.update_nav_label();
                     self.connect_nav_buttons();
                 } else {
@@ -820,58 +845,94 @@ impl PreviewPane {
         }
     }
 
-    /// Show a specific slide from the pre-rendered slide paths.
-    /// Show a specific slide/page. Checks disk cache first, then renders on demand.
+    /// Show a specific slide/page of the document the nav bar is bound to.
+    /// Resolution (disk cache → on-demand render) is shared with the nav
+    /// buttons and the wheel stepper via `resolve_page_png`.
     fn show_slide(&self, n: usize) {
         let file_path = self.nav_file_path.borrow().clone();
         if file_path.is_empty() {
             return;
         }
-        let ext = file_path.extension().and_then(|s| s.to_str()).unwrap_or("");
-        if ext.eq_ignore_ascii_case("pdf") {
-            if let Some(page_path) = cached_pdf_page(&file_path, n) {
-                set_picture_from_file(&self.image, &page_path);
-                self.stack.set_visible_child_name("image");
-                self.image_caption.set_label("");
-            } else if let Some(page_path) = render_pdf_page(&file_path, n) {
-                set_picture_from_file(&self.image, &page_path);
-                self.stack.set_visible_child_name("image");
-                self.image_caption.set_label("");
-            } else {
-                log::warn!(
-                    "preview: failed to render pdf page {} of {}",
-                    n,
-                    file_path.display()
-                );
-            }
-        } else if matches!(
-            ext,
-            "pptx" | "ppsx" | "pps" | "odp"
-        ) {
-            if let Some(slide_path) = cached_pptx_slide(&file_path, n) {
-                set_picture_from_file(&self.image, &slide_path);
-                self.stack.set_visible_child_name("image");
-                self.image_caption.set_label("");
-            } else if let Some(slide_path) = render_pptx_slide(&file_path, n) {
-                set_picture_from_file(&self.image, &slide_path);
-                self.stack.set_visible_child_name("image");
-                self.image_caption.set_label("");
-            } else {
-                log::warn!(
-                    "preview: failed to render slide {} of {}",
-                    n,
-                    file_path.display()
-                );
-            }
+        if let Some(page_path) = resolve_page_png(&file_path, n) {
+            set_picture_from_file(&self.image, &page_path);
+            self.stack.set_visible_child_name("image");
+            self.image_caption.set_label("");
+            return;
+        }
+        // Fallback: pre-rendered page list (types without per-page rendering).
+        let paths = self.slide_paths.borrow();
+        if let Some(path) = paths.get(n.saturating_sub(1)) {
+            set_picture_from_file(&self.image, path);
+            self.stack.set_visible_child_name("image");
+            self.image_caption.set_label("");
         } else {
-            // Fallback: use slide_paths vec.
-            let paths = self.slide_paths.borrow();
-            if let Some(path) = paths.get(n.saturating_sub(1)) {
-                set_picture_from_file(&self.image, path);
-                self.stack.set_visible_child_name("image");
-                self.image_caption.set_label("");
+            log::warn!(
+                "preview: failed to render page {} of {}",
+                n,
+                file_path.display()
+            );
+        }
+    }
+
+    /// Step to slide/page `n`: clamp into range, update the live nav state
+    /// (label + button sensitivity), then resolve and display the page.
+    /// One shared path for the ◀/▶ buttons and the wheel stepper.
+    fn nav_to(&self, n: usize) {
+        // Only step while a multi-page image preview is actually on screen —
+        // a nav bar lingering over a text/info page must not hijack it.
+        if self.nav_file_path.borrow().is_empty()
+            || self.stack.visible_child_name().as_deref() != Some("image")
+        {
+            return;
+        }
+        let n = clamp_page(n, self.total_slides.get());
+        self.current_slide.set(n);
+        self.update_nav_label();
+        self.nav_prev.set_sensitive(n > 1);
+        self.nav_next.set_sensitive(n < self.total_slides.get());
+        self.show_slide(n);
+    }
+
+    /// Accumulate wheel deltas and step exactly one slide/page per full
+    /// notch (|Δ| ≥ 1), debounced to ~200 ms so a trackpad flick or a held
+    /// wheel key can't flip through the whole deck. GDK: positive delta_y =
+    /// scroll down → next slide. Returns true when the event was consumed —
+    /// only while a multi-page image preview shows; inert everywhere else
+    /// (the event then Proceeds to inner widgets, e.g. text scrolling).
+    fn wheel_step(&self, dy: f64) -> bool {
+        if !self.nav_box.is_visible()
+            || self.stack.visible_child_name().as_deref() != Some("image")
+            || self.total_slides.get() <= 1
+            || self.nav_file_path.borrow().is_empty()
+        {
+            return false;
+        }
+        let acc = self.wheel_delta.get() + dy;
+        if acc.abs() < 1.0 {
+            self.wheel_delta.set(acc);
+            return true;
+        }
+        let now = std::time::Instant::now();
+        if let Some(last) = self.wheel_last.get() {
+            if now.duration_since(last) < Duration::from_millis(200) {
+                // Inside the debounce window: swallow the notch so momentum
+                // scrolls can't skip slides.
+                self.wheel_delta.set(0.0);
+                return true;
             }
         }
+        self.wheel_delta.set(0.0);
+        self.wheel_last.set(Some(now));
+        let cur = self.current_slide.get();
+        let target = if acc > 0.0 {
+            cur + 1
+        } else {
+            cur.saturating_sub(1)
+        };
+        if clamp_page(target, self.total_slides.get()) != cur {
+            self.nav_to(target);
+        }
+        true
     }
 
     fn update_nav_label(&self) {
@@ -881,71 +942,26 @@ impl PreviewPane {
     }
 
     fn connect_nav_buttons(&self) {
-        use std::rc::Rc;
-        // Only connect once — duplicate handlers accumulate and cause
-        // clicking ▶ to advance multiple pages after multiple previews.
+        // Connect once: the handlers hold live Rc/widget handles — they
+        // read the CURRENT cells on every click (never a snapshot taken
+        // here), so one connection serves every document previewed after.
+        // Duplicate handlers would make ▶ advance several pages per click.
         if self.nav_connected.get() {
             return;
         }
         self.nav_connected.set(true);
 
-        // Shared navigation state: current_slide, total_slides, and the
-        // widgets needed to update the UI.
-        struct NavState {
-            current_slide: usize,
-            total_slides: usize,
-            image: gtk::Picture,
-            stack: gtk::Stack,
-            nav_label: gtk::Label,
-            nav_prev: gtk::Button,
-            nav_next: gtk::Button,
-            slide_paths: std::rc::Rc<std::cell::RefCell<Vec<std::path::PathBuf>>>,
-        }
-
-        let state = Rc::new(std::cell::RefCell::new(NavState {
-            current_slide: self.current_slide.get(),
-            total_slides: self.total_slides.get(),
-            image: self.image.clone(),
-            stack: self.stack.clone(),
-            nav_label: self.nav_label.clone(),
-            nav_prev: self.nav_prev.clone(),
-            nav_next: self.nav_next.clone(),
-            slide_paths: self.slide_paths.clone(),
-        }));
-
         {
-            let s = state.clone();
+            let pane = self.clone();
             self.nav_prev.connect_clicked(move |_| {
-                let mut st = s.borrow_mut();
-                if st.current_slide > 1 {
-                    st.current_slide -= 1;
-                    st.nav_label.set_label(&format!("{} / {}", st.current_slide, st.total_slides));
-                    st.nav_next.set_sensitive(true);
-                    if st.current_slide <= 1 { st.nav_prev.set_sensitive(false); }
-                    if let Some(p) = st.slide_paths.borrow().get(st.current_slide - 1) {
-                        let p = p.clone();
-                        set_picture_from_file(&st.image, &p);
-                        st.stack.set_visible_child_name("image");
-                    }
-                }
+                pane.nav_to(pane.current_slide.get().saturating_sub(1));
             });
         }
 
         {
-            let s = state.clone();
+            let pane = self.clone();
             self.nav_next.connect_clicked(move |_| {
-                let mut st = s.borrow_mut();
-                if st.current_slide < st.total_slides {
-                    st.current_slide += 1;
-                    st.nav_label.set_label(&format!("{} / {}", st.current_slide, st.total_slides));
-                    st.nav_prev.set_sensitive(true);
-                    if st.current_slide >= st.total_slides { st.nav_next.set_sensitive(false); }
-                    if let Some(p) = st.slide_paths.borrow().get(st.current_slide - 1) {
-                        let p = p.clone();
-                        set_picture_from_file(&st.image, &p);
-                        st.stack.set_visible_child_name("image");
-                    }
-                }
+                pane.nav_to(pane.current_slide.get() + 1);
             });
         }
     }
@@ -1247,7 +1263,26 @@ fn compute_preview(path: &Path) -> PreviewPayload {
         // ── Office documents (Word / Excel / legacy PPT / ODT) ──
         "doc" | "docx" | "odt" | "rtf" | "ott" | "fodt" | "wps" | "xls" | "xlsx" | "ods"
         | "ots" | "fods" | "csv" | "ppt" | "otp" | "fodp" => {
-            if let Some(thumb) = office_thumbnail(path) {
+            // Legacy binary .ppt gets multi-slide nav: native per-slide
+            // render first (consistent with slides 2..N behind the nav
+            // bar), shared/embedded thumbnail as fallback, and the slide
+            // count reported so the nav bar + wheel work like pptx/PDF.
+            let legacy_ppt = ext == "ppt";
+            let total = if legacy_ppt {
+                let total = legacy_ppt_slide_count(path).unwrap_or(1);
+                store_doc_meta(path, total);
+                total
+            } else {
+                1
+            };
+            let thumb = if legacy_ppt {
+                cached_legacy_ppt_slide(path, 1)
+                    .or_else(|| render_legacy_ppt_slide_to_cache(path, 1))
+                    .or_else(|| office_thumbnail(path))
+            } else {
+                office_thumbnail(path)
+            };
+            if let Some(thumb) = thumb {
                 if let Some(img) = image::open(&thumb).ok() {
                     let rgba = img.to_rgba8();
                     let (w, h) = rgba.dimensions();
@@ -1264,7 +1299,8 @@ fn compute_preview(path: &Path) -> PreviewPayload {
                     };
                     return PreviewPayload::Image {
                         rgba: raw, w: dw, h: dh,
-                        total_pages: None, page: None,
+                        total_pages: legacy_ppt.then_some(total),
+                        page: legacy_ppt.then_some(1),
                     };
                 }
             }
@@ -1535,6 +1571,33 @@ pub(crate) fn pptx_first_slide_png(doc: &Path) -> Option<PathBuf> {
         return None;
     }
     cached_pptx_slide(doc, 1).or_else(|| render_pptx_slide(doc, 1))
+}
+
+/// Clamp a requested page/slide index into the valid `1..=total` range
+/// (a document always has at least a first page).
+fn clamp_page(n: usize, total: usize) -> usize {
+    n.clamp(1, total.max(1))
+}
+
+/// Resolve the PNG for page/slide `n` (1-based) of a multi-page document:
+/// disk cache first, render on demand otherwise. Shared by the nav bar
+/// buttons, the wheel stepper, and the staleness refresh so all three step
+/// through identical logic. None for types without per-page rendering —
+/// the caller then falls back to pre-rendered `slide_paths`.
+fn resolve_page_png(doc: &Path, n: usize) -> Option<PathBuf> {
+    let ext = doc.extension().and_then(|s| s.to_str()).unwrap_or("");
+    if ext.eq_ignore_ascii_case("pdf") {
+        cached_pdf_page(doc, n).or_else(|| render_pdf_page(doc, n))
+    } else if ["pptx", "ppsx", "pps", "odp"]
+        .iter()
+        .any(|e| ext.eq_ignore_ascii_case(e))
+    {
+        cached_pptx_slide(doc, n).or_else(|| render_pptx_slide(doc, n))
+    } else if ext.eq_ignore_ascii_case("ppt") {
+        cached_legacy_ppt_slide(doc, n).or_else(|| render_legacy_ppt_slide_to_cache(doc, n))
+    } else {
+        None
+    }
 }
 
 struct TextPreview {
@@ -2109,17 +2172,11 @@ fn office_thumbnail(doc: &Path) -> Option<PathBuf> {
     }
 
     if matches!(ext.as_deref(), Some("ppt")) {
-        // Legacy binary .ppt: our own text-atom slide renderer.
-        let out = render_cache_path(doc);
-        if out.exists() {
-            return Some(out);
-        }
-        if let Some(png) = render_legacy_ppt_first_slide(doc) {
-            if std::fs::write(&out, &png).is_ok() {
-                return Some(out);
-            }
-        }
-        return None;
+        // Legacy binary .ppt: our own per-slide text-atom renderer (the
+        // result-row thumbnail shows slide 1; the preview pane renders
+        // slides 2..N on demand through the nav bar).
+        return cached_legacy_ppt_slide(doc, 1)
+            .or_else(|| render_legacy_ppt_slide_to_cache(doc, 1));
     }
 
     log::debug!("office preview: generating for {}", doc.display());
@@ -3350,7 +3407,8 @@ struct SlideLayout {
 /// map the first meaningful text runs onto a simple slide layout. This is not a
 /// full MS-PPT renderer, but it produces a real slide-style overview instead of
 /// the generic file card when no embedded thumbnail is available.
-fn parse_legacy_ppt_layout(doc: &Path) -> Option<SlideLayout> {
+/// Raw "PowerPoint Document" OLE stream of a legacy binary .ppt.
+fn legacy_ppt_stream(doc: &Path) -> Option<Vec<u8>> {
     use std::io::Read;
 
     let mut comp = cfb::open(doc).ok()?;
@@ -3364,10 +3422,78 @@ fn parse_legacy_ppt_layout(doc: &Path) -> Option<SlideLayout> {
     let mut stream = comp.open_stream(stream_name).ok()?;
     let mut bytes = Vec::new();
     stream.read_to_end(&mut bytes).ok()?;
+    Some(bytes)
+}
 
-    let lines = extract_first_ppt_slide_text(&bytes)
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| extract_ppt_text_atoms(&bytes));
+/// Collect every record-1006 (slide) payload in `bytes`, in stream order.
+/// A matched record's payload is taken whole (slides don't nest); other
+/// container records are descended into so slides wrapped inside document
+/// containers are found too.
+fn collect_ppt_slide_payloads<'a>(bytes: &'a [u8], out: &mut Vec<&'a [u8]>, depth: usize) {
+    if depth > 12 {
+        return;
+    }
+    let mut pos = 0usize;
+    while pos + 8 <= bytes.len() {
+        let rec_info = u16::from_le_bytes([bytes[pos], bytes[pos + 1]]);
+        let rec_ver = rec_info & 0x000f;
+        let rec_type = u16::from_le_bytes([bytes[pos + 2], bytes[pos + 3]]);
+        let rec_len = u32::from_le_bytes([
+            bytes[pos + 4],
+            bytes[pos + 5],
+            bytes[pos + 6],
+            bytes[pos + 7],
+        ]) as usize;
+        pos += 8;
+        if rec_len > bytes.len().saturating_sub(pos) {
+            break;
+        }
+        let payload = &bytes[pos..pos + rec_len];
+        if rec_type == 1006 {
+            out.push(payload);
+        } else if rec_ver == 0x000f {
+            collect_ppt_slide_payloads(payload, out, depth + 1);
+        }
+        pos += rec_len;
+    }
+}
+
+/// Text lines of EVERY slide of a legacy .ppt stream — one entry per slide
+/// record, in stream order. Falls back to the whole-stream text blob as a
+/// single slide when no slide records exist (or none carry text), matching
+/// the old first-slide-only extraction for unusual files.
+fn legacy_ppt_slide_texts(bytes: &[u8]) -> Vec<Vec<String>> {
+    let mut payloads = Vec::new();
+    collect_ppt_slide_payloads(bytes, &mut payloads, 0);
+    if !payloads.is_empty() {
+        let slides = payloads
+            .iter()
+            .map(|p| {
+                let mut lines = Vec::new();
+                collect_ppt_text_atoms(p, &mut lines, 0);
+                lines
+            })
+            .collect::<Vec<_>>();
+        if slides.iter().any(|s| !s.is_empty()) {
+            return slides;
+        }
+    }
+    vec![extract_ppt_text_atoms(bytes)]
+}
+
+/// Slide count of a legacy binary .ppt — one per legible slide, at least 1.
+fn legacy_ppt_slide_count(doc: &Path) -> Option<usize> {
+    let bytes = legacy_ppt_stream(doc)?;
+    Some(legacy_ppt_slide_texts(&bytes).len().max(1))
+}
+
+fn parse_legacy_ppt_layout(doc: &Path, slide: usize) -> Option<SlideLayout> {
+    let bytes = legacy_ppt_stream(doc)?;
+    let slides = legacy_ppt_slide_texts(&bytes);
+    let lines = slides
+        .get(slide.saturating_sub(1))
+        .cloned()
+        .unwrap_or_default();
     if lines.is_empty() {
         return None;
     }
@@ -3425,10 +3551,13 @@ fn parse_legacy_ppt_layout(doc: &Path) -> Option<SlideLayout> {
     })
 }
 
-fn render_legacy_ppt_first_slide(doc: &Path) -> Option<Vec<u8>> {
+/// Render slide `slide` (1-based) of a legacy binary .ppt — text/bullets
+/// fidelity only (the binary layout is approximated from text atoms).
+fn render_legacy_ppt_slide(doc: &Path, slide: usize) -> Option<Vec<u8>> {
     use gtk::cairo;
 
-    let layout = parse_legacy_ppt_layout(doc).unwrap_or_else(|| fallback_ppt_layout(doc));
+    let layout =
+        parse_legacy_ppt_layout(doc, slide).unwrap_or_else(|| fallback_ppt_layout(doc));
     const W: i32 = 1280;
     const H: i32 = 960;
     let (surface, cr) = new_surface(W, H)?;
@@ -3486,6 +3615,47 @@ fn render_legacy_ppt_first_slide(doc: &Path) -> Option<Vec<u8>> {
     surface_to_png(surface, cr)
 }
 
+/// Versioned per-slide render-cache path for a legacy .ppt: the shared
+/// `render_cache_path` key with a slide suffix, so each slide caches alone.
+fn legacy_ppt_cache_path(path: &Path, slide: usize) -> PathBuf {
+    let base = render_cache_path(path); // .../<md5(uri|mtime|v)>.png
+    let mut name = base.file_stem().unwrap_or_default().to_os_string();
+    name.push(format!("-s{}", slide));
+    base.with_file_name(name) // .../<md5>-s<n>.png
+}
+
+/// Cached slide PNG of a legacy .ppt, sane-checked — a truncated or bogus
+/// file is dropped so the next caller re-renders (self-healing cache).
+fn cached_legacy_ppt_slide(doc: &Path, slide: usize) -> Option<PathBuf> {
+    let p = legacy_ppt_cache_path(doc, slide);
+    if sane_png_file(&p) {
+        return Some(p);
+    }
+    if p.exists() {
+        log::info!("ppt: dropping corrupt cached slide {}", p.display());
+        let _ = std::fs::remove_file(&p);
+    }
+    None
+}
+
+/// Render slide `slide` of a legacy .ppt into the versioned render cache
+/// and return the PNG path (None when the render or write fails).
+fn render_legacy_ppt_slide_to_cache(doc: &Path, slide: usize) -> Option<PathBuf> {
+    let png = render_legacy_ppt_slide(doc, slide)?;
+    let out = legacy_ppt_cache_path(doc, slide);
+    if std::fs::write(&out, &png).is_ok() {
+        log::info!(
+            "ppt: rendered slide {} of {} -> {}",
+            slide,
+            doc.display(),
+            out.display()
+        );
+        Some(out)
+    } else {
+        None
+    }
+}
+
 fn legacy_ppt_parts(layout: &SlideLayout, doc: &Path) -> (String, Vec<String>) {
     let mut title = layout
         .elements
@@ -3523,7 +3693,7 @@ fn legacy_ppt_parts(layout: &SlideLayout, doc: &Path) -> (String, Vec<String>) {
     }
 
     if bullets.is_empty() {
-        bullets.push("First slide content could not be fully extracted.".into());
+        bullets.push("No body text on this slide.".into());
     }
 
     (title, bullets)
@@ -3671,50 +3841,6 @@ fn extract_ppt_text_atoms(bytes: &[u8]) -> Vec<String> {
         }
     }
     out
-}
-
-fn extract_first_ppt_slide_text(bytes: &[u8]) -> Option<Vec<String>> {
-    let slide = first_ppt_record_payload(bytes, 1006, 0)?;
-    let mut out = Vec::new();
-    collect_ppt_text_atoms(slide, &mut out, 0);
-    if out.is_empty() {
-        None
-    } else {
-        Some(out)
-    }
-}
-
-fn first_ppt_record_payload(bytes: &[u8], wanted_type: u16, depth: usize) -> Option<&[u8]> {
-    if depth > 12 {
-        return None;
-    }
-    let mut pos = 0usize;
-    while pos + 8 <= bytes.len() {
-        let rec_info = u16::from_le_bytes([bytes[pos], bytes[pos + 1]]);
-        let rec_ver = rec_info & 0x000f;
-        let rec_type = u16::from_le_bytes([bytes[pos + 2], bytes[pos + 3]]);
-        let rec_len = u32::from_le_bytes([
-            bytes[pos + 4],
-            bytes[pos + 5],
-            bytes[pos + 6],
-            bytes[pos + 7],
-        ]) as usize;
-        pos += 8;
-        if rec_len > bytes.len().saturating_sub(pos) {
-            break;
-        }
-        let payload = &bytes[pos..pos + rec_len];
-        if rec_type == wanted_type {
-            return Some(payload);
-        }
-        if rec_ver == 0x000f {
-            if let Some(found) = first_ppt_record_payload(payload, wanted_type, depth + 1) {
-                return Some(found);
-            }
-        }
-        pos += rec_len;
-    }
-    None
 }
 
 fn collect_ppt_text_atoms(bytes: &[u8], out: &mut Vec<String>, depth: usize) {
@@ -7313,6 +7439,99 @@ line2
         let _ = fs::remove_dir_all(&d);
     }
 
+    // ── Legacy binary .ppt: raw record builder for synthetic streams ──
+
+    /// One raw PPT record: info (version in the low nibble), type, LE u32
+    /// length, payload.
+    fn ppt_rec(ver: u8, rec_type: u16, payload: &[u8]) -> Vec<u8> {
+        let mut v = Vec::new();
+        v.extend_from_slice(&(ver as u16).to_le_bytes());
+        v.extend_from_slice(&rec_type.to_le_bytes());
+        v.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        v.extend_from_slice(payload);
+        v
+    }
+
+    fn ppt_utf16(s: &str) -> Vec<u8> {
+        s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn legacy_ppt_slide_texts_enumerates_every_slide() {
+        // Document container wrapping three slide containers (record 1006),
+        // each carrying one TextCharsAtom (record 4000), plus a junk record
+        // that must be skipped.
+        let slides_rec = [
+            ppt_rec(0x0f, 1006, &ppt_rec(0, 4000, &ppt_utf16("Opening slide words"))),
+            ppt_rec(0, 9, b"junk"),
+            ppt_rec(0x0f, 1006, &ppt_rec(0, 4000, &ppt_utf16("Middle slide points"))),
+            ppt_rec(0x0f, 1006, &ppt_rec(0, 4000, &ppt_utf16("Closing slide summary"))),
+        ]
+        .concat();
+        let stream = ppt_rec(0x0f, 1000, &slides_rec);
+
+        let slides = legacy_ppt_slide_texts(&stream);
+        assert_eq!(slides.len(), 3, "one entry per slide record, in order");
+        assert_eq!(slides[0], vec!["Opening slide words".to_string()]);
+        assert_eq!(slides[1], vec!["Middle slide points".to_string()]);
+        assert_eq!(slides[2], vec!["Closing slide summary".to_string()]);
+    }
+
+    #[test]
+    fn legacy_ppt_slide_texts_falls_back_to_single_blob() {
+        // No slide records at all: whole-stream atoms → a single slide
+        // (the old first-slide-only behaviour for unusual files).
+        let stream = ppt_rec(0, 4000, &ppt_utf16("Just some deck text"));
+        let slides = legacy_ppt_slide_texts(&stream);
+        assert_eq!(slides.len(), 1);
+        assert!(!slides[0].is_empty());
+    }
+
+    #[test]
+    fn legacy_ppt_count_and_per_slide_render() {
+        let d = td("legacy_ppt");
+        let p = d.join("deck.ppt");
+        {
+            let mut comp = cfb::create(&p).unwrap();
+            let inner = [
+                ppt_rec(0x0f, 1006, &ppt_rec(0, 4000, &ppt_utf16("First slide title"))),
+                ppt_rec(0x0f, 1006, &ppt_rec(0, 4000, &ppt_utf16("Second slide body"))),
+                ppt_rec(0x0f, 1006, &ppt_rec(0, 4000, &ppt_utf16("Third slide closing"))),
+            ]
+            .concat();
+            let mut stream = comp.create_stream("/PowerPoint Document").unwrap();
+            stream.write_all(&ppt_rec(0x0f, 1000, &inner)).unwrap();
+            stream.flush().unwrap();
+            drop(stream);
+            comp.flush().unwrap();
+        }
+
+        assert_eq!(legacy_ppt_slide_count(&p), Some(3));
+        let texts = legacy_ppt_slide_texts(&legacy_ppt_stream(&p).unwrap());
+        assert_eq!(texts.len(), 3);
+        assert_eq!(texts[1], vec!["Second slide body".to_string()]);
+
+        // The shared page resolver renders slide 2 on demand, sane-checks
+        // it, and caches it: a second resolve hits the same file.
+        let png2 = resolve_page_png(&p, 2).expect("legacy slide 2 resolves");
+        assert!(sane_png_file(&png2));
+        assert_eq!(resolve_page_png(&p, 2).as_deref(), Some(png2.as_path()));
+
+        let _ = fs::remove_file(legacy_ppt_cache_path(&p, 2));
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn resolve_page_png_unknown_type_and_clamping() {
+        // Types without per-page rendering fall back to slide_paths.
+        assert!(resolve_page_png(Path::new("/does/not/matter.xyz"), 1).is_none());
+        // Page indices clamp into 1..=total (total ≥ 1).
+        assert_eq!(clamp_page(0, 5), 1);
+        assert_eq!(clamp_page(3, 5), 3);
+        assert_eq!(clamp_page(9, 5), 5);
+        assert_eq!(clamp_page(7, 0), 1);
+    }
+
     #[test]
     fn compute_preview_text_file() {
         let d = td("compute");
@@ -8126,7 +8345,9 @@ accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
     }
 
     /// QA harness: render every slide of a real deck for visual inspection.
-    /// Skips (passes) unless both env vars are set:
+    /// Handles both OOXML decks (.pptx) and legacy binary .ppt (rendered
+    /// through the native text-atom pipeline). Skips (passes) unless both
+    /// env vars are set:
     /// `SPOTTY_QA_PPTX=/path/deck.pptx SPOTTY_QA_OUT=/tmp/qa cargo test pptx_qa`
     #[test]
     fn pptx_qa_render_all_slides() {
@@ -8135,6 +8356,17 @@ accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
             return; // gated
         };
         let doc = std::path::Path::new(&src);
+        if src.to_ascii_lowercase().ends_with(".ppt") {
+            let n = legacy_ppt_slide_count(doc).expect("legacy slide count");
+            fs::create_dir_all(&out).unwrap();
+            for slide in 1..=n {
+                let png = render_legacy_ppt_slide(doc, slide)
+                    .unwrap_or_else(|| panic!("render legacy slide {slide}"));
+                fs::write(format!("{}/slide-{}.png", out, slide), &png).unwrap();
+            }
+            println!("rendered {n} legacy slides to {out}");
+            return;
+        }
         let n = pptx_slide_count(doc).expect("slide count");
         fs::create_dir_all(&out).unwrap();
         for slide in 1..=n {
