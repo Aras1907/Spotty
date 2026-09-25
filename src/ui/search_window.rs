@@ -3049,19 +3049,8 @@ impl SearchWindow {
                     entry.set_text("");
                     suppress.set(false);
                     // Refresh ops indicator (updates ring state).
-                    match crate::operations::active_op_progress() {
-                        Some((title, fraction)) => {
-                            ops_ring.set(
-                                fraction,
-                                crate::ui::circular_progress::RingState::Running,
-                            );
-                            ops_ring.area().set_tooltip_text(Some(&title));
-                            busy_stack.set_visible_child_name("orb");
-                            busy_revealer.set_reveal_child(true);
-                        }
-                        None => {
-                            busy_revealer.set_reveal_child(false);
-                        }
+                    if !apply_ops_ring(&ops_ring, &busy_stack, &busy_revealer) {
+                        busy_revealer.set_reveal_child(false);
                     }
                     entry.emit_by_name::<()>("changed", &[]);
                 }
@@ -3126,19 +3115,8 @@ impl SearchWindow {
             clock.connect_after_paint(move |_clk| {
                 if !fired_c.get() {
                     fired_c.set(true);
-                    match crate::operations::active_op_progress() {
-                        Some((title, fraction)) => {
-                            ops_ring.set(
-                                fraction,
-                                crate::ui::circular_progress::RingState::Running,
-                            );
-                            ops_ring.area().set_tooltip_text(Some(&title));
-                            busy_stack.set_visible_child_name("orb");
-                            busy_revealer.set_reveal_child(true);
-                        }
-                        None => {
-                            busy_revealer.set_reveal_child(false);
-                        }
+                    if !apply_ops_ring(&ops_ring, &busy_stack, &busy_revealer) {
+                        busy_revealer.set_reveal_child(false);
                     }
                     entry.emit_by_name::<()>("changed", &[]);
                 }
@@ -3174,16 +3152,8 @@ impl SearchWindow {
     }
 
     pub fn refresh_ops_indicator(&self) {
-        // Priority: ops > bt action > bt scan > find-mode > hidden.
-        if let Some((title, fraction)) = crate::operations::active_op_progress() {
-            self.ops_ring.set(
-                fraction,
-                crate::ui::circular_progress::RingState::Running,
-            );
-            self.ops_ring
-                .area()
-                .set_tooltip_text(Some(&title));
-            self.reveal_orb();
+        // Priority: ops > finished-op flash > bt action > bt scan > find-mode > hidden.
+        if apply_ops_ring(&self.ops_ring, &self.busy_stack, &self.busy_revealer) {
             return;
         }
         if crate::search::bluetooth::is_busy() {
@@ -3268,6 +3238,48 @@ impl SearchWindow {
         // If the user types or interacts, the next refresh_ops_indicator will
         // hide the toast (gen check ensures stale timers don't clobber).
     }
+}
+
+/// Shared "operations → search-bar orb" update. Returns `true` when the orb
+/// was driven (an operation is running, or one just finished and is still in
+/// its `DONE_GRACE` linger) and `false` when the caller should fall back to
+/// the Bluetooth / content-search / idle states.
+///
+/// Used by `refresh_ops_indicator` and by the deferred after-paint handlers,
+/// which clone the widgets instead of borrowing the window and therefore
+/// can't call into `self`.
+fn apply_ops_ring(
+    ops_ring: &crate::ui::circular_progress::Ring,
+    busy_stack: &gtk::Stack,
+    busy_revealer: &gtk::Revealer,
+) -> bool {
+    let (title, fraction, state) = match crate::operations::active_op_progress() {
+        Some((title, fraction)) => (
+            title,
+            fraction,
+            crate::ui::circular_progress::RingState::Running,
+        ),
+        // Just finished: flash a full ring (green/red) through the same
+        // DONE_GRACE window the popover uses, so "100% completed" is visible
+        // in the bar before the orb disappears.
+        None => match crate::operations::just_finished_op() {
+            Some((title, failed)) => (
+                title,
+                Some(1.0),
+                if failed {
+                    crate::ui::circular_progress::RingState::Failed
+                } else {
+                    crate::ui::circular_progress::RingState::Done
+                },
+            ),
+            None => return false,
+        },
+    };
+    ops_ring.set(fraction, state);
+    ops_ring.area().set_tooltip_text(Some(&title));
+    busy_stack.set_visible_child_name("orb");
+    busy_revealer.set_reveal_child(true);
+    true
 }
 
 /// Shared dismiss path: fade out (~120ms) then unmap, or unmap instantly for

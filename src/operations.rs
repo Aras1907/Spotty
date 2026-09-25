@@ -438,8 +438,10 @@ fn spawn_reader<R: Read + Send + 'static>(r: R, tx: std::sync::mpsc::Sender<Stri
 }
 
 // Pull a percentage (e.g. the "57" in "57%") out of a status line, if present.
-// Also understands dnf's `(N/M)` download-counter lines (e.g. "(2/5): pkg.rpm")
-// as a fraction, since piped dnf suppresses its "%" progress bar entirely.
+// Also understands package-manager download counters as a fraction, since
+// piped tools suppress their "%" progress bar entirely:
+//   dnf4: "(2/5): package.rpm  12 MB/s | 5.2 MB  00:00"
+//   dnf5: "[91/130] proj-data-ar-0.9.8.1-1.fc44.n | 2.5 MiB/s | 6.1 MiB | 00m02s"
 pub(crate) fn parse_percent(s: &str) -> Option<f64> {
     let bytes = s.as_bytes();
     for (i, &b) in bytes.iter().enumerate() {
@@ -455,15 +457,31 @@ pub(crate) fn parse_percent(s: &str) -> Option<f64> {
             }
         }
     }
-    // dnf: "(2/5): package.rpm  12 MB/s | 5.2 MB  00:00"
-    if s.starts_with('(') {
-        if let Some(close) = s.find(')') {
-            let inner = &s[1..close];
-            if let Some((a, b)) = inner.split_once('/') {
-                if let (Ok(n), Ok(m)) = (a.trim().parse::<f64>(), b.trim().parse::<f64>()) {
-                    if m > 0.0 {
-                        return Some((n / m).clamp(0.0, 1.0));
-                    }
+    parse_counter(s)
+}
+
+// Scan a status line for an `(N/M)` or `[N/M]` counter token — anywhere in
+// the line, not just at its start: dnf5 prefixes its progress with
+// "[91/130] pkg…" and only shows the counter when piped (no "%" bar), so
+// this is the only progress signal a distro-package install gives us.
+fn parse_counter(s: &str) -> Option<f64> {
+    let bytes = s.as_bytes();
+    for (i, &open) in bytes.iter().enumerate() {
+        let close = match open {
+            b'(' => b')',
+            b'[' => b']',
+            _ => continue,
+        };
+        // Counters are short ("[91/130]") — don't scan the whole line.
+        let limit = (i + 24).min(bytes.len());
+        let Some(rel) = bytes[i + 1..limit].iter().position(|&c| c == close) else {
+            continue;
+        };
+        let inner = &s[i + 1..i + 1 + rel];
+        if let Some((a, b)) = inner.split_once('/') {
+            if let (Ok(n), Ok(m)) = (a.trim().parse::<f64>(), b.trim().parse::<f64>()) {
+                if n.is_finite() && m.is_finite() && m > 0.0 {
+                    return Some((n / m).clamp(0.0, 1.0));
                 }
             }
         }
@@ -566,8 +584,13 @@ fn update(id: u64, status: &str, progress: Option<f64>) {
     let mut reg = registry().lock().unwrap();
     if let Some(op) = reg.iter_mut().find(|o| o.id == id) {
         op.status = status.to_string();
-        if progress.is_some() {
-            op.progress = progress;
+        // Progress only ever moves forward. A tool restarting its counter on
+        // a phase change (dnf download → transaction) must not yank the orb
+        // backwards mid-install.
+        if let Some(p) = progress.filter(|p| p.is_finite()) {
+            if op.progress.map_or(true, |cur| p > cur) {
+                op.progress = Some(p);
+            }
         }
     }
 }
@@ -780,6 +803,18 @@ pub fn active_op_progress() -> Option<(String, Option<f64>)> {
         .map(|o| (o.title.clone(), o.progress))
 }
 
+/// Newest operation still inside its completion linger (finished, not
+/// cancelled — `finish()` drops it after `DONE_GRACE`), as `(title, failed)`.
+/// Lets the search-bar orb flash a full completed ring in the same window the
+/// popover shows the finished row, instead of the orb just vanishing.
+pub fn just_finished_op() -> Option<(String, bool)> {
+    let reg = registry().lock().unwrap();
+    reg.iter()
+        .rev()
+        .find(|o| matches!(o.state, State::Done | State::Failed))
+        .map(|o| (o.title.clone(), o.state == State::Failed))
+}
+
 /// Live (subtitle, indeterminate) for a still-running op, keyed by id.
 /// Returns `None` once the op is gone or no longer running.
 pub fn op_row_update(id: u64) -> Option<(String, bool)> {
@@ -846,6 +881,23 @@ mod tests {
         assert_eq!(parse_percent("(3/7): foo.rpm"), Some(3.0 / 7.0));
         assert_eq!(parse_percent("(0/5): bar.rpm"), Some(0.0));
         assert_eq!(parse_percent("done!"), None);
+    }
+
+    #[test]
+    fn parse_percent_dnf5_bracket_counter() {
+        // dnf5's piped download progress: no "%" bar, counter mid-line.
+        assert_eq!(
+            parse_percent(
+                "[91/130] proj-data-ar-0.9.8.1-1.fc44.n | 2.5 MiB/s | 6.1 MiB | 00m02s"
+            ),
+            Some(91.0 / 130.0)
+        );
+        assert_eq!(parse_percent("[ 3/ 7] foo.rpm"), Some(3.0 / 7.0));
+        assert_eq!(parse_percent("progress (2/5): bar.rpm"), Some(2.0 / 5.0));
+        // Not a counter: no digits around the slash / unmatched bracket.
+        assert_eq!(parse_percent("[ok] package.rpm"), None);
+        assert_eq!(parse_percent("(12/5/2025) log"), None);
+        assert_eq!(parse_percent("100/100 no brackets"), None);
     }
 
     #[test]

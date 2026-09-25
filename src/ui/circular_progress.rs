@@ -6,12 +6,23 @@
 // Two modes:
 //   - Determinate: smooth eased arc fill toward the target fraction.
 //   - Indeterminate: rotating arc segment (spinner) while no % is available.
+//
+// While Running the arc never fills the whole circle (see RUNNING_MAX_FILL)
+// — the leftover gap is the "still working" cue. Only Done / Failed stroke a
+// complete ring, i.e. 100% completed.
 
 use std::cell::Cell;
 use std::f64::consts::PI;
 use std::rc::Rc;
 
 use gtk::prelude::*;
+
+/// A ring in `Running` state strokes at most this fraction of the track, so
+/// the orb never looks complete before the operation actually finishes.
+const RUNNING_MAX_FILL: f64 = 0.90;
+
+/// Indeterminate spinner speed (revolutions per second ≈ 1.2 s / rev).
+const SPIN_SPEED: f64 = 0.85;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RingState {
@@ -21,9 +32,12 @@ pub enum RingState {
 }
 
 // Shared animation state — used by both the draw func and the tick callback.
+// The indeterminate rotation phase deliberately does NOT live here: it comes
+// from a shared monotonic clock (see `spinner_phase`), so a ring recreated on
+// every Operations-popover rebuild (~8×/s while output streams) continues the
+// same rotation instead of snapping back to its start.
 struct Anim {
     displayed: Cell<f64>,
-    phase: Cell<f64>,      // 0..1 rotation for indeterminate spinner
     last_frame: Cell<i64>, // µs from frame clock
 }
 
@@ -41,7 +55,6 @@ impl Ring {
         let state = Rc::new(Cell::new(RingState::Running));
         let anim = Rc::new(Anim {
             displayed: Cell::new(0.0),
-            phase: Cell::new(0.0),
             last_frame: Cell::new(0),
         });
 
@@ -80,7 +93,8 @@ impl Ring {
             let _ = cr.stroke();
 
             // Accent colour (shared by both modes).
-            let (red, green, blue, _) = match sc.get() {
+            let state = sc.get();
+            let (red, green, blue, _) = match state {
                 RingState::Running => themed(widget, "accent_color", (0.21, 0.52, 0.89, 1.0)),
                 RingState::Done => themed(widget, "success_color", (0.18, 0.76, 0.49, 1.0)),
                 RingState::Failed => themed(widget, "error_color", (0.88, 0.10, 0.14, 1.0)),
@@ -91,7 +105,7 @@ impl Ring {
                 None => {
                     // Indeterminate spinner: rotating arc segment.
                     let sweep = 0.28 * 2.0 * PI;
-                    let start = -PI / 2.0 + ac.phase.get() * 2.0 * PI;
+                    let start = -PI / 2.0 + spinner_phase() * 2.0 * PI;
                     let end = start + sweep;
                     cr.arc(cx, cy, r, start, end);
                     cr.set_source_rgba(red, green, blue, 0.9);
@@ -99,7 +113,12 @@ impl Ring {
                 }
                 Some(_target_frac) => {
                     // Determinate arc: ease-driven `displayed` toward target.
-                    let f = ac.displayed.get();
+                    // Still running → scale the visible fill down so a gap
+                    // always remains; Done/Failed stroke the full circle.
+                    let mut f = ac.displayed.get();
+                    if state == RingState::Running {
+                        f *= RUNNING_MAX_FILL;
+                    }
                     if f > 0.001 {
                         let start = -PI / 2.0;
                         cr.arc(cx, cy, r, start, start + f * 2.0 * PI);
@@ -124,9 +143,8 @@ impl Ring {
 
             match tgt.get() {
                 None => {
-                    // Indeterminate: rotate the arc.
-                    let speed = 0.85; // rev / s → ~1.2 s / rev
-                    an.phase.set((an.phase.get() + dt * speed) % 1.0);
+                    // Indeterminate: the phase comes from the shared clock,
+                    // so just keep the frames coming.
                     w.queue_draw();
                 }
                 Some(target_f) => {
@@ -185,6 +203,15 @@ pub fn progress_ring(size: i32, fraction: Option<f64>, state: RingState) -> gtk:
     r.snap(fraction, state);
     r.area().set_can_target(false);
     r.area().clone()
+}
+
+/// Indeterminate spinner rotation (0..1) read from a shared monotonic clock.
+/// Deriving it from time instead of a per-widget accumulator keeps the
+/// motion continuous across the popover's constant rebuilds — a fresh ring
+/// picks up exactly where the previous one left off.
+fn spinner_phase() -> f64 {
+    let secs = glib::monotonic_time() as f64 / 1_000_000.0;
+    (secs * SPIN_SPEED) % 1.0
 }
 
 // themed() fetches a named colour from the widget's style context, returning
