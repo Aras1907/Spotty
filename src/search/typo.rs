@@ -97,6 +97,28 @@ pub fn keyboard_similarity(query: &str, target: &str) -> Option<u32> {
     Some(score as u32)
 }
 
+/// Best [`keyboard_similarity`] between `query` and any single whitespace-
+/// separated word of `text`.
+///
+/// App names are often multi-word ("Godot Engine", "Image Viewer"), and
+/// [`keyboard_similarity`] gives up early when the target is much longer than
+/// the query — so a typo'd query never gets to compare against the word that
+/// actually matches. Guards keep the word path precise: the word must be at
+/// least 4 chars, the query at least 3, and the first letters must agree (a
+/// first-letter typo is rare, and the anchor kills most cross-word noise such
+/// as "godto" ≈ "video"/"fonts").
+pub fn best_word_similarity(query: &str, text: &str) -> Option<u32> {
+    if query.chars().count() < 3 {
+        return None;
+    }
+    let first = query.chars().next()?.to_lowercase().next()?;
+    text.split_whitespace()
+        .filter(|w| w.chars().count() >= 4)
+        .filter(|w| w.chars().next().and_then(|c| c.to_lowercase().next()) == Some(first))
+        .filter_map(|w| keyboard_similarity(query, w))
+        .max()
+}
+
 /// Weighted edit distance where adjacent-key substitutions cost 0.5.
 fn weighted_distance(a: &[char], b: &[char]) -> f32 {
     let n = a.len();
@@ -128,4 +150,47 @@ fn weighted_distance(a: &[char], b: &[char]) -> f32 {
         }
     }
     dp[n][m]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn word_similarity_sees_past_multiword_names() {
+        // The whole-string comparison gives up on these (name ≫ query), but
+        // the matching word is a perfect typo match of the query.
+        assert!(keyboard_similarity("godto", "godot engine").is_none());
+        for (q, text) in [
+            ("godto", "Godot Engine"),
+            ("gdot", "Godot Engine"),
+            ("gotod", "Godot Engine"),
+            ("blndr", "Blender"),
+            ("imaeg", "Image Viewer"),
+            ("nvidai", "NVIDIA X Server Settings"),
+        ] {
+            let sim = best_word_similarity(q, text)
+                .unwrap_or_else(|| panic!("{q:?} should match a word of {text:?}"));
+            assert!(
+                sim >= 300,
+                "{q:?} → {text:?} scored {sim}, below keyboard_similarity's own floor"
+            );
+        }
+        // First-letter case is normalized on both sides.
+        assert!(best_word_similarity("Blender", "blender").is_some());
+    }
+
+    #[test]
+    fn word_similarity_rejects_noise() {
+        // First letter must agree — that is what keeps cross-word noise down.
+        assert_eq!(best_word_similarity("godto", "Video Player"), None);
+        assert_eq!(best_word_similarity("godto", "Fonts"), None);
+        assert_eq!(best_word_similarity("ton", "Godot Engine"), None);
+        // Too short to be a typo of anything (matches the >=3-char query rule).
+        assert_eq!(best_word_similarity("ab", "Godot Engine"), None);
+        // Words shorter than 4 chars are too ambiguous to hit.
+        assert_eq!(best_word_similarity("fox", "Fox Viewer"), None);
+        // No word shares the query's first letter.
+        assert_eq!(best_word_similarity("frefox", "Blender"), None);
+    }
 }

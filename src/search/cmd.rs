@@ -121,15 +121,18 @@ fn distro_catalog_fetching() -> &'static Mutex<bool> {
 // Background fuzzy search over the distro catalog: keeps the UI thread from
 // scanning the (potentially tens-of-thousands-of-entries) catalog on every
 // keystroke. `ensure_distro_search` kicks off a background match for the
-// current query; `distro_search_cache` holds the latest completed results.
-// The generation counter ensures only the most recent query's results win,
-// even if an older search thread finishes after a newer one.
+// current query; `distro_search_cache` holds the latest completed matches as
+// raw `DistroPackage`s — the `SearchResult` rows (and the already-installed
+// filter) are built at read time, so an installed list that warms up after
+// the match still takes effect. The generation counter ensures only the most
+// recent query's results win, even if an older search thread finishes after a
+// newer one.
 fn distro_search_generation() -> &'static AtomicU64 {
     static C: OnceLock<AtomicU64> = OnceLock::new();
     C.get_or_init(|| AtomicU64::new(0))
 }
-fn distro_search_cache() -> &'static Mutex<Option<(String, Vec<SearchResult>)>> {
-    static C: OnceLock<Mutex<Option<(String, Vec<SearchResult>)>>> = OnceLock::new();
+fn distro_search_cache() -> &'static Mutex<Option<(String, Vec<DistroPackage>)>> {
+    static C: OnceLock<Mutex<Option<(String, Vec<DistroPackage>)>>> = OnceLock::new();
     C.get_or_init(|| Mutex::new(None))
 }
 
@@ -834,9 +837,9 @@ fn ensure_distro_catalog(pm: String) {
 
 // Kick off a background fuzzy match of `query` against the distro catalog (if
 // not already cached/in-flight), so the UI thread never scans the full
-// (tens-of-thousands-entry) package list directly. Results land in
+// (tens-of-thousands-entry) package list directly. Matches land in
 // `distro_search_cache` and trigger a refresh when ready.
-fn ensure_distro_search(query: String, pm_name: String, catalog: Arc<Vec<DistroPackage>>) {
+fn ensure_distro_search(query: String, catalog: Arc<Vec<DistroPackage>>) {
     {
         let c = distro_search_cache().lock().unwrap();
         if let Some((cq, _)) = c.as_ref() {
@@ -847,15 +850,14 @@ fn ensure_distro_search(query: String, pm_name: String, catalog: Arc<Vec<DistroP
     }
     let generation = distro_search_generation().fetch_add(1, Ordering::SeqCst) + 1;
     std::thread::spawn(move || {
-        let matches = fuzzy_distro(&query, &catalog);
-        let results: Vec<SearchResult> = matches
-            .iter()
-            .map(|(pkg, _)| distro_install_result(pkg, &pm_name))
+        let matches: Vec<DistroPackage> = fuzzy_distro(&query, &catalog)
+            .into_iter()
+            .map(|(pkg, _)| pkg.clone())
             .collect();
         if distro_search_generation().load(Ordering::SeqCst) != generation {
             return;
         }
-        *distro_search_cache().lock().unwrap() = Some((query, results));
+        *distro_search_cache().lock().unwrap() = Some((query, matches));
         glib::MainContext::default().invoke(crate::app::refresh_search_window);
     });
 }
@@ -882,6 +884,18 @@ fn ensure_distro_installed(pm: String) {
         *distro_installed_fetching().lock().unwrap() = false;
         glib::MainContext::default().invoke(crate::app::refresh_search_window);
     });
+}
+
+/// Lowercased names of the distro packages already installed on the host.
+/// Empty while the background fetch is still warming — early searches then
+/// show install rows until it lands, and the next search drops them.
+fn distro_installed_names() -> std::collections::HashSet<String> {
+    distro_installed_cache()
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|(_, pkgs)| pkgs.iter().map(|p| p.name_lc.clone()).collect())
+        .unwrap_or_default()
 }
 
 // ── Distro PM fetch + parse ───────────────────────────────────────────────────
@@ -1598,14 +1612,23 @@ fn search_install(query: &str, pm: PackageManager) -> Vec<SearchResult> {
     if use_distro {
         let pm_name = detected.as_deref().unwrap_or("");
         ensure_distro_catalog(pm_name.to_string());
+        // Warm the installed-package list so we don't offer "Install: x" for
+        // something you already have (Flatpak and Snap already filter this).
+        ensure_distro_installed(pm_name.to_string());
+        let installed = distro_installed_names();
         match distro_catalog_cache().try_lock() {
             Ok(cache) => match cache.as_ref() {
                 Some((_, cpm, pkgs)) if cpm == pm_name && !pkgs.is_empty() => {
-                    ensure_distro_search(query.to_string(), pm_name.to_string(), pkgs.clone());
+                    ensure_distro_search(query.to_string(), pkgs.clone());
                     let sc = distro_search_cache().lock().unwrap();
                     match sc.as_ref() {
-                        Some((q, res)) if q == query => {
-                            distro_results.extend(res.iter().cloned());
+                        Some((q, matches)) if q == query => {
+                            distro_results.extend(
+                                matches
+                                    .iter()
+                                    .filter(|p| !installed.contains(&p.name_lc))
+                                    .map(|p| distro_install_result(p, pm_name)),
+                            );
                         }
                         _ => {
                             if flatpak_results.is_empty() {
