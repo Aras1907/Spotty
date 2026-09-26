@@ -557,14 +557,14 @@ fn update_cmd_args(source: &str, app_id: Option<&str>) -> Vec<String> {
         "zypper" => pkexec_cmd_args(vec!["zypper".into(), "update".into(), "-y".into()]),
         "snap" => pkexec_cmd_args(vec!["snap".into(), "refresh".into()]),
         "all" => {
-            let mut parts: Vec<String> = Vec::new();
+            let mut parts: Vec<(&str, String)> = Vec::new();
             let cache = update_cache().lock().unwrap();
             if let Some((_, entries)) = cache.as_ref() {
                 let has_fp = entries
                     .iter()
                     .any(|u| u.source == "flatpak");
                 if has_fp {
-                    parts.push("flatpak update --assumeyes".into());
+                    parts.push(("flatpak", "flatpak update --assumeyes".into()));
                 }
                 for pm in &["dnf", "apt", "pacman", "zypper"] {
                     if entries.iter().any(|u| u.source == *pm) {
@@ -575,22 +575,44 @@ fn update_cmd_args(source: &str, app_id: Option<&str>) -> Vec<String> {
                             "zypper" => "pkexec zypper update -y",
                             _ => continue,
                         };
-                        parts.push(cmd.into());
+                        parts.push((pm, cmd.into()));
                     }
                 }
                 if entries.iter().any(|u| u.source == "snap") {
-                    parts.push("pkexec snap refresh".into());
+                    parts.push(("snap", "pkexec snap refresh".into()));
                 }
             }
             drop(cache);
             if parts.is_empty() {
                 vec!["true".to_string()]
             } else {
-                vec!["sh".to_string(), "-c".to_string(), parts.join(" && ")]
+                chained_script(&parts)
             }
         }
         _ => vec!["true".to_string()],
     }
+}
+
+/// Build the `sh -c` argv for a chained "update all" run. Each part is
+/// prefixed with an `__spotty_part_k_m_tool__` echo marker so the progress
+/// tracker knows which tool is running and what share of the whole update it
+/// owns (see `opprogress`). `&&` keeps the original stop-on-failure semantics.
+fn chained_script(parts: &[(&str, String)]) -> Vec<String> {
+    let total = parts.len();
+    let mut script = String::new();
+    for (i, (tool, cmd)) in parts.iter().enumerate() {
+        if i > 0 {
+            script.push_str(" && ");
+        }
+        script.push_str(&format!(
+            "echo __spotty_part_{}_{}_{}__ && {}",
+            i + 1,
+            total,
+            tool,
+            cmd
+        ));
+    }
+    vec!["sh".to_string(), "-c".to_string(), script]
 }
 fn fetch_updates() -> Vec<UpdateInfo> {
     let mut out = Vec::new();
@@ -2282,4 +2304,27 @@ fn shell_safe(s: &str) -> String {
     s.chars()
         .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::chained_script;
+
+    #[test]
+    fn chained_update_script_carries_progress_markers() {
+        let script = chained_script(&[
+            ("flatpak", "flatpak update --assumeyes".to_string()),
+            ("dnf", "pkexec dnf upgrade -y".to_string()),
+            ("snap", "pkexec snap refresh".to_string()),
+        ]);
+        assert_eq!(&script[..2], &["sh".to_string(), "-c".to_string()]);
+        assert_eq!(
+            script[2],
+            "echo __spotty_part_1_3_flatpak__ && flatpak update --assumeyes \
+             && echo __spotty_part_2_3_dnf__ && pkexec dnf upgrade -y \
+             && echo __spotty_part_3_3_snap__ && pkexec snap refresh"
+        );
+        // Markers must be standalone echo arguments (no quoting needed).
+        assert!(script[2].starts_with("echo __spotty_part_1_3_flatpak__ && "));
+    }
 }

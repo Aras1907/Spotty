@@ -321,6 +321,14 @@ fn run_process(id: u64, mut args: Vec<String>) {
         || (program == "flatpak-spawn" && args.first().map(|s| s.as_str()) == Some("--host"));
 
     std::thread::spawn(move || {
+        // Phase-aware tracker: knows how the running tool (flatpak, dnf, …)
+        // splits its output into real units of work, so metadata `100%` lines
+        // can no longer pin the orb before anything has been installed.
+        let argv: Vec<String> = std::iter::once(program.clone())
+            .chain(args.iter().cloned())
+            .collect();
+        let mut tracker = crate::opprogress::Tracker::new(&argv);
+
         let mut cmd = std::process::Command::new(&program);
         cmd.args(&args)
             .stdout(std::process::Stdio::piped())
@@ -377,8 +385,18 @@ fn run_process(id: u64, mut args: Vec<String>) {
                     let _ = child.kill();
                     break;
                 }
-                let pct = parse_percent(&line).filter(|p| *p > 0.005);
-                pending = Some((clean_status(&line), pct));
+                tracker.feed(&line);
+                let frac = tracker.fraction();
+                if crate::opprogress::is_part_marker(&line) {
+                    // Internal `__spotty_part_…__` markers from chained update
+                    // commands move progress on but never clobber the status.
+                    match &mut pending {
+                        Some(p) => p.1 = frac,
+                        None => pending = Some((String::new(), frac)),
+                    }
+                } else {
+                    pending = Some((clean_status(&line), frac));
+                }
             }
             // Touch the shared registry only on the throttle tick (not per line):
             // here we both check for cancellation (bail out + kill so a cancelled
@@ -583,7 +601,11 @@ fn is_cancelled(id: u64) -> bool {
 fn update(id: u64, status: &str, progress: Option<f64>) {
     let mut reg = registry().lock().unwrap();
     if let Some(op) = reg.iter_mut().find(|o| o.id == id) {
-        op.status = status.to_string();
+        // An empty status means "progress only" — used for internal marker
+        // lines, which must keep whatever the tool last actually said.
+        if !status.is_empty() {
+            op.status = status.to_string();
+        }
         // Progress only ever moves forward. A tool restarting its counter on
         // a phase change (dnf download → transaction) must not yank the orb
         // backwards mid-install.
@@ -870,6 +892,98 @@ pub fn running_result_rows() -> Vec<SearchResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── end-to-end wiring ────────────────────────────────────────────────────
+
+    /// Drive the real `run_process` pipeline (reader threads → phase tracker →
+    /// 120 ms-throttled registry flush) with a chained-update-shaped script:
+    /// a part marker, dnf download bars, then transaction bars. The internal
+    /// marker must never reach the visible status, and the registry must show
+    /// live intermediate fractions — not an instant 100% from a metadata line.
+    #[test]
+    fn run_process_tracks_phases_and_hides_part_markers() {
+        let title = "__op_progress_test__".to_string();
+        let script = concat!(
+            "echo __spotty_part_1_2_dnf__ && ",
+            "echo '[1/4] pkg-a-1.0-1.fc44.x86_64   100% | 1.0 MiB/s | 1.0 MiB | 00m01s' && ",
+            "sleep 0.4 && ",
+            "echo '[2/4] pkg-b-1.0-1.fc44.x86_64   100% | 1.0 MiB/s | 1.0 MiB | 00m01s' && ",
+            "sleep 0.4 && ",
+            "echo 'Running transaction' && ",
+            "echo '[1/1] Installing pkg-a-1.0-1.fc44 100% | 1.0 MiB/s | 1.0 MiB | 00m01s' && ",
+            "i=0; while [ $i -lt 15 ]; do echo tick; sleep 0.2; i=$((i+1)); done",
+        );
+        let args: Vec<String> = ["sh", "-c", script].iter().map(|s| s.to_string()).collect();
+
+        let id = next_id();
+        registry().lock().unwrap().push(Operation {
+            id,
+            title: title.clone(),
+            source: "Test".into(),
+            icon: "test".into(),
+            status: "Starting…".into(),
+            progress: None,
+            state: State::Running,
+            pid: None,
+            args: args.clone(),
+            dismissed_dir: None,
+            pending_commit_at: None,
+        });
+        run_process(id, args);
+
+        // Record registry snapshots; cancel the fake op as soon as a live
+        // intermediate fraction shows up (or after 1.5 s, always before the
+        // script can finish). Cancelling directly in the registry avoids the
+        // history/notification side effects of `cancel()`.
+        let started = Instant::now();
+        let mut seen: Vec<(String, Option<f64>)> = Vec::new();
+        let mut did_cancel = false;
+        while started.elapsed() < Duration::from_secs(4) {
+            let snap = {
+                let reg = registry().lock().unwrap();
+                reg.iter()
+                    .find(|o| o.id == id)
+                    .map(|o| (o.status.clone(), o.progress))
+            };
+            let Some(cur) = snap else { break };
+            let mid = cur.1.is_some_and(|p| p > 0.01 && p < 0.99);
+            if seen.last() != Some(&cur) {
+                seen.push(cur);
+            }
+            if mid || started.elapsed() > Duration::from_millis(1500) {
+                if let Some(op) = registry().lock().unwrap().iter_mut().find(|o| o.id == id) {
+                    op.state = State::Cancelled;
+                }
+                did_cancel = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // Give the reader loop time to notice the cancel and kill the child,
+        // then drop the fake op. Any history entry with our title (only
+        // possible if the script died early) goes too — history is in-memory.
+        std::thread::sleep(Duration::from_millis(700));
+        registry().lock().unwrap().retain(|o| o.id != id);
+        history().lock().unwrap().retain(|e| e.title != title);
+
+        assert!(did_cancel, "never observed a cancel point: {seen:?}");
+        assert!(!seen.is_empty(), "no registry snapshots recorded");
+        assert!(
+            seen.iter().all(|(s, _)| !s.contains("spotty_part")),
+            "part marker leaked into status: {seen:?}"
+        );
+        assert!(
+            seen.iter().any(|(_, p)| p.is_some_and(|p| p > 0.01 && p < 0.99)),
+            "no intermediate fraction recorded (metadata 100% regression?): {seen:?}"
+        );
+        let mut last = 0.0f64;
+        for (_, p) in &seen {
+            if let Some(v) = p {
+                assert!(*v >= last - 1e-9, "progress went backwards: {seen:?}");
+                last = *v;
+            }
+        }
+    }
 
     #[test]
     fn parse_percent_various() {

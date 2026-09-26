@@ -7,9 +7,10 @@
 //   - Determinate: smooth eased arc fill toward the target fraction.
 //   - Indeterminate: rotating arc segment (spinner) while no % is available.
 //
-// While Running the arc never fills the whole circle (see RUNNING_MAX_FILL)
-// — the leftover gap is the "still working" cue. Only Done / Failed stroke a
-// complete ring, i.e. 100% completed.
+// The determinate arc is 1:1 with the reported progress (see `arc_fraction`):
+// what the operation says is what the ring shows, including a full circle at
+// 100%. State colour carries the rest — accent while Running, green on Done,
+// red on Failed.
 
 use std::cell::Cell;
 use std::f64::consts::PI;
@@ -17,12 +18,16 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 
-/// A ring in `Running` state strokes at most this fraction of the track, so
-/// the orb never looks complete before the operation actually finishes.
-const RUNNING_MAX_FILL: f64 = 0.90;
-
 /// Indeterminate spinner speed (revolutions per second ≈ 1.2 s / rev).
 const SPIN_SPEED: f64 = 0.85;
+
+/// Visible arc length for a displayed fraction. Determinate rings are exact —
+/// 0.5 reported draws half the circle in every state, 1.0 draws the whole one
+/// (the old `RUNNING_MAX_FILL` cap that held Running rings at 90% is gone: the
+/// gap to the track ring is simply whatever work is left).
+pub(crate) fn arc_fraction(displayed: f64) -> f64 {
+    displayed.clamp(0.0, 1.0)
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RingState {
@@ -112,13 +117,10 @@ impl Ring {
                     let _ = cr.stroke();
                 }
                 Some(_target_frac) => {
-                    // Determinate arc: ease-driven `displayed` toward target.
-                    // Still running → scale the visible fill down so a gap
-                    // always remains; Done/Failed stroke the full circle.
-                    let mut f = ac.displayed.get();
-                    if state == RingState::Running {
-                        f *= RUNNING_MAX_FILL;
-                    }
+                    // Determinate arc: ease-driven `displayed` toward target,
+                    // stroked 1:1 — the gap to the track ring is exactly the
+                    // work the tool still reports.
+                    let f = arc_fraction(ac.displayed.get());
                     if f > 0.001 {
                         let start = -PI / 2.0;
                         cr.arc(cx, cy, r, start, start + f * 2.0 * PI);
@@ -223,4 +225,21 @@ fn themed(w: &gtk::DrawingArea, name: &str, fallback: (f64, f64, f64, f64)) -> (
         .lookup_color(name)
         .map(|c| (c.red() as f64, c.green() as f64, c.blue() as f64, c.alpha() as f64))
         .unwrap_or(fallback)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::arc_fraction;
+
+    #[test]
+    fn determinate_arc_is_one_to_one() {
+        // Half reported = half stroked (the old RUNNING_MAX_FILL gave 0.45).
+        assert_eq!(arc_fraction(0.5), 0.5);
+        // A tool at 100% closes the circle while still Running (old cap: 0.90).
+        assert_eq!(arc_fraction(1.0), 1.0);
+        assert_eq!(arc_fraction(0.90001), 0.90001);
+        // Easing may overshoot by a hair in either direction — clamp only.
+        assert_eq!(arc_fraction(1.7), 1.0);
+        assert_eq!(arc_fraction(-0.2), 0.0);
+    }
 }
