@@ -652,7 +652,7 @@ pub fn on_startup(app: &adw::Application) {
             triggers_win: RefCell::new(None),
         })
     });
-    // Load installed triggers (trigger keywords from the marketplace) before
+    // Load installed triggers (trigger keywords from imported manifests) before
     // anything wires up keyword actions/keybindings.
     crate::triggers::load_all();
     // ponytail: build once at startup and keep alive for the daemon's lifetime.
@@ -1016,7 +1016,7 @@ pub fn open_settings(app: &adw::Application) {
     });
 }
 
-/// Open the triggers window (installed list + marketplace browser). Reuses the
+/// Open the triggers window (installed list + file import). Reuses the
 /// cached window like settings — installed list is refreshed on every show.
 pub fn open_triggers_window(app: &adw::Application) {
     with_state(|st| {
@@ -1024,26 +1024,29 @@ pub fn open_triggers_window(app: &adw::Application) {
         if let Some(win) = w.as_ref() {
             win.present();
         } else {
-            let win = TriggersWindow::new(app, st.config.clone());
+            let win = TriggersWindow::new(app);
             win.present();
             *w = Some(win);
         }
     });
 }
 
-/// Open the triggers window directly on the Marketplace page (the settings
-/// "Browse Marketplace…" entry).
-pub fn open_triggers_marketplace(app: &adw::Application) {
-    with_state(|st| {
+/// Open the triggers window and start the local import flow — the settings
+/// Trigger-page `+` installs a manifest file the user downloaded (there is
+/// no in-app marketplace).
+pub fn open_triggers_import(app: &adw::Application) {
+    let win = with_state(|st| {
         let mut w = st.triggers_win.borrow_mut();
         if let Some(win) = w.as_ref() {
-            win.show_marketplace();
+            win.clone()
         } else {
-            let win = TriggersWindow::new(app, st.config.clone());
-            win.show_marketplace();
-            *w = Some(win);
+            let win = TriggersWindow::new(app);
+            *w = Some(win.clone());
+            win
         }
     });
+    win.present();
+    win.import_from_file();
 }
 /// Take the signal mark (timestamp + majflt at SIGUSR1 arrival).
 /// Returns `None` if no signal is pending; `Some((t, majflt))` otherwise.

@@ -1,51 +1,30 @@
-//! Triggers window: installed trigger list + marketplace browser.
+//! Triggers window: installed trigger list + local manifest import.
 //!
 //! libadwaita layout (GNOME extension-manager style): a single `adw::Window`
-//! with a `NavigationView` — the root page lists installed triggers, the
-//! pushed "Marketplace" page browses a GitHub (or local `file://`) repository
-//! with a `gtk::SearchEntry`. Every fetch goes through curl on a spawned
-//! thread (flatpak-spawn aware, no new HTTP dependency), results hop back to
-//! the main thread via `glib::MainContext::invoke`.
+//! with a `NavigationView` — the root page lists installed triggers.
 //!
-//! Loading feedback is a spinner next to the search entry; errors surface in
-//! an inline `adw::Banner` above the list (no toasts).
-//!
-//! Install = download manifest (or pick a downloaded file with
-//! "Import Trigger File…") → validate → copy into the triggers dir →
+//! Installing = pick a downloaded manifest with "Import Trigger File…" (or
+//! the settings Trigger-page `+`) → validate → copy into the triggers dir →
 //! reload registry. Uninstall = delete the manifest. Shell triggers require
 //! an explicit confirmation dialog that shows the exact command template.
-use crate::triggers::{self, TriggerAction, TriggerManifest, MarketEntry};
-use crate::config::Config;
+//! Manifests come from the spotty-triggers GitHub repository — there is no
+//! in-app marketplace; download a `.json` file and import it.
+use crate::triggers::{self, TriggerAction, TriggerManifest};
 use adw::prelude::*;
-use gtk::glib;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct TriggersWindow {
     window: adw::Window,
-    nav: adw::NavigationView,
     installed_stack: gtk::Stack,
     installed_list: gtk::ListBox,
-    market_list: gtk::ListBox,
-    market_stack: gtk::Stack,
-    market_empty_page: adw::StatusPage,
-    market_error_page: adw::StatusPage,
-    market_search: gtk::SearchEntry,
-    market_spinner: gtk::DrawingArea,
-    error_banner: adw::Banner,
-    /// Error banner on the root page (install/uninstall/import feedback —
-    /// the marketplace banner is only visible on the marketplace page).
+    /// Error banner on the root page (install/uninstall/import feedback).
     root_banner: adw::Banner,
-    market_page: adw::NavigationPage,
-    config: Rc<RefCell<Config>>,
-    market: Rc<RefCell<Vec<MarketEntry>>>,
-    
 }
 
 thread_local! {
-    /// The single live window (AppState caches one). Spawned fetch threads
-    /// can't capture the `Rc` (not Send), so response handlers re-find it
-    /// here via a Send-only payload on the main thread.
+    /// The single live window (AppState caches one). `refresh_live` re-finds
+    /// it so mutations started from other windows update this view too.
     static LIVE: RefCell<Option<Rc<TriggersWindow>>> = const { RefCell::new(None) };
 }
 
@@ -53,7 +32,7 @@ impl TriggersWindow {
     /// Build the window and return it as an `Rc`. The Rc is also stored on
     /// the window widget (data slot) so signal closures can reach the struct;
     /// the returned Rc is what `AppState` keeps.
-    pub fn new(app: &adw::Application, config: Rc<RefCell<Config>>) -> Rc<Self> {
+    pub fn new(app: &adw::Application) -> Rc<Self> {
         let window = adw::Window::builder()
             .application(app)
             .title("Triggers")
@@ -90,37 +69,30 @@ impl TriggersWindow {
             .build();
         let clamp = adw::Clamp::builder().maximum_size(520).build();
         clamp.set_child(Some(&installed_stack));
-        // Inline feedback for failed installs/uninstalls started from this
-        // page (the marketplace's own banner lives on the marketplace page).
+        // Inline feedback for failed installs/uninstalls/imports.
         let root_banner = adw::Banner::builder().revealed(false).build();
         root_box.append(&root_banner);
         root_box.append(&clamp);
         root_scroll.set_child(Some(&root_box));
 
+        // The only install path now: pick a downloaded manifest file.
         let button_row = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .spacing(8)
             .halign(gtk::Align::Center)
             .build();
-        let browse_btn = gtk::Button::builder()
-            .label("Browse New Trigger")
-            .icon_name("folder-download-symbolic")
-            .css_classes(["suggested-action"])
-            .build();
-        // Install a manifest the user downloaded from GitHub (or anywhere)
-        // without going through the marketplace index.
         let import_btn = gtk::Button::builder()
             .label("Import Trigger File…")
             .icon_name("document-open-symbolic")
-            .tooltip_text("Install a downloaded trigger manifest (.json)")
+            .css_classes(["suggested-action"])
+            .tooltip_text("Install a trigger manifest (.json) you downloaded")
             .build();
-        button_row.append(&browse_btn);
         button_row.append(&import_btn);
         root_box.append(&button_row);
 
         let empty_page = adw::StatusPage::builder()
             .title("No triggers installed")
-            .description("Triggers add new keywords — browse the marketplace.")
+            .description("Triggers add new keywords — import a manifest file you downloaded.")
             .icon_name("package-symbolic")
             .build();
         installed_stack.add_named(&empty_page, Some("empty"));
@@ -132,93 +104,16 @@ impl TriggersWindow {
             .child(&root_scroll)
             .build();
 
-        // ── Marketplace page ──────────────────────────────────────────────
-        let market_scroll = gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .vexpand(true)
-            .build();
-        let market_box = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .spacing(8)
-            .margin_top(12)
-            .margin_bottom(12)
-            .margin_start(24)
-            .margin_end(24)
-            .build();
-        market_scroll.set_child(Some(&market_box));
-
-        // Error banner: inline feedback for failed fetches/installs.
-        let error_banner = adw::Banner::builder().revealed(false).build();
-        market_box.append(&error_banner);
-
-        let search_bar = gtk::Box::builder()
-            .orientation(gtk::Orientation::Horizontal)
-            .spacing(8)
-            .build();
-        let market_search = gtk::SearchEntry::builder()
-            .placeholder_text("Search triggers")
-            .hexpand(true)
-            .build();
-        let market_spinner = crate::ui::circular_progress::progress_ring(
-            20,
-            None,
-            crate::ui::circular_progress::RingState::Running,
-        );
-        market_spinner.set_visible(false);
-        search_bar.append(&market_search);
-        search_bar.append(&market_spinner);
-        market_box.append(&search_bar);
-
-        let market_list = gtk::ListBox::builder()
-            .css_classes(["spotty-flat-list"])
-            .selection_mode(gtk::SelectionMode::None)
-            .build();
-        let market_empty_page = adw::StatusPage::builder()
-            .title("No triggers found")
-            .description("The marketplace has no triggers yet.")
-            .icon_name("edit-find-symbolic")
-            .build();
-        let market_error_page = adw::StatusPage::builder()
-            .title("Couldn't load the marketplace")
-            .description("Check your connection and try again.")
-            .icon_name("dialog-error-symbolic")
-            .build();
-
-        let market_stack = gtk::Stack::new();
-        market_stack.add_named(&market_list, Some("list"));
-        market_stack.add_named(&market_empty_page, Some("empty"));
-        market_stack.add_named(&market_error_page, Some("error"));
-        market_stack.set_visible_child_name("list");
-        let market_clamp = adw::Clamp::builder().maximum_size(520).build();
-        market_clamp.set_child(Some(&market_stack));
-        market_box.append(&market_clamp);
-
-        let market_page = adw::NavigationPage::builder()
-            .title("Marketplace")
-            .child(&market_scroll)
-            .build();
-
         nav.push(&root_page);
 
         let win = Rc::new(Self {
             window,
-            nav,
             installed_stack,
             installed_list,
-            market_list,
-            market_stack,
-            market_empty_page,
-            market_error_page,
-            market_search,
-            market_spinner,
-            error_banner,
             root_banner,
-            market_page,
-            config,
-            market: Rc::new(RefCell::new(Vec::new())),
         });
-        // Keep the Rc reachable for signal closures and spawned-thread
-        // response handlers (see LIVE above).
+        // Keep the Rc reachable for signal closures and the file-dialog
+        // response handler (see LIVE above).
         unsafe {
             win.window
                 .set_data::<Rc<Self>>("triggers-window-self", win.clone());
@@ -228,44 +123,18 @@ impl TriggersWindow {
         // ── Wiring ─────────────────────────────────────────────────────────
         {
             let w = win.clone();
-            browse_btn.connect_clicked(move |_| w.show_marketplace());
-        }
-
-        {
-            let w = win.clone();
             import_btn.connect_clicked(move |_| w.import_from_file());
-        }
-
-        {
-            let w = win.clone();
-            let search = win.market_search.clone();
-            search.connect_search_changed(move |_| w.rebuild_market());
-        }
-        // Fetch a fresh index on every visit so a stale GitHub CDN response
-        // never sticks in the cached list once it propagates.
-        {
-            let w = win.clone();
-            let mp = w.market_page.clone();
-            mp.connect_map(move |_| w.fetch_index());
         }
 
         win.rebuild_installed();
         win
     }
 
-    /// Refresh installed list + marketplace rows each time the window shows,
-    /// so uninstalls done elsewhere (e.g. the Trigger settings page) show up.
+    /// Refresh the installed list each time the window shows, so changes
+    /// made elsewhere (e.g. the Trigger settings page) show up.
     pub fn present(&self) {
         self.rebuild_installed();
-        self.rebuild_market();
         self.window.present();
-    }
-
-    /// Show the window directly on the Marketplace page (used by the
-    /// "Browse Marketplace…" entry from settings).
-    pub fn show_marketplace(&self) {
-        self.present();
-        self.nav.push(&self.market_page);
     }
 
     // ── Installed list ──────────────────────────────────────────────────
@@ -322,120 +191,6 @@ impl TriggersWindow {
         row
     }
 
-    // ── Marketplace ─────────────────────────────────────────────────────
-
-    fn fetch_index(&self) {
-        self.hide_error();
-        self.set_loading(true);
-        let url = format!(
-            "{}/index.json",
-            self.config.borrow().trigger_repo_url.trim().trim_end_matches('/')
-        );
-        std::thread::spawn(move || {
-            let body = triggers::fetch_text(&url);
-            glib::MainContext::default().invoke(move || {
-                if let Some(w) = live_window() {
-                    w.handle_index_response(body);
-                }
-            });
-        });
-    }
-
-    /// Main thread: apply a fetched index (rebuild the marketplace list).
-    fn handle_index_response(&self, body: Result<String, String>) {
-        self.set_loading(false);
-        match body {
-            Ok(text) => match serde_json::from_str::<Vec<MarketEntry>>(&text) {
-                Ok(entries) => {
-                    log::info!("triggers: market index loaded: {} entries", entries.len());
-                    *self.market.borrow_mut() = entries;
-                    self.rebuild_market();
-                }
-                Err(e) => {
-                    log::warn!("triggers: invalid repository index: {e}");
-                    self.market_error_page
-                        .set_description(Some(&format!("The repository index is not valid: {e}")));
-                    self.market_stack.set_visible_child_name("error");
-                    self.show_error("Couldn't load the marketplace");
-                }
-            },
-            Err(e) => {
-                log::warn!("triggers: market fetch failed: {e}");
-                self.market_error_page.set_description(Some(&e));
-                self.market_stack.set_visible_child_name("error");
-                self.show_error("Couldn't load the marketplace");
-            }
-        }
-    }
-
-    fn rebuild_market(&self) {
-        while let Some(c) = self.market_list.first_child() {
-            self.market_list.remove(&c);
-        }
-        let q = self.market_search.text().to_lowercase();
-        let mut count = 0;
-        for e in self.market.borrow().iter() {
-            if !q.is_empty()
-                && !e.name.to_lowercase().contains(&q)
-                && !e.id.to_lowercase().contains(&q)
-                && !e.summary.to_lowercase().contains(&q)
-            {
-                continue;
-            }
-            count += 1;
-            let row = self.market_row(e);
-            self.market_list.append(&row);
-        }
-        if count == 0 {
-            let qtext = self.market_search.text();
-            let desc = if q.is_empty() {
-                "The marketplace has no triggers yet.".to_string()
-            } else {
-                format!("No triggers match \"{qtext}\".")
-            };
-            self.market_empty_page.set_description(Some(&desc));
-            self.market_stack.set_visible_child_name("empty");
-        } else {
-            self.market_stack.set_visible_child_name("list");
-        }
-    }
-
-    fn market_row(&self, e: &MarketEntry) -> gtk::ListBoxRow {
-        let row = gtk::ListBoxRow::new();
-        let action = adw::ActionRow::builder()
-            .title(&e.name)
-            .subtitle(&e.summary)
-            .subtitle_lines(2)
-            .build();
-        action.add_prefix(&Self::icon_image(&e.icon));
-        if triggers::by_id(&e.id).is_some() {
-            let uninstall = gtk::Button::builder()
-                .icon_name("user-trash-symbolic")
-                .css_classes(["flat", "circular"])
-                .tooltip_text("Uninstall")
-                .build();
-            {
-                let w = self.self_rc();
-                let id = e.id.clone();
-                uninstall.connect_clicked(move |_| w.uninstall(&id));
-            }
-            action.add_suffix(&uninstall);
-        } else {
-            let install = gtk::Button::builder()
-                .label("Install")
-                .css_classes(["flat"])
-                .build();
-            {
-                let w = self.self_rc();
-                let entry = e.clone();
-                install.connect_clicked(move |_| w.install_market(&entry));
-            }
-            action.add_suffix(&install);
-        }
-        row.set_child(Some(&action));
-        row
-    }
-
     /// The trigger's icon as a plain prefix image (no tile background), with
     /// a generic fallback when the manifest has no icon.
     fn icon_image(name: &str) -> gtk::Image {
@@ -448,50 +203,9 @@ impl TriggersWindow {
         icon
     }
 
-    /// Install a trigger from the marketplace: fetch its manifest, confirm
-    /// shell triggers (showing the command), then install.
-    fn install_market(&self, entry: &MarketEntry) {
-        self.hide_error();
-        self.set_loading(true);
-        let url = format!(
-            "{}/triggers/{}.json",
-            self.config.borrow().trigger_repo_url.trim().trim_end_matches('/'),
-            entry.id
-        );
-        let id = entry.id.clone();
-        std::thread::spawn(move || {
-            let body = triggers::fetch_text(&url);
-            glib::MainContext::default().invoke(move || {
-                if let Some(w) = live_window() {
-                    w.handle_manifest_response(body, id.clone());
-                }
-            });
-        });
-    }
-
-    /// Main thread: manifest downloaded — parse, write to a temp file,
-    /// confirm shell triggers, then install.
-    fn handle_manifest_response(&self, body: Result<String, String>, id: String) {
-        self.set_loading(false);
-        let text = match body {
-            Ok(t) => t,
-            Err(e) => {
-                log::warn!("triggers: manifest fetch failed: {e}");
-                self.show_error(&format!("Couldn't fetch {}: {e}", id));
-                return;
-            }
-        };
-        let tmp = std::env::temp_dir().join(format!("spotty_trigger_{id}.json"));
-        if let Err(e) = std::fs::write(&tmp, &text) {
-            self.show_error(&format!("Cannot save manifest: {e}"));
-            return;
-        }
-        self.install_path(&tmp);
-    }
-
-    /// Shared install path for a manifest file already on disk (a freshly
-    /// downloaded marketplace manifest or a file the user picked with
-    /// "Import Trigger File…"): confirm shell triggers, then install.
+    /// Shared install path for a manifest file already on disk (the file the
+    /// user picked with "Import Trigger File…"): confirm shell triggers,
+    /// then install.
     fn install_path(&self, path: &std::path::Path) {
         if let Ok(text) = std::fs::read_to_string(path) {
             if let Ok(manifest) = serde_json::from_str::<TriggerManifest>(&text) {
@@ -505,8 +219,9 @@ impl TriggersWindow {
     }
 
     /// Let the user install a downloaded manifest directly: file picker →
-    /// shared install path (validation + shell confirmation).
-    fn import_from_file(&self) {
+    /// shared install path (validation + shell confirmation). Public so the
+    /// settings Trigger-page `+` can start it after opening the window.
+    pub fn import_from_file(&self) {
         self.hide_error();
         let filter = gtk::FileFilter::new();
         filter.set_name(Some("Trigger manifests (*.json)"));
@@ -588,34 +303,24 @@ impl TriggersWindow {
         }
     }
 
-    /// Registry changed → refresh both lists and re-sync GNOME keybindings
-    /// on a background thread.
+    /// Registry changed → refresh the installed list and re-sync GNOME
+    /// keybindings on a background thread.
     pub fn after_mutation(&self) {
         self.hide_error();
         self.rebuild_installed();
-        self.rebuild_market();
         crate::ui::settings_window::refresh_triggers_live();
         std::thread::spawn(crate::keybindings::register_all);
     }
 
     // ── Feedback ────────────────────────────────────────────────────────
 
-    /// Spinner next to the search entry while any fetch is in flight.
-    fn set_loading(&self, loading: bool) {
-        self.market_spinner.set_visible(loading);
-    }
-
-    /// Inline error banner (hidden on the next action). Shown on both pages
-    /// so a failure started on one is visible wherever the user is.
+    /// Inline error banner (hidden on the next action).
     fn show_error(&self, msg: &str) {
-        self.error_banner.set_title(msg);
-        self.error_banner.set_revealed(true);
         self.root_banner.set_title(msg);
         self.root_banner.set_revealed(true);
     }
 
     fn hide_error(&self) {
-        self.error_banner.set_revealed(false);
         self.root_banner.set_revealed(false);
     }
 
@@ -633,7 +338,7 @@ pub fn live_window() -> Option<Rc<TriggersWindow>> {
     LIVE.with(|l| l.borrow().clone())
 }
 
-/// Refresh the triggers window's installed list + marketplace rows.
+/// Refresh the triggers window's installed list.
 /// Called from other windows after trigger mutations so the two views stay
 /// in sync without requiring the triggers window to be closed and reopened.
 pub fn refresh_live() {

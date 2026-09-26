@@ -31,7 +31,7 @@ impl SettingsWindow {
     }
     pub fn present(&self) {
         // Rebuild the trigger list so triggers installed since the window was
-        // first opened (marketplace installs) appear without re-opening.
+        // first opened (trigger imports) appear without re-opening.
         (self.refresh_triggers)();
         self.window.present();
         // On Wayland, present() on an already-visible window doesn't reliably
@@ -437,7 +437,7 @@ fn build_keywords_page(
         .icon_name("list-add-symbolic")
         .css_classes(["flat"])
         .valign(gtk::Align::Center)
-        .tooltip_text("Add Trigger Word (marketplace)")
+        .tooltip_text("Add Trigger Word (import a manifest file)")
         .build();
     {
         let win = window.clone();
@@ -446,7 +446,7 @@ fn build_keywords_page(
                 .application()
                 .and_then(|a| a.downcast::<adw::Application>().ok())
             {
-                crate::app::open_triggers_marketplace(&app);
+                crate::app::open_triggers_import(&app);
             }
         });
     }

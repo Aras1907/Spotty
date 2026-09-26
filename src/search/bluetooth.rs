@@ -1,6 +1,7 @@
 // Bluetooth search (bt trigger): list connected / available devices, connect,
 // disconnect, pair, scan, and toggle controller power — all via `bluetoothctl`
-// on the host (bluez). The trigger itself ships in the marketplace; this module
+// on the host (bluez). The trigger itself ships as a manifest in the
+// triggers repository; this module
 // powers the dynamic device list shown once the `bt` mode is entered.
 
 use super::{Action, ResultKind, SearchResult};

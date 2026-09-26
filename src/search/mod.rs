@@ -81,7 +81,7 @@ pub enum Action {
     },
     /// Enter a trigger mode (carries the trigger word, e.g. "files", "pdf").
     EnterMode(String),
-    /// Open the triggers window (installed triggers + marketplace).
+    /// Open the triggers window (installed triggers + file import).
     ShowTriggersWindow,
     /// Remove an installed trigger by id.
     UninstallTrigger(String),

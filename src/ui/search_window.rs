@@ -4541,7 +4541,7 @@ fn upd_preview(row: &gtk::ListBoxRow, rs: &[SearchResult], p: &PreviewPane) {
         // Clipboard text entries: show the full text, scrollable.
         Action::CopyToClipboard(t) => p.show_text(t),
         // Triggers: installed ones show usage instructions (+ screenshot once
-        // its help_image is cached); marketplace rows show a short summary.
+        // its help_image is cached).
         Action::EnterMode(word) => {
             if let Some(a) = crate::triggers::keyword_for_word(word)
                 .and_then(|kw| crate::triggers::by_id(&kw.id))

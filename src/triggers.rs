@@ -206,7 +206,7 @@ pub fn keyword_for_id(id: &str) -> Option<CommandKeyword> {
 
 /// Validate + copy a manifest file into the triggers dir, then reload the
 /// registry. Returns the installed manifest. `path` is the source file
-/// (anywhere — manual import or a downloaded marketplace manifest).
+/// (anywhere — a file the user downloaded from the triggers repository).
 pub fn install_from_file(path: &Path) -> Result<TriggerManifest, String> {
     let m = parse_manifest(path)?;
     validate(&m)?;
@@ -301,27 +301,9 @@ pub fn validate(m: &TriggerManifest) -> Result<(), String> {
     Ok(())
 }
 
-// ── Marketplace index ─────────────────────────────────────────────────────
-
-/// One entry of the repository's `index.json` (the marketplace listing).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MarketEntry {
-    pub id: String,
-    pub name: String,
-    #[serde(default)]
-    pub icon: String,
-    #[serde(default)]
-    pub author: String,
-    #[serde(default)]
-    pub version: String,
-    #[serde(default)]
-    pub summary: String,
-}
-
-/// Fetch a URL via curl (flatpak-spawn aware on the host) — the same
-/// pattern used for downloads. Works with http(s) and
-/// file:// URLs, so a local copy of the triggers repo can be tested without
-/// pushing to GitHub.
+/// Fetch a URL via curl (flatpak-spawn aware on the host). Works with
+/// http(s) and file:// URLs — used for dictionary lookups and trigger help
+/// images.
 pub fn fetch_text(url: &str) -> Result<String, String> {
     let out = crate::app::run_host_shell_command(&format!(
         "curl -sL --max-time 4 '{}'",
@@ -394,20 +376,5 @@ mod tests {
         assert_eq!(shell_escape("hello"), "'hello'");
         assert_eq!(shell_escape("a'b"), "'a'\\''b'");
         assert_eq!(shell_escape("; rm -rf /"), "'; rm -rf /'");
-    }
-
-    #[test]
-    fn marketplace_url_defaults_to_official_repo() {
-        // Configs without the field (and `Default`) must land on the
-        // official triggers marketplace, never an empty URL.
-        assert_eq!(
-            crate::config::default_trigger_repo_url(),
-            "https://raw.githubusercontent.com/Aras1907/spotty-triggers/main"
-        );
-        let cfg = crate::config::Config::default();
-        assert_eq!(
-            cfg.trigger_repo_url,
-            crate::config::default_trigger_repo_url()
-        );
     }
 }
