@@ -942,6 +942,31 @@ impl PreviewPane {
         true
     }
 
+    /// Step one page/slide with the ←/→ keys. Same preconditions as the
+    /// wheel stepper: consumed only while a multi-page image preview is
+    /// actually on screen (decks, PDFs, paginated docs), inert otherwise —
+    /// returns whether the key was handled so callers can fall through to
+    /// the search entry's caret movement. `dir < 0` = previous page.
+    pub fn key_step_page(&self, dir: i32) -> bool {
+        if !self.nav_box.is_visible()
+            || self.stack.visible_child_name().as_deref() != Some("image")
+            || self.total_slides.get() <= 1
+            || self.nav_file_path.borrow().is_empty()
+        {
+            return false;
+        }
+        let cur = self.current_slide.get();
+        let target = if dir < 0 {
+            cur.saturating_sub(1)
+        } else {
+            cur + 1
+        };
+        if clamp_page(target, self.total_slides.get()) != cur {
+            self.nav_to(target);
+        }
+        true
+    }
+
     fn update_nav_label(&self) {
         let cur = self.current_slide.get();
         let tot = self.total_slides.get();
@@ -1237,10 +1262,11 @@ fn compute_preview(path: &Path) -> PreviewPayload {
             }
             PreviewPayload::Info
         }
-        // ── PPTX / PPSX / PPS: render first slide, cache total for nav ──
-        // (ODP lives in the office arm below — it's parsed as ODF text
-        // slides there, with per-slide nav like every other deck format.)
-        "pptx" | "ppsx" | "pps" => {
+        // ── PPTX family (incl. macro-enabled + templates): render first
+        // slide, cache total for nav. (ODP lives in the office arm below —
+        // it's parsed as ODF text slides there, with per-slide nav like
+        // every other deck format.)
+        "pptx" | "ppsx" | "pps" | "pptm" | "ppsm" | "potx" | "potm" => {
             let total = pptx_slide_count(path).unwrap_or(1);
             store_doc_meta(path, total);
             // Native slide render first, then fall back to office_thumbnail
@@ -1409,6 +1435,11 @@ fn pdf_page_count(pdf: &Path) -> Option<usize> {
 }
 
 /// Count slides in a PPTX by counting ppt/slides/slideN.xml entries in the zip.
+/// PowerPoint-Open-XML family: presentations, macro-enabled variants and
+/// templates — identical zip containers, so they share the slide pipeline
+/// (render, count, nav, cache) exactly.
+const PPTX_EXTS: &[&str] = &["pptx", "ppsx", "pps", "pptm", "ppsm", "potx", "potm"];
+
 fn pptx_slide_count(doc: &Path) -> Option<usize> {
     let file = std::fs::File::open(doc).ok()?;
     let mut zip = zip::ZipArchive::new(file).ok()?;
@@ -1583,7 +1614,7 @@ pub(crate) fn pptx_first_slide_png(doc: &Path) -> Option<PathBuf> {
         .extension()
         .and_then(|s| s.to_str())
         .map(|s| s.to_ascii_lowercase());
-    if !matches!(ext.as_deref(), Some("pptx" | "ppsx" | "pps")) {
+    if !ext.as_deref().is_some_and(|e| PPTX_EXTS.contains(&e)) {
         return None;
     }
     cached_pptx_slide(doc, 1).or_else(|| render_pptx_slide(doc, 1))
@@ -1663,8 +1694,7 @@ fn office_page_caption(doc: &Path, n: usize) -> Option<String> {
 /// True when previews of `ext` (lowercase) are native multi-page and can
 /// keep their page position across a live file refresh.
 fn nav_native_ext(ext: &str) -> bool {
-    matches!(ext, "pdf" | "pptx" | "ppsx" | "pps" | "ppt")
-        || OFFICE_PAGE_EXTS.contains(&ext)
+    matches!(ext, "pdf" | "ppt") || PPTX_EXTS.contains(&ext) || OFFICE_PAGE_EXTS.contains(&ext)
 }
 
 /// Resolve the PNG for page/slide `n` (1-based) of a multi-page document:
@@ -1676,10 +1706,7 @@ fn resolve_page_png(doc: &Path, n: usize) -> Option<PathBuf> {
     let ext = doc.extension().and_then(|s| s.to_str()).unwrap_or("");
     if ext.eq_ignore_ascii_case("pdf") {
         cached_pdf_page(doc, n).or_else(|| render_pdf_page(doc, n))
-    } else if ["pptx", "ppsx", "pps"]
-        .iter()
-        .any(|e| ext.eq_ignore_ascii_case(e))
-    {
+    } else if PPTX_EXTS.iter().any(|e| ext.eq_ignore_ascii_case(e)) {
         cached_pptx_slide(doc, n).or_else(|| render_pptx_slide(doc, n))
     } else if ext.eq_ignore_ascii_case("ppt") {
         cached_legacy_ppt_slide(doc, n).or_else(|| render_legacy_ppt_slide_to_cache(doc, n))
@@ -2045,8 +2072,8 @@ fn thumb_cache_path(path: &Path) -> PathBuf {
 
 /// Bump this when the office/pptx RENDER code changes, so old cached renders are
 /// invalidated and regenerated instead of being served stale forever.
-const RENDER_VERSION: u32 = 22;
-const PPTX_RENDER_VERSION: u32 = 5;
+const RENDER_VERSION: u32 = 25;
+const PPTX_RENDER_VERSION: u32 = 6;
 
 /// A Spotty-private cache path for thumbnails Spotty RENDERS itself (office docs,
 /// pptx layout). Kept separate from the shared cache (which we only write real
@@ -2275,7 +2302,7 @@ pub(crate) fn office_thumbnail(doc: &Path) -> Option<PathBuf> {
     // embedded preview image over Spotty's synthetic layout renderer, but keep it
     // in our private versioned cache so stale shared thumbnails are avoided.
     let out = render_cache_path(doc);
-    if matches!(ext.as_deref(), Some("pptx") | Some("ppsx") | Some("pps")) {
+    if ext.as_deref().is_some_and(|e| PPTX_EXTS.contains(&e)) {
         if out.exists() {
             return Some(out);
         }
@@ -2483,7 +2510,9 @@ fn info_icon_for(p: &Path) -> &'static str {
         .map(|s| s.to_lowercase());
     match ext.as_deref() {
         Some("pdf") => "application-pdf",
-        Some("ppt" | "pptx" | "odp" | "otp" | "fodp" | "pps" | "ppsx") => "x-office-presentation",
+        Some("ppt" | "pptx" | "pptm" | "ppsm" | "potx" | "potm" | "odp" | "otp" | "fodp" | "pps" | "ppsx") => {
+            "x-office-presentation"
+        }
         Some("doc" | "docx" | "odt" | "rtf" | "ott" | "fodt" | "wps") => "x-office-document",
         Some("xls" | "xlsx" | "ods" | "ots" | "fods" | "csv") => "x-office-spreadsheet",
         Some(
@@ -2665,7 +2694,7 @@ fn extract_office_content(doc: &Path) -> Option<OfficeContent> {
     let mut zip = zip::ZipArchive::new(file).ok()?;
 
     match ext.as_str() {
-        "pptx" | "ppsx" | "pps" => extract_pptx(&mut zip),
+        e if PPTX_EXTS.contains(&e) => extract_pptx(&mut zip),
         "docx" => extract_docx(&mut zip),
         "xlsx" => extract_xlsx(&mut zip),
         _ => None, // .odp/.odt/.ods and legacy binaries not handled here
@@ -2776,8 +2805,14 @@ const OFFICE_MAX_PARAS: usize = 2000;
 const OFFICE_MAX_SHEETS: usize = 64;
 const OFFICE_MAX_ROWS: usize = 5000;
 const OFFICE_MAX_COLS: usize = 12;
-/// Rows rendered per spreadsheet page (fits the A4-ish canvas).
-const SHEET_ROWS_PER_PAGE: usize = 30;
+/// Sheet-grid row heights: comfortable while rows fit, shrinking toward the
+/// legible floor (with the font following) for dense sheets — never a
+/// second page, never unreadably small.
+const SHEET_ROW_H_MAX: f64 = 26.0;
+const SHEET_ROW_H_MIN: f64 = 15.0;
+/// Column width bounds for the content-measured layout.
+const SHEET_COL_W_MIN: f64 = 44.0;
+const SHEET_COL_W_MAX: f64 = 340.0;
 
 // Document page canvas (A4 @ 96 dpi) + vertical rhythm — shared by the
 // paginator and the renderer so measured page breaks are exact.
@@ -2808,13 +2843,20 @@ struct OfficePage {
 enum OfficePageBody {
     /// Paginated prose; `first` carries the big title block.
     Prose { first: bool, lines: Vec<ProseLine> },
-    /// One chunk of spreadsheet rows (a whole sheet, or part of an
-    /// oversized one) rendered with `sheet` as the tab label. `first` marks
-    /// the sheet's first page, whose row 0 gets the header styling.
+    /// One whole sheet rendered with `sheet` as the tab label. Rows start
+    /// at absolute sheet position (`row_base`, `col_base` — leading blank
+    /// rows/columns of the range aren't drawn but are numbered for);
+    /// `extra_cols` counts cells beyond the hard column cap. Row/col
+    /// overflow past what fits the page is reported inside the render.
     Grid {
         sheet: String,
         rows: Vec<Vec<String>>,
-        first: bool,
+        row_base: usize,
+        col_base: usize,
+        extra_cols: usize,
+        /// Full row count of the used range (may exceed `rows.len()` when
+        /// the hard row cap kicked in — keeps the overflow note truthful).
+        total_rows: usize,
     },
     /// ODF presentation slide: title + bullet paragraphs.
     Slide { title: String, bullets: Vec<String> },
@@ -2880,12 +2922,12 @@ fn build_prepared_office(doc: &Path) -> Option<PreparedOffice> {
                 return None;
             }
             let stem = file_stem_title(doc);
-            grid_pages(&[(stem, rows)])
+            grid_pages(vec![SheetGrid::plain(stem, rows)])
         }
         "csv" => {
             let rows = csv_rows_full(doc)?;
             let stem = file_stem_title(doc);
-            grid_pages(&[(stem, rows)])
+            grid_pages(vec![SheetGrid::plain(stem, rows)])
         }
         "odp" | "otp" => slides_from_odf(&zip_entry_string(doc, "content.xml")?),
         "fodp" => slides_from_odf(&read_bounded_text(doc, 8 * 1024 * 1024)?),
@@ -3327,90 +3369,503 @@ fn rtf_paragraphs(src: &str) -> Vec<String> {
 
 // ── Spreadsheets ──
 
+/// One prepared sheet: name + rows at their ABSOLUTE sheet position — the
+/// used range may start past blank rows/columns, and numbering/column
+/// letters must follow the real sheet, not the range.
+struct SheetGrid {
+    name: String,
+    rows: Vec<Vec<String>>,
+    row_base: usize,
+    col_base: usize,
+    /// Rows in the used range — may exceed `rows.len()` when the hard row
+    /// cap kicked in, so the "+N more rows" note stays truthful.
+    total_rows: usize,
+}
+
+impl SheetGrid {
+    /// A flat single-table source (CSV, FODS): starts at A1.
+    fn plain(name: String, rows: Vec<Vec<String>>) -> Self {
+        let total_rows = rows.len();
+        SheetGrid {
+            name,
+            rows,
+            row_base: 0,
+            col_base: 0,
+            total_rows,
+        }
+    }
+}
+
 /// All sheets of a workbook via calamine (xlsx/xls/ods/ots), prepared as
-/// row-chunk grid pages.
+/// one page per sheet — the page IS the tab. Cells are stringified at
+/// their absolute sheet coordinates, and for xlsx each cell's display
+/// format from styles.xml is applied first, so what the grid shows is
+/// what Excel shows (percent scales, grouped/fixed decimals, symbols) —
+/// falling back to the exact value whenever a format isn't recognized.
 fn sheets_via_calamine(doc: &Path) -> Option<PreparedOffice> {
     use calamine::Reader;
     let mut wb = calamine::open_workbook_auto(doc).ok()?;
     let names = wb.sheet_names();
-    let mut sheets: Vec<(String, Vec<Vec<String>>)> = Vec::new();
+    // An xlsx-only pass (None for xls/ods/csv — those read exact values).
+    let fmts = xlsx_cell_formats(doc, &names);
+    let mut sheets: Vec<SheetGrid> = Vec::new();
     for name in names.into_iter().take(OFFICE_MAX_SHEETS) {
         let Ok(range) = wb.worksheet_range(&name) else {
             continue;
         };
+        let (start_row, start_col) = range.start().unwrap_or((0, 0));
         let rows: Vec<Vec<String>> = range
             .rows()
+            .enumerate()
             .take(OFFICE_MAX_ROWS)
-            .map(|row| {
+            .map(|(ri, row)| {
+                let abs_row = start_row as usize + ri;
                 let mut cells: Vec<String> = row
                     .iter()
-                    .map(|c| crate::thumbnails::cell_value_str(c))
+                    .enumerate()
+                    .map(|(ci, c)| {
+                        if let Some(s) = fmts
+                            .as_ref()
+                            .and_then(|f| f.apply(start_col as usize + ci, abs_row, c))
+                        {
+                            return s;
+                        }
+                        crate::thumbnails::cell_value_str(c)
+                    })
                     .collect();
                 while cells.last().map(|c| c.trim().is_empty()).unwrap_or(false) {
                     cells.pop();
                 }
-                cells.truncate(OFFICE_MAX_COLS);
                 cells
             })
             .collect();
-        sheets.push((name, rows));
+        sheets.push(SheetGrid {
+            name,
+            rows,
+            row_base: start_row as usize,
+            col_base: start_col as usize,
+            total_rows: range.height(),
+        });
     }
     if sheets.is_empty() {
         return None;
     }
-    grid_pages(&sheets)
+    grid_pages(sheets)
 }
 
-/// Split sheets into row-chunk pages (SHEET_ROWS_PER_PAGE rows each), with
-/// the sheet name as caption ("Sheet2 · 3/7" for split sheets).
-fn grid_pages(sheets: &[(String, Vec<Vec<String>>)]) -> Option<PreparedOffice> {
+/// Exactly one page per sheet, caption = the sheet name (the preview's
+/// nav bar then flips TABS — visible only for multi-sheet workbooks).
+/// A sheet is never split into row-chunk pages: what doesn't fit the page
+/// is counted inside it ("+N more rows/columns") instead of paginated
+/// away, and cells beyond the hard column cap are counted too.
+fn grid_pages(mut sheets: Vec<SheetGrid>) -> Option<PreparedOffice> {
     let mut pages = Vec::new();
-    for (name, rows) in sheets {
-        let chunks: Vec<&[Vec<String>]> = if rows.is_empty() {
-            Vec::new()
-        } else {
-            rows.chunks(SHEET_ROWS_PER_PAGE).collect()
-        };
-        let parts = chunks.len();
-        if parts == 0 {
-            pages.push(OfficePage {
-                caption: Some(name.clone()),
-                body: OfficePageBody::Grid {
-                    sheet: name.clone(),
-                    rows: Vec::new(),
-                    first: true,
-                },
-            });
-            continue;
+    for s in &mut sheets {
+        let max_len = s.rows.iter().map(|r| r.len()).max().unwrap_or(0);
+        let extra_cols = max_len.saturating_sub(OFFICE_MAX_COLS);
+        if max_len > OFFICE_MAX_COLS {
+            for row in &mut s.rows {
+                row.truncate(OFFICE_MAX_COLS);
+            }
         }
-        for (i, chunk) in chunks.into_iter().enumerate() {
-            let caption = if parts > 1 {
-                format!("{} \u{b7} {}/{}", name, i + 1, parts)
-            } else {
-                name.clone()
-            };
-            pages.push(OfficePage {
-                caption: Some(caption),
-                body: OfficePageBody::Grid {
-                    sheet: name.clone(),
-                    rows: chunk.to_vec(),
-                    first: i == 0,
-                },
-            });
-        }
+        pages.push(OfficePage {
+            caption: Some(s.name.clone()),
+            body: OfficePageBody::Grid {
+                sheet: s.name.clone(),
+                rows: std::mem::take(&mut s.rows),
+                row_base: s.row_base,
+                col_base: s.col_base,
+                extra_cols,
+                total_rows: s.total_rows,
+            },
+        });
     }
     if pages.is_empty() {
         return None;
     }
     let doc_title = sheets
         .first()
-        .map(|s| s.0.clone())
+        .map(|s| s.name.clone())
         .unwrap_or_else(|| "Spreadsheet".into());
     Some(PreparedOffice {
         kind: OfficeKind::Spreadsheet,
         doc_title,
         pages,
     })
+}
+
+// ── xlsx display formats ────────────────────────────────────────────
+
+/// Per-cell display formats for one xlsx (built once per prepare, dropped
+/// right after the rows are stringified): a pool of unique format codes
+/// plus a map from absolute (row, col) to its index.
+struct CellFormats {
+    pool: Vec<String>,
+    map: std::collections::HashMap<(usize, usize), u16>,
+}
+
+impl CellFormats {
+    /// Formatted display value for a numeric cell, or None to fall back to
+    /// the exact value (unstyled/General cell, unsupported format shape,
+    /// or a non-numeric cell the style doesn't apply to).
+    fn apply(&self, col: usize, row: usize, cell: &calamine::Data) -> Option<String> {
+        let idx = *self.map.get(&(row, col))?;
+        let v = match cell {
+            calamine::Data::Int(i) => *i as f64,
+            calamine::Data::Float(f) => *f,
+            _ => return None,
+        };
+        apply_num_format(&self.pool[idx as usize], v)
+    }
+}
+
+/// Display format codes for an xlsx: `xl/styles.xml` resolves each cell's
+/// `s` style index to a numFmt code (built-in ids mapped by hand), and the
+/// workbook rels pair sheet names with their worksheet part so codes land
+/// on the right (row, col). Only cells carrying a non-General format are
+/// kept — everything else, and every other container format (xls/ods/csv),
+/// reads as the exact value.
+fn xlsx_cell_formats(doc: &Path, sheet_names: &[String]) -> Option<CellFormats> {
+    let styles = zip_entry_string(doc, "xl/styles.xml")?;
+
+    // Custom numFmt codes (ids ≥ 164).
+    let mut custom: std::collections::HashMap<u16, String> = std::collections::HashMap::new();
+    for frag in styles.split("<numFmt ").skip(1) {
+        let head = &frag[..frag.find("/>").unwrap_or(frag.len())];
+        let (Some(id), Some(code)) = (attr_u16(head, "numFmtId"), attr_value(head, "formatCode"))
+        else {
+            continue;
+        };
+        custom.insert(id, decode_xml_entities(&code));
+    }
+
+    // cellXfs order: style index → numFmtId. Positional — an <xf> without
+    // a numFmtId must still occupy its slot (defaults to General = 0).
+    let xfs: Vec<u16> = styles
+        .split_once("<cellXfs")
+        .and_then(|(_, rest)| rest.split("</cellXfs>").next())
+        .map(|body| {
+            body.split("<xf ")
+                .skip(1)
+                .map(|xf| attr_u16(&xf[..xf.find('>').unwrap_or(xf.len())], "numFmtId").unwrap_or(0))
+                .collect()
+        })?;
+    if xfs.is_empty() {
+        return None;
+    }
+
+    // Sheet name → worksheet part (workbook order + rels).
+    let wb_xml = zip_entry_string(doc, "xl/workbook.xml")?;
+    let rels = zip_entry_string(doc, "xl/_rels/workbook.xml.rels")?;
+    let mut part_of: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for frag in wb_xml.split("<sheet ").skip(1) {
+        let end = frag.find("/>").unwrap_or_else(|| frag.find('>').unwrap_or(frag.len()));
+        let head = &frag[..end];
+        let (Some(name), Some(rid)) = (attr_value(head, "name"), attr_value(head, "r:id")) else {
+            continue;
+        };
+        let target = rels.split("<Relationship").skip(1).find_map(|r| {
+            (attr_value(r, "Id").as_deref() == Some(rid.as_str()))
+                .then(|| attr_value(r, "Target"))
+                .flatten()
+        });
+        if let Some(t) = target {
+            let part = t.strip_prefix('/').map(str::to_string).unwrap_or(t);
+            part_of.insert(name, if part.starts_with("xl/") { part } else { format!("xl/{}", part) });
+        }
+    }
+
+    let mut pool: Vec<String> = Vec::new();
+    let mut pool_idx: std::collections::HashMap<String, u16> = std::collections::HashMap::new();
+    let mut map: std::collections::HashMap<(usize, usize), u16> = std::collections::HashMap::new();
+    for name in sheet_names.iter().take(OFFICE_MAX_SHEETS) {
+        let Some(part) = part_of.get(name) else {
+            continue;
+        };
+        let Some(xml) = zip_entry_string(doc, part) else {
+            continue;
+        };
+        let mut rest = xml.as_str();
+        while let Some(i) = rest.find("<c ") {
+            rest = &rest[i + 3..];
+            let end = rest.find('>').unwrap_or(rest.len());
+            let head = &rest[..end];
+            rest = &rest[end.saturating_add(1)..];
+            let (Some(s), Some(r)) = (attr_u16(head, "s"), attr_value(head, "r")) else {
+                continue;
+            };
+            let Some(xf) = xfs.get(s as usize) else {
+                continue;
+            };
+            let code = match *xf {
+                id if id == 0 || id == 49 => None, // General / Text
+                id if id < 164 => builtin_numfmt(id).map(str::to_string),
+                id => custom.get(&id).cloned(),
+            };
+            let Some(code) = code.filter(|c| !c.is_empty() && !c.contains("General")) else {
+                continue;
+            };
+            let Some((r0, c0)) = cell_ref_rc(&r) else {
+                continue;
+            };
+            let idx = *pool_idx.entry(code.clone()).or_insert_with(|| {
+                let i = pool.len() as u16;
+                pool.push(code);
+                i
+            });
+            map.insert((r0, c0), idx);
+        }
+    }
+    if map.is_empty() {
+        return None;
+    }
+    Some(CellFormats { pool, map })
+}
+
+/// Numeric built-in numFmt ids worth applying (dates included: if such a
+/// cell ever reaches us as a number, a serial would be worse than a date).
+/// Accounting/scientific/fraction builtins fall back to the exact value.
+fn builtin_numfmt(id: u16) -> Option<&'static str> {
+    Some(match id {
+        1 => "0",
+        2 => "0.00",
+        3 => "#,##0",
+        4 => "#,##0.00",
+        9 => "0%",
+        10 => "0.00%",
+        14..=17 | 22 => "yyyy-mm-dd",
+        18..=21 | 45 => "hh:mm",
+        46 => "[h]:mm",
+        47 => "hh:mm:ss",
+        _ => return None,
+    })
+}
+
+/// "B12" → (row 11, col 1); ignores anything malformed.
+fn cell_ref_rc(r: &str) -> Option<(usize, usize)> {
+    let split = r.find(|c: char| c.is_ascii_digit()).unwrap_or(0);
+    if split == 0 || split == r.len() {
+        return None;
+    }
+    let mut col = 0usize;
+    for c in r[..split].chars() {
+        if !c.is_ascii_alphabetic() {
+            return None;
+        }
+        col = col * 26 + (c.to_ascii_uppercase() as u8 - b'A' + 1) as usize;
+    }
+    Some((r[split..].parse::<usize>().ok()?.saturating_sub(1), col - 1))
+}
+
+/// attr value as u16, for numFmtId/s style indices.
+fn attr_u16(tag: &str, name: &str) -> Option<u16> {
+    attr_value(tag, name)?.parse().ok()
+}
+
+/// What a format section actually formats: dates/times render from the
+/// serial (same output as a native DateTime cell), everything else is a
+/// number format. Quoted and bracketed literals are ignored for detection,
+/// so `"kg"` or `[$USD-407]` can't masquerade as a date pattern.
+fn format_kind(sec: &str) -> u8 {
+    let mut in_q = false;
+    let mut in_b = false;
+    let mut has_date = false;
+    let mut has_time = false;
+    let mut chars = sec.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => in_q = !in_q,
+            '[' => in_b = true,
+            ']' => in_b = false,
+            _ if in_q || in_b => {}
+            'y' | 'Y' | 'd' | 'D' => has_date = true,
+            ':' | 'h' | 'H' => has_time = true,
+            'A' | 'P' => {
+                if chars.peek() == Some(&'M') {
+                    has_time = true;
+                }
+            }
+            _ => {}
+        }
+    }
+    if has_date {
+        1
+    } else if has_time {
+        2
+    } else {
+        0
+    }
+}
+
+/// Split a format code on ';' into sections, ignoring quoted literals.
+fn split_format_sections(code: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut in_q = false;
+    for (i, c) in code.char_indices() {
+        match c {
+            '"' => in_q = !in_q,
+            ';' if !in_q => {
+                out.push(&code[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&code[start..]);
+    out
+}
+
+/// Apply an xlsx number-format code to a value the way Excel displays it:
+/// percent ×100 with the sign kept, decimal digits and thousands grouping
+/// from the code (rounded half-up like Excel), quoted literals and
+/// currency symbols in place, negative sections honored. Date/time codes
+/// render from the serial. Anything unrecognized returns None so the
+/// exact value shows instead of a wrong guess.
+fn apply_num_format(code: &str, v: f64) -> Option<String> {
+    if !v.is_finite() || code.is_empty() || code.contains('@') {
+        return None;
+    }
+    let secs = split_format_sections(code);
+    let neg = v < 0.0;
+    let (sec, sign) = match (neg, secs.len()) {
+        (true, n) if n >= 2 => (secs[1], ""),
+        (true, _) => (secs[0], "-"),
+        _ => (secs[0], ""),
+    };
+
+    // Dates/times: never a raw serial.
+    match format_kind(sec) {
+        1 => {
+            return Some(crate::thumbnails::excel_datetime_str(v));
+        }
+        2 => {
+            let t = if code.contains('[') {
+                crate::thumbnails::elapsed_time_str(v) // [h]:mm-style duration
+            } else {
+                crate::thumbnails::elapsed_time_str(v.fract())
+            };
+            return Some(t);
+        }
+        _ => {}
+    }
+
+    // Tokenize: literals before the digit pattern become a prefix, after
+    // it a suffix; unsupported shapes (scientific, fractions, conditions)
+    // bail out to the exact value.
+    let mut prefix = String::new();
+    let mut suffix = String::new();
+    let mut pat = String::new();
+    let mut in_pattern = false;
+    let mut percent = false;
+    let push_lit = |lit: &str, in_pattern: &mut bool, prefix: &mut String, suffix: &mut String| {
+        if *in_pattern {
+            suffix.push_str(lit);
+        } else {
+            prefix.push_str(lit);
+        }
+    };
+    let mut it = sec.chars().peekable();
+    while let Some(c) = it.next() {
+        match c {
+            '"' => {
+                let mut lit = String::new();
+                for c in it.by_ref() {
+                    if c == '"' {
+                        break;
+                    }
+                    lit.push(c);
+                }
+                push_lit(&lit, &mut in_pattern, &mut prefix, &mut suffix);
+            }
+            '\\' => {
+                if let Some(c) = it.next() {
+                    push_lit(&c.to_string(), &mut in_pattern, &mut prefix, &mut suffix);
+                }
+            }
+            '_' | '*' => {
+                it.next(); // width fill / repeat fill: skip next char
+            }
+            '[' => {
+                let mut tag = String::new();
+                for c in it.by_ref() {
+                    if c == ']' {
+                        break;
+                    }
+                    tag.push(c);
+                }
+                if let Some(sym) = tag.strip_prefix('$') {
+                    let sym = sym.split('-').next().unwrap_or(sym);
+                    push_lit(sym, &mut in_pattern, &mut prefix, &mut suffix);
+                } else if tag.starts_with('>') || tag.starts_with('<') || tag.starts_with('=') {
+                    return None; // conditional formats: no safe display rule
+                }
+                // color tags: ignored
+            }
+            '0' | '#' | ',' | '.' => {
+                in_pattern = true;
+                pat.push(c);
+            }
+            '%' => {
+                in_pattern = true;
+                percent = true;
+                suffix.push('%');
+            }
+            'E' | 'e' if matches!(it.peek(), Some(&'+') | Some(&'-')) => {
+                return None; // scientific
+            }
+            'y' | 'Y' | 'd' | 'D' | '/' | ':' | 'h' | 'H' => return None, // date/fraction debris
+            c => push_lit(&c.to_string(), &mut in_pattern, &mut prefix, &mut suffix),
+        }
+    }
+    if pat.is_empty() || !pat.chars().any(|c| c == '0' || c == '#') {
+        return None;
+    }
+
+    // Decimal digits: '#' slots are optional (trimmed), '0' slots forced.
+    let (int_pat, frac_pat) = match pat.find('.') {
+        Some(d) => (&pat[..d], &pat[d + 1..]),
+        None => (pat.as_str(), ""),
+    };
+    let grouping = int_pat.contains(',');
+    let forced = frac_pat.matches('0').count();
+    let optional = frac_pat.matches('#').count();
+    let total = forced + optional;
+
+    let mut num = v.abs() * if percent { 100.0 } else { 1.0 };
+    if num.abs() >= 1e15 {
+        return None;
+    }
+    // Excel rounds half away from zero.
+    let factor = 10f64.powi(total as i32);
+    num = (num * factor + 0.5).floor() / factor;
+    let mut s = format!("{:.*}", total, num);
+    if total > forced {
+        if let Some(d) = s.find('.') {
+            s.truncate(d + 1 + forced);
+            if forced == 0 {
+                s.truncate(s.len().saturating_sub(1)); // drop the lone dot
+            }
+        }
+    }
+    // Thousands grouping in the integer part. (`num` is already |v|, so
+    // the integer part is always plain digits.)
+    if grouping {
+        let (int_len, frac) = match s.find('.') {
+            Some(d) => (d, s[d..].to_string()),
+            None => (s.len(), String::new()),
+        };
+        let body: Vec<char> = s[..int_len].chars().collect();
+        let mut grouped = String::new();
+        for (i, c) in body.iter().enumerate() {
+            if i > 0 && (body.len() - i) % 3 == 0 {
+                grouped.push(',');
+            }
+            grouped.push(*c);
+        }
+        s = format!("{}{}", grouped, frac);
+    }
+    Some(format!("{}{}{}{}", sign, prefix, s, suffix))
 }
 
 /// Full CSV rows for pagination (the single-card extractor stays capped).
@@ -3429,7 +3884,8 @@ fn csv_rows_full(doc: &Path) -> Option<Vec<Vec<String>>> {
         while row.last().map(|c| c.trim().is_empty()).unwrap_or(false) {
             row.pop();
         }
-        row.truncate(OFFICE_MAX_COLS);
+        // Column cap + overflow count happen centrally in grid_pages, so a
+        // wide CSV reports "+N more columns" instead of silently losing them.
     }
     Some(rows)
 }
@@ -3466,7 +3922,6 @@ fn fods_rows(xml: &str) -> Vec<Vec<String>> {
             cells.push(text);
         }
         if cells.iter().any(|c| !c.trim().is_empty()) {
-            cells.truncate(OFFICE_MAX_COLS);
             rows.push(cells);
         }
         if rows.len() >= OFFICE_MAX_ROWS {
@@ -4080,9 +4535,23 @@ fn render_office_page(prep: &PreparedOffice, n: usize) -> Option<Vec<u8>> {
             prep.pages.len(),
             &prep.kind,
         ),
-        OfficePageBody::Grid { sheet, rows, first } => {
-            render_sheet_grid(rows, sheet, *first, n, prep.pages.len())
-        }
+        OfficePageBody::Grid {
+            sheet,
+            rows,
+            row_base,
+            col_base,
+            extra_cols,
+            total_rows,
+        } => render_sheet_grid(
+            rows,
+            sheet,
+            *row_base,
+            *col_base,
+            *extra_cols,
+            *total_rows,
+            n,
+            prep.pages.len(),
+        ),
         OfficePageBody::Slide { title, bullets } => {
             render_odf_slide(title, bullets, n, prep.pages.len())
         }
@@ -4165,12 +4634,20 @@ fn render_prose_page(
     surface_to_png(surface, cr)
 }
 
-/// One page of spreadsheet rows: header bands, grid, sheet tab (real sheet
-/// name), folio. Row count fits SHEET_ROWS_PER_PAGE by construction.
+/// One page of spreadsheet rows — the WHOLE sheet: content-measured column
+/// widths (squeezed proportionally to the page, ellipsis-truncated at the
+/// cell edge), adaptive row height down to a legible floor, absolute row
+/// numbers/column letters, numbers right-aligned like a spreadsheet, and
+/// honest "+N more rows/columns" notes for anything that doesn't fit.
+/// Sheet tab (real name) + folio at the bottom; row 0 keeps the bold
+/// header band.
 fn render_sheet_grid(
     rows: &[Vec<String>],
     sheet: &str,
-    first_of_sheet: bool,
+    row_base: usize,
+    col_base: usize,
+    extra_cols: usize,
+    total_rows: usize,
     page_no: usize,
     total: usize,
 ) -> Option<Vec<u8>> {
@@ -4182,25 +4659,111 @@ fn render_sheet_grid(
     cr.set_source_rgb(1.0, 1.0, 1.0);
     cr.paint().ok()?;
 
-    let ncols = rows
-        .iter()
-        .map(|r| r.len())
-        .max()
-        .unwrap_or(6)
-        .clamp(1, OFFICE_MAX_COLS);
     let row_header_w = 46.0;
     let col_header_h = 30.0;
-    // Row height pairs with SHEET_ROWS_PER_PAGE to fit the canvas.
-    let row_h = (hf - col_header_h - 44.0) / SHEET_ROWS_PER_PAGE as f64;
     let table_w = wf - row_header_w - 1.0;
-    let col_w = table_w / ncols as f64;
-    // Rows fill down to hf-44 (row_h divides exactly that span); leave a
-    // little slack so float rounding can't clip the last row.
-    let table_bottom = hf - 40.0;
+    let table_bottom = hf - 40.0; // tab/folio strip below the grid
+    let avail_h = table_bottom - col_header_h;
 
+    // Rows: comfortable while the sheet is small, then shrink toward the
+    // legible floor — the font follows the row height, so dense sheets
+    // stay readable instead of turning into page-fragments.
+    let row_h = if rows.is_empty() {
+        SHEET_ROW_H_MAX
+    } else {
+        (avail_h / rows.len() as f64).clamp(SHEET_ROW_H_MIN, SHEET_ROW_H_MAX)
+    };
+    let shown = if rows.is_empty() {
+        0
+    } else {
+        (((avail_h / row_h).floor()) as usize)
+            .min(rows.len())
+            .max(1)
+    };
+    let hidden_rows = total_rows.max(rows.len()).saturating_sub(shown);
+    let mut data_fs = (row_h - 5.5).clamp(9.5, 13.5);
+
+    // Columns: keep as many as fit at a sane minimum width; the rest is
+    // reported under the grid (never silently dropped on the floor).
+    let max_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+    let ncols = ((table_w / SHEET_COL_W_MIN).floor() as usize)
+        .min(max_cols)
+        .max(1);
+    let hidden_cols = max_cols.saturating_sub(ncols) + extra_cols;
+
+    // Column widths from the shown content (min..max clamped), then
+    // squeezed proportionally to the page — floors redrawn from the
+    // widest columns so nothing drops below legibility.
+    // Measure at the comfortable size first, then shrink the font toward
+    // the legible floor while the content still doesn't fit — on a wide
+    // sheet, full values beat big type. Only once the floor is reached do
+    // columns get squeezed (and cells ellipsized).
     cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+    let mut widths: Vec<f64> = loop {
+        cr.set_font_size(data_fs);
+        let w: Vec<f64> = (0..ncols)
+            .map(|ci| {
+                let mut w = SHEET_COL_W_MIN;
+                for row in rows.iter().take(shown) {
+                    if let Some(cell) = row.get(ci) {
+                        if !cell.is_empty() {
+                            let tw = cr.text_extents(cell).map(|e| e.width()).unwrap_or(0.0);
+                            w = w.max(tw + 14.0);
+                        }
+                    }
+                }
+                w.min(SHEET_COL_W_MAX)
+            })
+            .collect();
+        let s: f64 = w.iter().sum();
+        if s <= table_w || data_fs <= 9.5 {
+            break w;
+        }
+        data_fs = (data_fs - 0.5).max(9.5);
+    };
+    let sum: f64 = widths.iter().sum();
+    if sum > table_w {
+        let scale = table_w / sum;
+        for w in &mut widths {
+            *w *= scale;
+        }
+        for _ in 0..4 {
+            let mut deficit = 0.0;
+            for w in &mut widths {
+                if *w < SHEET_COL_W_MIN {
+                    deficit += SHEET_COL_W_MIN - *w;
+                    *w = SHEET_COL_W_MIN;
+                }
+            }
+            if deficit < 0.05 {
+                break;
+            }
+            let over: f64 = widths.iter().map(|w| (w - SHEET_COL_W_MIN).max(0.0)).sum();
+            if over < 0.05 {
+                break;
+            }
+            for w in &mut widths {
+                if *w > SHEET_COL_W_MIN {
+                    let give = (*w - SHEET_COL_W_MIN) * deficit / over;
+                    *w -= give;
+                }
+            }
+        }
+    } else {
+        // Fill the page width so the grid reaches the right edge.
+        let extra = (table_w - sum) / ncols as f64;
+        for w in &mut widths {
+            *w += extra;
+        }
+    }
+    let mut xs: Vec<f64> = Vec::with_capacity(ncols);
+    let mut left = row_header_w;
+    for w in &widths {
+        xs.push(left);
+        left += w;
+    }
 
-    // Header bands.
+    // Header bands + separator lines.
     cr.set_source_rgb(0.91, 0.92, 0.93);
     cr.rectangle(0.0, 0.0, wf, col_header_h);
     cr.fill().ok()?;
@@ -4215,75 +4778,78 @@ fn render_sheet_grid(
     cr.line_to(row_header_w + 0.5, hf);
     cr.stroke().ok()?;
 
-    // Column letters.
+    // Column letters at their ABSOLUTE sheet columns (a range starting at
+    // C4 still reads C, D, E…), centered per measured width.
     cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
     cr.set_font_size(11.5);
     cr.set_source_rgb(0.28, 0.29, 0.31);
-    for ci in 0..ncols {
-        let cx = row_header_w + ci as f64 * col_w;
-        let letter = ((b'A' + ci as u8) as char).to_string();
-        let tw = cr
-            .text_extents(&letter)
-            .map(|e| e.width())
-            .unwrap_or(0.0);
-        cr.move_to(cx + (col_w - tw) / 2.0, 20.0);
+    for (ci, w) in widths.iter().enumerate() {
+        let letter = col_letter(col_base + ci);
+        let tw = cr.text_extents(&letter).map(|e| e.width()).unwrap_or(0.0);
+        cr.move_to(xs[ci] + (w - tw) / 2.0, 20.0);
         let _ = cr.show_text(&letter);
     }
 
     // Rows.
     let mut y = col_header_h;
-    for (ri, row) in rows.iter().enumerate() {
-        if y + row_h > table_bottom {
-            break;
-        }
+    for (ri, row) in rows.iter().take(shown).enumerate() {
         cr.set_source_rgb(0.91, 0.92, 0.93);
         cr.rectangle(0.0, y, row_header_w, row_h);
         cr.fill().ok()?;
         cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
         cr.set_font_size(10.5);
         cr.set_source_rgb(0.38, 0.39, 0.41);
-        let row_num = (ri + 1).to_string();
+        let row_num = (row_base + ri + 1).to_string();
         let tw = cr.text_extents(&row_num).map(|e| e.width()).unwrap_or(0.0);
-        cr.move_to(row_header_w - tw - 7.0, y + 19.5);
+        cr.move_to(row_header_w - tw - 7.0, y + row_h / 2.0 + 3.5);
         let _ = cr.show_text(&row_num);
-        // Only the sheet's REAL header row (row 0 of its first page) gets
-        // the bold green header styling — continuation pages are all data.
-        if first_of_sheet && ri == 0 {
+        // Row 1 of the sheet is the header (bold on green); data rows get
+        // a quiet zebra instead of the old alternating color noise.
+        if ri == 0 {
             cr.set_source_rgb(0.55, 0.82, 0.30);
         } else if ri % 2 == 0 {
-            cr.set_source_rgb(0.86, 0.92, 0.98);
+            cr.set_source_rgb(1.0, 1.0, 1.0);
         } else {
-            cr.set_source_rgb(0.88, 0.95, 0.83);
+            cr.set_source_rgb(0.957, 0.965, 0.973);
         }
         cr.rectangle(row_header_w, y, table_w, row_h);
         cr.fill().ok()?;
+        let baseline = y + row_h / 2.0 + data_fs * 0.35;
         for ci in 0..ncols {
-            let cx = row_header_w + ci as f64 * col_w;
+            let cw = widths[ci];
             let cell = row.get(ci).map(|s| s.as_str()).unwrap_or("");
-            if first_of_sheet && ri == 0 {
+            if ri == 0 {
                 cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
-                cr.set_source_rgb(0.0, 0.0, 0.0);
+                cr.set_source_rgb(0.10, 0.12, 0.10);
             } else {
                 cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
                 cr.set_source_rgb(0.15, 0.15, 0.17);
             }
-            cr.set_font_size(12.0);
-            let shown = truncate_to_width(&cr, cell, col_w - 10.0);
-            cr.move_to(cx + 5.0, y + 19.5);
-            let _ = cr.show_text(&shown);
+            cr.set_font_size(data_fs);
+            let text = truncate_to_width(&cr, cell, cw - 10.0);
+            let tw = cr.text_extents(&text).map(|e| e.width()).unwrap_or(0.0);
+            let tx = if ri > 0 && cell_is_numeric(cell) {
+                (xs[ci] + cw - 5.0 - tw).max(xs[ci] + 4.0)
+            } else {
+                xs[ci] + 5.0
+            };
+            cr.move_to(tx, baseline);
+            let _ = cr.show_text(&text);
         }
         y += row_h;
     }
 
-    // Grid lines.
+    // Grid lines: one per measured column edge + row rhythm.
     cr.set_source_rgba(0.0, 0.0, 0.0, 0.18);
     cr.set_line_width(1.0);
-    for ci in 0..=ncols {
-        let cx = row_header_w + ci as f64 * col_w;
+    for cx in &xs {
         cr.move_to(cx + 0.5, 0.0);
         cr.line_to(cx + 0.5, y);
         cr.stroke().ok()?;
     }
+    cr.move_to(row_header_w + table_w + 0.5, 0.0);
+    cr.line_to(row_header_w + table_w + 0.5, y);
+    cr.stroke().ok()?;
     let mut gy = col_header_h;
     while gy < y {
         cr.move_to(0.0, gy + 0.5);
@@ -4291,14 +4857,29 @@ fn render_sheet_grid(
         cr.stroke().ok()?;
         gy += row_h;
     }
-    if y > col_header_h && first_of_sheet {
+    if y > col_header_h {
         cr.set_source_rgba(0.0, 0.0, 0.0, 0.70);
         cr.set_line_width(1.2);
-        cr.rectangle(row_header_w + 0.5, col_header_h + 0.5, table_w - 1.0, row_h - 1.0);
+        cr.rectangle(
+            row_header_w + 0.5,
+            col_header_h + 0.5,
+            table_w - 1.0,
+            row_h - 1.0,
+        );
         cr.stroke().ok()?;
     }
+    if rows.is_empty() {
+        cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+        cr.set_font_size(15.0);
+        cr.set_source_rgb(0.52, 0.54, 0.57);
+        let msg = "empty sheet";
+        let tw = cr.text_extents(msg).map(|e| e.width()).unwrap_or(0.0);
+        cr.move_to(row_header_w + (table_w - tw) / 2.0, col_header_h + avail_h / 2.0);
+        let _ = cr.show_text(msg);
+    }
 
-    // Sheet tab (real sheet name) bottom-left + folio bottom-right.
+    // Sheet tab (real sheet name) bottom-left, overflow notes center,
+    // folio bottom-right.
     let tab_y = hf - 36.0;
     cr.set_source_rgb(0.95, 0.96, 0.97);
     cr.rectangle(8.0, tab_y, 180.0, 24.0);
@@ -4310,9 +4891,32 @@ fn render_sheet_grid(
     cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
     cr.set_font_size(11.5);
     cr.set_source_rgb(0.18, 0.47, 0.27);
-    let shown = truncate_to_width(&cr, sheet, 164.0);
+    let shown_sheet = truncate_to_width(&cr, sheet, 164.0);
     cr.move_to(20.0, tab_y + 16.5);
-    let _ = cr.show_text(&shown);
+    let _ = cr.show_text(&shown_sheet);
+
+    let mut notes: Vec<String> = Vec::new();
+    if hidden_rows > 0 {
+        notes.push(format!(
+            "+{} more {}",
+            hidden_rows,
+            if hidden_rows == 1 { "row" } else { "rows" }
+        ));
+    }
+    if hidden_cols > 0 {
+        notes.push(format!(
+            "+{} more {}",
+            hidden_cols,
+            if hidden_cols == 1 { "column" } else { "columns" }
+        ));
+    }
+    if !notes.is_empty() {
+        cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
+        cr.set_font_size(11.0);
+        cr.set_source_rgb(0.45, 0.47, 0.50);
+        cr.move_to(204.0, tab_y + 16.5);
+        let _ = cr.show_text(&notes.join("  \u{b7}  "));
+    }
 
     draw_folio(&cr, page_no, total, wf - 24.0, tab_y + 16.5);
 
@@ -4322,6 +4926,86 @@ fn render_sheet_grid(
     cr.stroke().ok()?;
 
     surface_to_png(surface, cr)
+}
+
+/// Spreadsheet column letter for an absolute column index: 0 → A, 25 → Z,
+/// 26 → AA — the same labeling Excel shows in its own header.
+fn col_letter(mut i: usize) -> String {
+    let mut out = Vec::new();
+    loop {
+        out.push((b'A' + (i % 26) as u8) as char);
+        i /= 26;
+        if i == 0 {
+            break;
+        }
+        i -= 1;
+    }
+    out.reverse();
+    out.into_iter().collect()
+}
+
+/// Does this cell hold a date/time? ("2023-07-15", "15/07/2023", "14:30")
+fn looks_like_date_or_time(t: &str) -> bool {
+    let sep_parts: &[&str] = if t.contains('-') {
+        &["-"]
+    } else if t.contains('/') {
+        &["/"]
+    } else {
+        &[]
+    };
+    if !sep_parts.is_empty() {
+        let parts: Vec<&str> = t.split(sep_parts[0]).collect();
+        if parts.len() == 3
+            && parts
+                .iter()
+                .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        {
+            return true;
+        }
+    }
+    match t.split_once(':') {
+        Some((h, rest)) => {
+            !h.is_empty()
+                && h.chars().all(|c| c.is_ascii_digit())
+                && rest
+                    .split(':')
+                    .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        }
+        None => false,
+    }
+}
+
+/// Right-align like a spreadsheet does: numbers (plain, grouped, percent,
+/// currency-prefixed) and dates/times are numeric content; everything else
+/// stays text. The header row bypasses this at the call site.
+fn cell_is_numeric(s: &str) -> bool {
+    let mut t = s.trim();
+    if let Some(rest) = t.strip_prefix(['+', '-']) {
+        t = rest.trim_start();
+    }
+    if let Some(rest) = t.strip_prefix(['$', '\u{20ac}', '\u{a3}', '\u{a5}']) {
+        t = rest.trim_start();
+    }
+    if t.is_empty() {
+        return false;
+    }
+    let t = t.strip_suffix('%').unwrap_or(t).trim_end();
+    if t.is_empty() {
+        return false;
+    }
+    let (mut digits, mut dots) = (0usize, 0usize);
+    for c in t.chars() {
+        if c.is_ascii_digit() {
+            digits += 1;
+        } else if c == '.' {
+            dots += 1;
+        } else if c == ',' || c == ' ' || c == '\u{a0}' || c == 'e' || c == 'E' {
+            // grouping / no-break space / scientific marker
+        } else {
+            return looks_like_date_or_time(t);
+        }
+    }
+    digits > 0 && dots <= 1
 }
 
 /// One ODF presentation slide: title band, accent rule, bullet body —
@@ -4677,6 +5361,26 @@ fn legacy_ppt_pictures_stream(doc: &Path) -> Option<Vec<u8>> {
     Some(bytes)
 }
 
+/// The deck's `Current User` stream — the entry point (offset word at 16)
+/// into the persist chain that says which slide records are live, or None
+/// when the deck has no such stream (older/synthetic files).
+fn legacy_ppt_current_user(doc: &Path) -> Option<Vec<u8>> {
+    use std::io::Read;
+
+    let mut comp = cfb::open(doc).ok()?;
+    let stream_name = if comp.exists("/Current User") {
+        "/Current User"
+    } else if comp.exists("Current User") {
+        "Current User"
+    } else {
+        return None;
+    };
+    let mut stream = comp.open_stream(stream_name).ok()?;
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).ok()?;
+    Some(bytes)
+}
+
 /// Collect every record-1006 (slide) payload in `bytes`, in stream order.
 /// A matched record's payload is taken whole (slides don't nest); other
 /// container records are descended into so slides wrapped inside document
@@ -4736,7 +5440,13 @@ fn legacy_ppt_slide_texts(bytes: &[u8]) -> Vec<Vec<String>> {
 /// Slide count of a legacy binary .ppt — one per legible slide, at least 1.
 fn legacy_ppt_slide_count(doc: &Path) -> Option<usize> {
     let bytes = legacy_ppt_stream(doc)?;
-    // Raw slide-record count first: stays correct even for decks where no
+    // Persist order first: the CurrentUser chain lists exactly the live
+    // slides (stream order can carry stale duplicates after edits).
+    let current_user = legacy_ppt_current_user(doc);
+    if let Some(slides) = legacy_ppt_persist_slides(&bytes, current_user.as_deref()) {
+        return Some(slides.len().max(1));
+    }
+    // Raw slide-record count next: stays correct even for decks where no
     // slide carries legible text (the text walk then collapses to one blob).
     let mut payloads = Vec::new();
     collect_ppt_slide_payloads(&bytes, &mut payloads, 0);
@@ -5006,15 +5716,938 @@ fn legacy_ppt_estimate_pt(w: f64, h: f64, text: &str) -> f64 {
     pt
 }
 
+// ---------------------------------------------------------------------------
+// Structured legacy .ppt parse (stage 3): outline text + per-run styles.
+//
+// PowerPoint 97 keeps placeholder text in the document's SlideListWithText
+// (4080) blocks instead of on the slide, so a slide's escher boxes arrive
+// empty — and even box text that exists is styled by a StyleTextPropAtom
+// (4001) whose `cch` counts describe the raw text. The persist chain
+// (Current User → UserEditAtom → persist tables) says which slides are live
+// and maps each block's refID onto its slide record; this section decodes
+// that, plus the atom itself (and the 4003 master styles below it) into the
+// shared `TextPara`/`TextRun` model.
+// ---------------------------------------------------------------------------
+
+/// One outline-text entry of a SlideListWithText block: the textType its
+/// TextHeaderAtom names, the entry's concatenated text, and its own
+/// StyleTextPropAtom (the bytes that entry's `cch` counts describe).
+struct LegacyPptTextEntry<'a> {
+    tt: u32,
+    text: String,
+    style: Option<&'a [u8]>,
+}
+
+/// One slide in show order: its stream payload plus the outline-text
+/// entries the document keeps for it (the text of placeholder shapes that
+/// carry none of their own).
+struct LegacyPptSlideRef<'a> {
+    payload: &'a [u8],
+    entries: Vec<LegacyPptTextEntry<'a>>,
+}
+
+/// Per-level base style of a TextMasterStyleAtom (4003): what a box's own
+/// runs fall back to. Colors stay as raw ColorIndexStruct words, resolved
+/// against the slide's scheme when a run is built.
+#[derive(Clone, Copy, Default)]
+struct LegacyPptLevelStyle {
+    align: Option<&'static str>,
+    has_bullet: Option<bool>,
+    bullet_char: Option<u16>,
+    bullet_font: Option<u16>,
+    mar_l_emu: Option<f64>,
+    indent_emu: Option<f64>,
+    size_pt: Option<f64>,
+    color_raw: Option<u32>,
+    cf: Option<u16>,
+}
+
+/// One paragraph run of a StyleTextPropAtom: the characters it covers plus
+/// the paragraph properties it overrides (absent fields inherit from the
+/// master level).
+#[derive(Clone, Copy, Default)]
+struct LegacyPptParaRun {
+    cch: usize,
+    level: u16,
+    align: Option<&'static str>,
+    has_bullet: Option<bool>,
+    bullet_char: Option<u16>,
+    bullet_font: Option<u16>,
+    mar_l_emu: Option<f64>,
+    indent_emu: Option<f64>,
+}
+
+/// One char run of a StyleTextPropAtom: the characters it covers plus the
+/// character properties it overrides (absent fields carry the previous
+/// state).
+#[derive(Clone, Copy, Default)]
+struct LegacyPptCharRun {
+    cch: usize,
+    size_pt: Option<f64>,
+    color_raw: Option<u32>,
+    cf: Option<u16>,
+}
+
+/// Slide-wide state for one slide's shape pushes: the outline-text entries
+/// still to place, and the deck's master text styles keyed by textType —
+/// plus the font list bulletFontRef indexes resolve against.
+struct LegacyPptTextCtx<'a> {
+    pending: Vec<LegacyPptTextEntry<'a>>,
+    master: std::collections::HashMap<u32, Vec<LegacyPptLevelStyle>>,
+    fonts: std::collections::HashMap<u16, String>,
+}
+
+/// TextPFException property table [MS-PPT]: (property mask, byte size) in
+/// the order the fields appear when their bit is set — `None` is the
+/// variable tab-stop list (count, then count * 4 bytes), `Some(0)` a
+/// zero-size field that only exists.
+const PPT_PARA_PROPS: [(u32, Option<u32>); 19] = [
+    (0x0000_000F, Some(2)),  // bulletFlags
+    (0x0000_0080, Some(2)),  // bulletChar
+    (0x0000_0010, Some(2)),  // bulletFontRef
+    (0x0000_0040, Some(2)),  // bulletSize
+    (0x0000_0020, Some(4)),  // bulletColor
+    (0x0000_0800, Some(2)),  // textAlignment
+    (0x0000_1000, Some(2)),  // lineSpacing
+    (0x0000_2000, Some(2)),  // spaceBefore
+    (0x0000_4000, Some(2)),  // spaceAfter
+    (0x0000_0100, Some(2)),  // leftMargin
+    (0x0000_0400, Some(2)),  // indent
+    (0x0000_8000, Some(2)),  // defaultTabSize
+    (0x0010_0000, None),     // tabStops
+    (0x0001_0000, Some(2)),  // fontAlign
+    (0x000E_0000, Some(2)),  // wrapFlags
+    (0x0020_0000, Some(2)),  // textDirection
+    (0x0080_0000, Some(0)),  // X
+    (0x0100_0000, Some(0)),  // Y
+    (0x0200_0000, Some(0)),  // Z
+];
+
+/// TextCFException property table [MS-PPT], same layout rules.
+const PPT_CHAR_PROPS: [(u32, Option<u32>); 12] = [
+    (0x0010_0000, Some(0)),
+    (0x0100_0000, Some(0)),
+    (0x0200_0000, Some(0)),
+    (0x0400_0000, Some(0)),
+    (0x0000_FFFF, Some(2)), // CFStyle (bit0 bold, bit1 italic, bit2 underline)
+    (0x0001_0000, Some(2)), // fontRef
+    (0x0020_0000, Some(2)), // oldEAFontRef
+    (0x0040_0000, Some(2)), // ansiFontRef
+    (0x0080_0000, Some(2)), // symbolFontRef
+    (0x0002_0000, Some(2)), // fontSize (points)
+    (0x0004_0000, Some(4)), // color (ColorIndexStruct)
+    (0x0008_0000, Some(2)), // position
+];
+
+/// Little-endian readers for the fixed fields the decodes peek at (each
+/// call site bounds-checks first).
+fn legacy_ppt_u16(bytes: &[u8], at: usize) -> u16 {
+    u16::from_le_bytes([bytes[at], bytes[at + 1]])
+}
+
+fn legacy_ppt_u32(bytes: &[u8], at: usize) -> u32 {
+    u32::from_le_bytes([
+        bytes[at],
+        bytes[at + 1],
+        bytes[at + 2],
+        bytes[at + 3],
+    ])
+}
+
+fn legacy_ppt_i16(bytes: &[u8], at: usize) -> i16 {
+    i16::from_le_bytes([bytes[at], bytes[at + 1]])
+}
+
+/// TextAlignmentEnum → the shared model's alignment token ("justify" has
+/// no binding here and wraps like left).
+fn legacy_ppt_align_str(v: u16) -> &'static str {
+    match v {
+        1 => "ctr",
+        2 => "r",
+        _ => "l",
+    }
+}
+
+/// Text color from a ColorIndexStruct word: index 0..=7 picks the slide's
+/// scheme color, 0xFE the explicit sRGB triple, and "automatic" (0xFF)
+/// plus unknown indexes defer to the box color (None). Not the same
+/// encoding as `legacy_ppt_rgb` (escher) — the index lives in the top byte.
+fn legacy_ppt_text_color(v: u32, scheme: &[(f64, f64, f64); 8]) -> Option<(f64, f64, f64)> {
+    match (v >> 24) as u8 {
+        idx @ 0..=7 => Some(scheme[idx as usize]),
+        0xfe => Some((
+            (v & 0xff) as f64 / 255.0,
+            ((v >> 8) & 0xff) as f64 / 255.0,
+            ((v >> 16) & 0xff) as f64 / 255.0,
+        )),
+        _ => None,
+    }
+}
+
+/// Bullet glyph for a `bulletChar`: NUL, control and whitespace codes can't
+/// draw a marker and fall back to the default dot; anything else goes
+/// through `map_bullet_char` with the bullet's font from the document font
+/// list, so symbol-font bytes (Wingdings `l` = ●) become real glyphs while
+/// text-font characters stay literal.
+fn legacy_ppt_bullet_char(code: Option<u16>, font: Option<&str>) -> char {
+    let code = code.unwrap_or(0);
+    match char::from_u32(code as u32) {
+        Some(c) if code != 0 && !c.is_control() && !c.is_whitespace() => {
+            map_bullet_char(c, font).chars().next().unwrap_or('\u{2022}')
+        }
+        _ => '\u{2022}',
+    }
+}
+
+/// Walk the property bytes a flags word announces, in table order, handing
+/// each present field's bytes to `cap`. False when a field runs off the
+/// record end (the decode then reports the style unreadable).
+fn legacy_ppt_walk_props(
+    pay: &[u8],
+    pos: &mut usize,
+    masks: u32,
+    table: &[(u32, Option<u32>)],
+    cap: &mut dyn FnMut(u32, &[u8]),
+) -> bool {
+    for &(mask, size) in table {
+        if masks & mask == 0 {
+            continue;
+        }
+        if *pos >= pay.len() {
+            return false;
+        }
+        match size {
+            None => {
+                if *pos + 2 > pay.len() {
+                    return false;
+                }
+                let n = legacy_ppt_u16(pay, *pos) as usize;
+                *pos += 2 + n * 4;
+            }
+            Some(0) => {}
+            Some(n) => {
+                let n = n as usize;
+                if *pos + n > pay.len() {
+                    return false;
+                }
+                cap(mask, &pay[*pos..*pos + n]);
+                *pos += n;
+            }
+        }
+    }
+    true
+}
+
+/// Byte-exact StyleTextPropAtom (4001) decode over the box's `text_len`
+/// characters: paragraph runs, then char runs. None unless the walk lands
+/// exactly on the record end — other layouts keep the plain-text path.
+fn legacy_ppt_decode_style(
+    pay: &[u8],
+    text_len: usize,
+) -> Option<(Vec<LegacyPptParaRun>, Vec<LegacyPptCharRun>)> {
+    // Paragraph section: cch (clamped so the runs may describe one
+    // character more than the text), then level + flags + announced props.
+    let mut pos = 0usize;
+    let mut paras = Vec::new();
+    let mut handled = 0usize;
+    let mut prsize = text_len;
+    while pos + 4 <= pay.len() && handled < prsize {
+        let cch = legacy_ppt_u32(pay, pos) as usize;
+        pos += 4;
+        let cch = cch.min((text_len + 1).saturating_sub(handled));
+        handled += cch;
+        if pos + 6 > pay.len() {
+            return None;
+        }
+        let level = legacy_ppt_u16(pay, pos);
+        pos += 2;
+        let flags = legacy_ppt_u32(pay, pos);
+        pos += 4;
+        let mut run = LegacyPptParaRun {
+            cch,
+            level,
+            ..Default::default()
+        };
+        let ok = legacy_ppt_walk_props(pay, &mut pos, flags, &PPT_PARA_PROPS, &mut |mask, b| {
+            match mask {
+                0x0000_0800 => run.align = Some(legacy_ppt_align_str(legacy_ppt_u16(b, 0))),
+                0x0000_000F => run.has_bullet = Some(legacy_ppt_u16(b, 0) & 1 != 0),
+                0x0000_0080 => run.bullet_char = Some(legacy_ppt_u16(b, 0)),
+                // Valid only when bulletFlags.fBulletHasFont says so [MS-PPT].
+                0x0000_0010 => {
+                    if flags & 0x0002 != 0 {
+                        run.bullet_font = Some(legacy_ppt_u16(b, 0));
+                    }
+                }
+                0x0000_0100 => {
+                    run.mar_l_emu = Some((legacy_ppt_i16(b, 0) as f64 * PPT_MU_EMU).max(0.0))
+                }
+                0x0000_0400 => {
+                    run.indent_emu = Some((legacy_ppt_i16(b, 0) as f64 * PPT_MU_EMU).abs())
+                }
+                _ => {}
+            }
+        });
+        if !ok {
+            return None;
+        }
+        paras.push(run);
+        if pos < pay.len() && handled == text_len {
+            prsize = text_len + 1;
+        }
+    }
+
+    // Char section: cch + flags + announced props, same clamping rule.
+    let mut chars = Vec::new();
+    let mut chsize = text_len;
+    let mut handled = 0usize;
+    while pos + 8 <= pay.len() && handled < chsize {
+        let cch = legacy_ppt_u32(pay, pos) as usize;
+        pos += 4;
+        let cch = cch.min((text_len + 1).saturating_sub(handled));
+        handled += cch;
+        let flags = legacy_ppt_u32(pay, pos);
+        pos += 4;
+        let mut run = LegacyPptCharRun {
+            cch,
+            ..Default::default()
+        };
+        let ok = legacy_ppt_walk_props(pay, &mut pos, flags, &PPT_CHAR_PROPS, &mut |mask, b| {
+            match mask {
+                0x0002_0000 => run.size_pt = Some(legacy_ppt_u16(b, 0) as f64),
+                0x0004_0000 => run.color_raw = Some(legacy_ppt_u32(b, 0)),
+                0x0000_FFFF => run.cf = Some(legacy_ppt_u16(b, 0)),
+                _ => {}
+            }
+        });
+        if !ok {
+            return None;
+        }
+        chars.push(run);
+        if pos < pay.len() && handled == text_len {
+            chsize = text_len + 1;
+        }
+    }
+
+    (pos == pay.len()).then_some((paras, chars))
+}
+
+/// Character ranges of a box's paragraphs: '\r'/'\n' end one, a VT/FF soft
+/// break starts a `follow` continuation (the pptx `<a:br>` shape — same
+/// alignment, no bullet of its own). A trailing separator's empty tail is
+/// not a paragraph; empty paragraphs between separators are.
+fn legacy_ppt_paragraph_ranges(chars: &[char]) -> Vec<(usize, usize, bool)> {
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let mut follow = false;
+    for (i, c) in chars.iter().enumerate() {
+        match c {
+            '\r' | '\n' => {
+                out.push((start, i, follow));
+                start = i + 1;
+                follow = false;
+            }
+            '\u{b}' | '\u{c}' => {
+                out.push((start, i, follow));
+                start = i + 1;
+                follow = true;
+            }
+            _ => {}
+        }
+    }
+    if start < chars.len() {
+        out.push((start, chars.len(), follow));
+    }
+    out
+}
+
+/// Append one style slice as a run, merging it into the previous run when
+/// every attribute matches (a uniformly styled paragraph stays one markup
+/// span). Stray control characters — the slices exclude the paragraph
+/// separators — become spaces, as in `legacy_ppt_normalize_text`.
+fn legacy_ppt_push_run(
+    runs: &mut Vec<TextRun>,
+    slice: &[char],
+    size_pt: Option<f64>,
+    color_raw: Option<u32>,
+    cf: Option<u16>,
+    fallback_pt: f64,
+    scheme: &[(f64, f64, f64); 8],
+) {
+    if slice.is_empty() {
+        return;
+    }
+    let cf = cf.unwrap_or(0);
+    let run = TextRun {
+        text: slice
+            .iter()
+            .map(|&c| if c.is_control() { ' ' } else { c })
+            .collect(),
+        sz_pt: Some(size_pt.unwrap_or(fallback_pt).clamp(1.0, 4000.0)),
+        bold: cf & 1 != 0,
+        italic: cf & 2 != 0,
+        underline: cf & 4 != 0,
+        color: color_raw.and_then(|v| legacy_ppt_text_color(v, scheme)),
+        font: Some("Sans".into()),
+    };
+    if let Some(last) = runs.last_mut() {
+        let same = last.sz_pt == run.sz_pt
+            && last.bold == run.bold
+            && last.italic == run.italic
+            && last.underline == run.underline
+            && last.color == run.color
+            && last.font == run.font;
+        if same {
+            last.text.push_str(&run.text);
+            return;
+        }
+    }
+    runs.push(run);
+}
+
+/// Structured paragraphs for one box: its raw text (the text a `Style-
+/// TextPropAtom`'s `cch` counts describe) plus that atom → the shared
+/// `TextPara` model. A paragraph takes its properties from the run whose
+/// range covers where it starts (runs include the separator a paragraph
+/// excludes; one run may span several), with the 4003 master level for the
+/// text type underneath; char runs slice it, carrying what they don't
+/// restate. `sz_pt` is always filled — the renderer defaults to 18pt.
+/// None when the style doesn't land byte-exact (callers keep the
+/// plain-text path then).
+fn legacy_ppt_box_paras(
+    raw: &str,
+    style: Option<&[u8]>,
+    tt: Option<u32>,
+    master: &std::collections::HashMap<u32, Vec<LegacyPptLevelStyle>>,
+    fonts: &std::collections::HashMap<u16, String>,
+    fallback_pt: f64,
+    scheme: &[(f64, f64, f64); 8],
+) -> Option<Vec<TextPara>> {
+    let style = style?;
+    let chars: Vec<char> = raw.chars().collect();
+    if chars.is_empty() {
+        return None;
+    }
+    let (para_runs, char_runs) = legacy_ppt_decode_style(style, chars.len())?;
+    let ranges = legacy_ppt_paragraph_ranges(&chars);
+    if ranges.is_empty() {
+        return None;
+    }
+
+    let levels = tt.and_then(|t| master.get(&t));
+    let base_for = |level: usize| -> LegacyPptLevelStyle {
+        levels
+            .and_then(|ls| ls.get(level.min(ls.len().saturating_sub(1))))
+            .copied()
+            .unwrap_or_default()
+    };
+
+    let mut paras: Vec<TextPara> = Vec::with_capacity(ranges.len());
+    for (start, end, follow) in ranges {
+        let mut acc = 0usize;
+        let mut covering = None;
+        for r in &para_runs {
+            if start < acc + r.cch {
+                covering = Some(r);
+                break;
+            }
+            acc += r.cch;
+        }
+        let run = covering.or(para_runs.last());
+        let lvl = run.map(|r| r.level as usize).unwrap_or(0).min(8);
+        let base = base_for(lvl);
+
+        let align = run
+            .and_then(|r| r.align)
+            .or(base.align)
+            .unwrap_or("l")
+            .to_string();
+        let bullet = match run.and_then(|r| r.has_bullet).or(base.has_bullet) {
+            Some(true) => {
+                let code = run.and_then(|r| r.bullet_char).or(base.bullet_char);
+                let font_ref = run.and_then(|r| r.bullet_font).or(base.bullet_font);
+                let font = font_ref.and_then(|f| fonts.get(&f).map(String::as_str));
+                Some(ParaBullet::Char(
+                    legacy_ppt_bullet_char(code, font).to_string(),
+                ))
+            }
+            Some(false) => Some(ParaBullet::Off),
+            None => None,
+        };
+        let has_marker = matches!(bullet, Some(ParaBullet::Char(_)));
+        let mar_l = run
+            .and_then(|r| r.mar_l_emu)
+            .or(base.mar_l_emu)
+            .unwrap_or(0.0)
+            .max(0.0);
+        let mut hang = run
+            .and_then(|r| r.indent_emu)
+            .or(base.indent_emu)
+            .unwrap_or(0.0);
+        if hang == 0.0 && mar_l > 0.0 && has_marker {
+            hang = mar_l;
+        }
+
+        // Char runs slice the paragraph in order; a run's present fields
+        // update the carry (seeded from the master level), and whatever no
+        // run covers keeps it.
+        let mut size = base.size_pt;
+        let mut color = base.color_raw;
+        let mut cf = base.cf;
+        let mut runs: Vec<TextRun> = Vec::new();
+        let mut acc = 0usize;
+        for cr in &char_runs {
+            let from = acc;
+            let to = acc + cr.cch;
+            acc = to;
+            if from >= end {
+                break;
+            }
+            if to <= start {
+                continue;
+            }
+            if let Some(v) = cr.size_pt {
+                size = Some(v);
+            }
+            if let Some(v) = cr.color_raw {
+                color = Some(v);
+            }
+            if let Some(v) = cr.cf {
+                cf = Some(v);
+            }
+            legacy_ppt_push_run(
+                &mut runs,
+                &chars[from.max(start)..to.min(end)],
+                size,
+                color,
+                cf,
+                fallback_pt,
+                scheme,
+            );
+        }
+        if acc < end {
+            legacy_ppt_push_run(
+                &mut runs,
+                &chars[acc.max(start)..end],
+                size,
+                color,
+                cf,
+                fallback_pt,
+                scheme,
+            );
+        }
+        if let Some(first) = runs.first_mut() {
+            first.text = first.text.trim_start().to_string();
+        }
+        if let Some(last) = runs.last_mut() {
+            last.text = last.text.trim_end().to_string();
+        }
+        runs.retain(|r| !r.text.is_empty());
+
+        paras.push(TextPara {
+            runs,
+            algn: align,
+            lvl,
+            bullet,
+            spc_bef_pt: 0.0,
+            spc_aft_pt: 0.0,
+            follow,
+            mar_l_emu: mar_l,
+            hang_emu: hang,
+        });
+    }
+
+    // Trailing empty paragraphs only add dead vertical space — same rule as
+    // the pptx parser.
+    while paras
+        .last()
+        .map(|p| p.runs.iter().all(|r| r.text.trim().is_empty()))
+        .unwrap_or(false)
+    {
+        paras.pop();
+    }
+    (!paras.is_empty()).then_some(paras)
+}
+
+/// Every record of type `rec_type` (optionally of instance `inst`) in
+/// `bytes`: containers descended into, but a match's payload not descended
+/// into (a record doesn't contain itself). Yields (instance, payload).
+fn legacy_ppt_walk_rec<'a>(
+    bytes: &'a [u8],
+    rec_type: u16,
+    inst: Option<u16>,
+    out: &mut Vec<(u16, &'a [u8])>,
+    depth: usize,
+) {
+    if depth > 12 {
+        return;
+    }
+    let mut pos = 0usize;
+    while pos + 8 <= bytes.len() {
+        let Some((ver, instance, ty, payload, next)) = legacy_ppt_hdr(bytes, pos) else {
+            break;
+        };
+        if ty == rec_type && inst.map_or(true, |want| want == instance) {
+            out.push((instance, payload));
+        } else if ver == 0x0f {
+            legacy_ppt_walk_rec(payload, rec_type, inst, out, depth + 1);
+        }
+        pos = next;
+    }
+}
+
+/// The document's font list: 4023 (FontEntityAtom) records whose
+/// `recInstance` is the index every FontIndexRef — bullet fonts and char-run
+/// fonts alike — points into. The payload is a NUL-terminated UTF-16LE name;
+/// a name that doesn't end before heap leftovers is no name at all.
+fn legacy_ppt_font_names(bytes: &[u8]) -> std::collections::HashMap<u16, String> {
+    let mut recs = Vec::new();
+    legacy_ppt_walk_rec(bytes, 4023, None, &mut recs, 0);
+    let mut out = std::collections::HashMap::new();
+    for (inst, pay) in recs {
+        if out.contains_key(&inst) {
+            continue; // doc and master both carry a copy — first wins
+        }
+        let units: Vec<u16> = pay
+            .chunks_exact(2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .take(64) // a font name is short; past that it's the heap leftovers
+            .take_while(|&u| u != 0)
+            .collect();
+        let name = String::from_utf16_lossy(&units);
+        if !name.is_empty() && !name.chars().any(|c| c.is_control() || c == '\u{fffd}') {
+            out.insert(inst, name);
+        }
+    }
+    out
+}
+
+/// Every record of one container payload as (type, payload) pairs, in
+/// document order with containers descended always — a block's
+/// refID/header/text/style records surface flat. Yields (type, payload).
+fn legacy_ppt_flat_records<'a>(bytes: &'a [u8], out: &mut Vec<(u16, &'a [u8])>, depth: usize) {
+    if depth > 8 {
+        return;
+    }
+    let mut pos = 0usize;
+    while pos + 8 <= bytes.len() {
+        let Some((ver, _, ty, payload, next)) = legacy_ppt_hdr(bytes, pos) else {
+            break;
+        };
+        out.push((ty, payload));
+        if ver == 0x0f {
+            legacy_ppt_flat_records(payload, out, depth + 1);
+        }
+        pos = next;
+    }
+}
+
+/// One SlideListWithText (4080) block split into its (refID, entries)
+/// pairs: a 1011 starts a slide, a 3999 starts an entry, the text atoms
+/// fill it in, and the first 4001 wins as its style.
+fn legacy_ppt_block_entries<'a>(block: &'a [u8]) -> Vec<(u32, Vec<LegacyPptTextEntry<'a>>)> {
+    let mut recs = Vec::new();
+    legacy_ppt_flat_records(block, &mut recs, 0);
+    let mut out: Vec<(u32, Vec<LegacyPptTextEntry<'a>>)> = Vec::new();
+    for (ty, payload) in recs {
+        match ty {
+            1011 if payload.len() >= 4 => out.push((legacy_ppt_u32(payload, 0), Vec::new())),
+            3999 if payload.len() >= 4 => {
+                if let Some((_, entries)) = out.last_mut() {
+                    entries.push(LegacyPptTextEntry {
+                        tt: legacy_ppt_u32(payload, 0),
+                        text: String::new(),
+                        style: None,
+                    });
+                }
+            }
+            4000 | 4026 => {
+                if let Some((_, entries)) = out.last_mut() {
+                    if let Some(entry) = entries.last_mut() {
+                        entry.text.push_str(&decode_utf16le_lossy(payload));
+                    }
+                }
+            }
+            4008 => {
+                if let Some((_, entries)) = out.last_mut() {
+                    if let Some(entry) = entries.last_mut() {
+                        entry.text.push_str(&decode_ppt_8bit_text(payload));
+                    }
+                }
+            }
+            4001 => {
+                if let Some((_, entries)) = out.last_mut() {
+                    if let Some(entry) = entries.last_mut() {
+                        if entry.style.is_none() {
+                            entry.style = Some(payload);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The deck's slides in show order, with their outline-text entries: the
+/// CurrentUser chain (newest UserEditAtom first) yields the live persist
+/// tables and document ref; the idmap they build resolves each block's
+/// refIDs onto slide records. None when the chain can't be read or any ref
+/// doesn't land on a 1006 — callers then keep stream order (stale slides
+/// and no entries are still better than nothing).
+fn legacy_ppt_persist_slides<'a>(
+    bytes: &'a [u8],
+    current_user: Option<&[u8]>,
+) -> Option<Vec<LegacyPptSlideRef<'a>>> {
+    let cu = current_user?;
+    if cu.len() < 20 {
+        return None;
+    }
+
+    // CurrentUser @16 → the newest UserEditAtom (4085): previous edit,
+    // persist-table offset, document ref — walked back to the oldest.
+    let mut chain: Vec<(u32, u32)> = Vec::new();
+    let mut off = legacy_ppt_u32(cu, 16) as usize;
+    let mut seen = std::collections::HashSet::new();
+    while off > 0 && off < bytes.len() && seen.insert(off) && chain.len() < 64 {
+        let Some((_, _, rec_type, pay, _)) = legacy_ppt_hdr(bytes, off) else {
+            break;
+        };
+        if rec_type != 4085 || pay.len() < 20 {
+            break;
+        }
+        let prev = legacy_ppt_u32(pay, 8);
+        let tab = legacy_ppt_u32(pay, 12);
+        let docref = legacy_ppt_u32(pay, 16);
+        chain.push((tab, docref));
+        off = prev as usize;
+    }
+    if chain.is_empty() {
+        return None;
+    }
+
+    // 6002 tables, oldest first so a newer edit wins: key = count<<20 |
+    // start, then `count` absolute stream offsets.
+    let mut idmap = std::collections::HashMap::new();
+    for (tab, _) in chain.iter().rev() {
+        let Some((_, _, rec_type, pay, _)) = legacy_ppt_hdr(bytes, *tab as usize) else {
+            continue;
+        };
+        if rec_type != 6002 {
+            continue;
+        }
+        let mut p = 0usize;
+        while p + 4 <= pay.len() {
+            let key = legacy_ppt_u32(pay, p);
+            p += 4;
+            let count = (key >> 20) as usize;
+            let start = key & 0x000f_ffff;
+            for i in 0..count {
+                if p + 4 > pay.len() {
+                    break;
+                }
+                let slot = start + i as u32;
+                let at = legacy_ppt_u32(pay, p);
+                p += 4;
+                idmap.insert(slot, at);
+            }
+        }
+    }
+
+    // The document's SlideListWithText blocks — whole-stream fallback when
+    // the document ref went stale (the idmap can still resolve the refs).
+    let mut blocks: Vec<(u16, &[u8])> = Vec::new();
+    if let Some(&doc_off) = idmap.get(&chain[0].1) {
+        if let Some((_, _, _, pay, _)) = legacy_ppt_hdr(bytes, doc_off as usize) {
+            legacy_ppt_walk_rec(pay, 4080, Some(0), &mut blocks, 0);
+        }
+    }
+    if blocks.is_empty() {
+        legacy_ppt_walk_rec(bytes, 4080, Some(0), &mut blocks, 0);
+    }
+    if blocks.is_empty() {
+        return None;
+    }
+
+    let mut slides: Vec<LegacyPptSlideRef<'a>> = Vec::new();
+    let mut seen_refs = std::collections::HashSet::new();
+    for (_, block) in blocks {
+        for (ref_id, mut entries) in legacy_ppt_block_entries(block) {
+            if !seen_refs.insert(ref_id) {
+                continue;
+            }
+            // Entries without renderable text aren't placeholders to place.
+            entries.retain(|e| !legacy_ppt_normalize_text(&e.text).is_empty());
+            let Some(&at) = idmap.get(&ref_id) else {
+                return None;
+            };
+            let Some((_, _, rec_type, payload, _)) = legacy_ppt_hdr(bytes, at as usize) else {
+                return None;
+            };
+            if rec_type != 1006 {
+                return None;
+            }
+            slides.push(LegacyPptSlideRef {
+                payload,
+                entries,
+            });
+        }
+    }
+    if slides.is_empty() {
+        return None;
+    }
+    Some(slides)
+}
+
+/// Slide `slide` (1-based) for the parsers: persist order (plus its
+/// outline-text entries) when the chain reads, stream order with no
+/// entries otherwise. None when neither list reaches that far.
+fn legacy_ppt_slide_at<'a>(
+    bytes: &'a [u8],
+    current_user: Option<&[u8]>,
+    slide: usize,
+) -> Option<LegacyPptSlideRef<'a>> {
+    let idx = slide.saturating_sub(1);
+    if let Some(slides) = legacy_ppt_persist_slides(bytes, current_user) {
+        return slides.into_iter().nth(idx);
+    }
+    let mut payloads = Vec::new();
+    collect_ppt_slide_payloads(bytes, &mut payloads, 0);
+    payloads.get(idx).map(|payload| LegacyPptSlideRef {
+        payload,
+        entries: Vec::new(),
+    })
+}
+
+/// The deck's 4003 TextMasterStyleAtom records keyed by textType (their
+/// record instance): the per-level base under every box's own runs. First
+/// successful decode per textType wins — decks restate some copies.
+fn legacy_ppt_master_styles(
+    bytes: &[u8],
+) -> std::collections::HashMap<u32, Vec<LegacyPptLevelStyle>> {
+    let mut found = Vec::new();
+    legacy_ppt_walk_rec(bytes, 4003, None, &mut found, 0);
+    let mut out = std::collections::HashMap::new();
+    for (instance, payload) in found {
+        if out.contains_key(&(instance as u32)) {
+            continue;
+        }
+        if let Some(levels) = legacy_ppt_decode_master_style(instance, payload) {
+            out.insert(instance as u32, levels);
+        }
+    }
+    out
+}
+
+/// One TextMasterStyleAtom: its levels carry a leading `level` word iff
+/// the record instance (the textType) is >= 5 [MS-PPT]; the other reading
+/// is only tried when the spec reading fails to parse.
+fn legacy_ppt_decode_master_style(instance: u16, payload: &[u8]) -> Option<Vec<LegacyPptLevelStyle>> {
+    legacy_ppt_decode_master_levels(payload, instance >= 5)
+        .or_else(|| legacy_ppt_decode_master_levels(payload, instance < 5))
+}
+
+/// `cLevels` TextMasterStyleLevels back to back — optional `level` word,
+/// TextPFException, TextCFException each. None when a level runs off the
+/// record (the caller then tries the other reading).
+fn legacy_ppt_decode_master_levels(
+    pay: &[u8],
+    has_level: bool,
+) -> Option<Vec<LegacyPptLevelStyle>> {
+    if pay.len() < 2 {
+        return None;
+    }
+    let count = legacy_ppt_u16(pay, 0) as usize;
+    if count == 0 || count > 6 {
+        return None;
+    }
+    let mut pos = 2usize;
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        if has_level {
+            pos += 2;
+        }
+        if pos + 4 > pay.len() {
+            return None;
+        }
+        let pflags = legacy_ppt_u32(pay, pos);
+        pos += 4;
+        let mut level = LegacyPptLevelStyle::default();
+        let ok = legacy_ppt_walk_props(pay, &mut pos, pflags, &PPT_PARA_PROPS, &mut |mask, b| {
+            match mask {
+                0x0000_0800 => level.align = Some(legacy_ppt_align_str(legacy_ppt_u16(b, 0))),
+                0x0000_000F => level.has_bullet = Some(legacy_ppt_u16(b, 0) & 1 != 0),
+                0x0000_0080 => level.bullet_char = Some(legacy_ppt_u16(b, 0)),
+                // Valid only when bulletFlags.fBulletHasFont says so [MS-PPT].
+                0x0000_0010 => {
+                    if pflags & 0x0002 != 0 {
+                        level.bullet_font = Some(legacy_ppt_u16(b, 0));
+                    }
+                }
+                0x0000_0100 => {
+                    level.mar_l_emu = Some((legacy_ppt_i16(b, 0) as f64 * PPT_MU_EMU).max(0.0))
+                }
+                0x0000_0400 => {
+                    level.indent_emu = Some((legacy_ppt_i16(b, 0) as f64 * PPT_MU_EMU).abs())
+                }
+                _ => {}
+            }
+        });
+        if !ok {
+            return None;
+        }
+        if pos + 4 > pay.len() {
+            return None;
+        }
+        let cflags = legacy_ppt_u32(pay, pos);
+        pos += 4;
+        let ok = legacy_ppt_walk_props(pay, &mut pos, cflags, &PPT_CHAR_PROPS, &mut |mask, b| {
+            match mask {
+                0x0002_0000 => level.size_pt = Some(legacy_ppt_u16(b, 0) as f64),
+                0x0004_0000 => level.color_raw = Some(legacy_ppt_u32(b, 0)),
+                0x0000_FFFF => level.cf = Some(legacy_ppt_u16(b, 0)),
+                _ => {}
+            }
+        });
+        if !ok {
+            return None;
+        }
+        out.push(level);
+    }
+    // The levels must account for the whole record — a leftover means the
+    // wrong `level` reading was used (real decks parse exact either way).
+    (pos == pay.len()).then_some(out)
+}
+
+/// The entry an empty text box places: one with the box's own textType
+/// first (its F00D names the placeholder), else the first still-unplaced
+/// entry — entries follow placeholder order. None when nothing is left.
+fn legacy_ppt_take_entry<'a>(
+    ctx: &mut LegacyPptTextCtx<'a>,
+    tt: Option<u32>,
+) -> Option<LegacyPptTextEntry<'a>> {
+    if ctx.pending.is_empty() {
+        return None;
+    }
+    let idx = tt
+        .and_then(|want| ctx.pending.iter().position(|e| e.tt == want))
+        .unwrap_or(0);
+    Some(ctx.pending.remove(idx))
+}
+
 /// Decode one shape container (F004) payload: its fill/outline become a
 /// `DrawShape` drawn behind its client text (a `SlideBox`); a picture
 /// property (pib / shape type 75) resolves through `media` into a
 /// `DrawPicture`. Groups (type 0) render through their child containers,
-/// which the collector surfaces on their own.
+/// which the collector surfaces on their own. `ctx` supplies the slide's
+/// outline-text entries (a box with no text of its own places one) and the
+/// master styles its runs fall back to.
 fn legacy_ppt_push_shape(
     sp_container: &[u8],
     scheme: &[(f64, f64, f64); 8],
     media: Option<&LegacyPptMedia>,
+    ctx: &mut LegacyPptTextCtx<'_>,
     out: &mut Vec<SlideElement>,
 ) {
     let mut shape_type = 0u16;
@@ -5155,17 +6788,34 @@ fn legacy_ppt_push_shape(
         }));
     }
 
-    let Some(text) = textbox
-        .map(|tb| {
-            let mut raw = String::new();
-            legacy_ppt_box_text(tb, &mut raw, 0);
-            legacy_ppt_normalize_text(&raw)
-        })
-        .filter(|t| !t.is_empty())
-    else {
+    // Text: the box's own atoms; a box with none of its own places the next
+    // outline-text entry for this slide (PPT 97 keeps placeholder text in
+    // the document's SlideListWithText, not on the slide itself). The style
+    // stays paired with the text it counts — own 4001 for own text, the
+    // entry's for an entry's.
+    let Some(tb) = textbox else {
         return;
     };
+    let mut own_raw = String::new();
+    legacy_ppt_box_text(tb, &mut own_raw, 0);
+    let own_style = legacy_ppt_find(tb, 4001, 0);
+    let own_tt = legacy_ppt_find(tb, 3999, 0)
+        .filter(|p| p.len() >= 4)
+        .map(|p| legacy_ppt_u32(p, 0));
+    let (raw, style, tt) = if legacy_ppt_normalize_text(&own_raw).is_empty() {
+        let Some(entry) = legacy_ppt_take_entry(ctx, own_tt) else {
+            return;
+        };
+        (entry.text, entry.style.or(own_style), Some(entry.tt))
+    } else {
+        (own_raw, own_style, own_tt)
+    };
+    let text = legacy_ppt_normalize_text(&raw);
+    if text.is_empty() {
+        return;
+    }
     let font_pt = legacy_ppt_estimate_pt(w, h, &text);
+    let paras = legacy_ppt_box_paras(&raw, style, tt, &ctx.master, &ctx.fonts, font_pt, scheme);
     out.push(SlideElement::Text(SlideBox {
         x,
         y,
@@ -5178,7 +6828,7 @@ fn legacy_ppt_push_shape(
         has_xfrm: true,
         ph_type: "body".into(),
         color: None,
-        paras: None,
+        paras,
         anchor: opt(0x0087, 0.0).clamp(0.0, 2.0) as u8,
         insets: [
             opt(0x0081, 91_440.0),
@@ -5446,10 +7096,10 @@ fn legacy_ppt_shape_pic(sp: &[u8]) -> Option<(u32, (f64, f64, f64, f64))> {
 /// the legacy text/blue-wave renderer.
 fn legacy_ppt_structured_layout(doc: &Path, slide: usize) -> Option<SlideLayout> {
     let bytes = legacy_ppt_stream(doc)?;
+    let current_user = legacy_ppt_current_user(doc);
+    let LegacyPptSlideRef { payload, entries } =
+        legacy_ppt_slide_at(&bytes, current_user.as_deref(), slide)?;
     let (slide_w, slide_h) = legacy_ppt_slide_size(&bytes);
-    let mut payloads = Vec::new();
-    collect_ppt_slide_payloads(&bytes, &mut payloads, 0);
-    let payload = *payloads.get(slide.saturating_sub(1))?;
 
     let media = LegacyPptMedia::new(doc, &bytes);
     let master = legacy_ppt_master(&bytes, payload);
@@ -5461,12 +7111,17 @@ fn legacy_ppt_structured_layout(doc: &Path, slide: usize) -> Option<SlideLayout>
         legacy_ppt_scheme(master.unwrap_or(payload))
     };
 
+    let mut ctx = LegacyPptTextCtx {
+        pending: entries,
+        master: legacy_ppt_master_styles(&bytes),
+        fonts: legacy_ppt_font_names(&bytes),
+    };
     let drawing = legacy_ppt_find(payload, 1036, 0)?;
     let mut shapes = Vec::new();
     legacy_ppt_collect_shapes(drawing, &mut shapes, 0);
     let mut elements = Vec::new();
     for sp in &shapes {
-        legacy_ppt_push_shape(sp, &scheme, Some(&media), &mut elements);
+        legacy_ppt_push_shape(sp, &scheme, Some(&media), &mut ctx, &mut elements);
     }
     if elements.is_empty() {
         return None;
@@ -5494,11 +7149,28 @@ fn parse_legacy_ppt_layout(doc: &Path, slide: usize) -> Option<SlideLayout> {
         return Some(layout);
     }
     let bytes = legacy_ppt_stream(doc)?;
-    let slides = legacy_ppt_slide_texts(&bytes);
-    let lines = slides
-        .get(slide.saturating_sub(1))
-        .cloned()
-        .unwrap_or_default();
+    let current_user = legacy_ppt_current_user(doc);
+    // The slide's own text atoms, then its outline-text entries (the same
+    // pairing the structured parse does), and finally the whole-stream blob
+    // for decks where neither surface is legible on its own.
+    let mut lines: Vec<String> = Vec::new();
+    if let Some(slide_ref) = legacy_ppt_slide_at(&bytes, current_user.as_deref(), slide) {
+        collect_ppt_text_atoms(slide_ref.payload, &mut lines, 0);
+        if lines.is_empty() {
+            for entry in &slide_ref.entries {
+                let norm = legacy_ppt_normalize_text(&entry.text);
+                if !norm.is_empty() {
+                    lines.extend(norm.split('\n').map(String::from));
+                }
+            }
+        }
+    }
+    if lines.is_empty() {
+        lines = legacy_ppt_slide_texts(&bytes)
+            .get(slide.saturating_sub(1))
+            .cloned()
+            .unwrap_or_default();
+    }
     if lines.is_empty() {
         return None;
     }
@@ -6232,10 +7904,6 @@ fn parse_bullet_layer(frag: &str) -> BulletLayer {
 /// degrade to a plain `•`. Tables transcribed from the Wingdings / Wingdings 2
 /// code charts (the cells decks actually use for bullets).
 fn map_bullet_char(ch: char, font_typeface: Option<&str>) -> String {
-    let byte = match ch {
-        '\u{e000}'..='\u{ffff}' => ch as u32 & 0xFF,
-        _ => return ch.to_string(),
-    };
     let fam = font_typeface.unwrap_or("").to_ascii_lowercase();
     let table: &[(u32, char)] = if fam.contains("wingdings 2") {
         &[
@@ -6253,24 +7921,44 @@ fn map_bullet_char(ch: char, font_typeface: Option<&str>) -> String {
         ]
     } else if fam.contains("wingdings") {
         &[
+            (0x6C, '●'), // the classic body bullet: byte 'l' of Wingdings
+            (0x6E, '■'),
+            (0x6F, '□'),
             (0x76, '❑'),
             (0x77, '❒'),
             (0x7A, '◆'),
             (0x7B, '❖'),
             (0x9E, '∙'),
             (0x9F, '•'),
+            (0xA0, '▪'),
             (0xA7, '▪'),
+            (0xFC, '✔'),
         ]
-    } else if fam == "symbol" {
+    } else if fam.contains("symbol") {
         &[(0xB7, '•'), (0xA7, '■')]
     } else {
         &[]
+    };
+    let byte = match ch {
+        '\u{e000}'..='\u{ffff}' => Some(ch as u32 & 0xFF),
+        // Legacy .ppt bulletChar stores the symbol font's byte directly
+        // (0x6C 'l' in Wingdings = ●) rather than a private-use code — but
+        // only decode it when a table can speak that font, so a text-font
+        // letter stays the letter.
+        _ if !table.is_empty() && (ch as u32) <= 0xFF => Some(ch as u32),
+        _ => None,
+    };
+    let Some(byte) = byte else {
+        return ch.to_string();
     };
     table
         .iter()
         .find(|(b, _)| *b == byte)
         .map(|(_, c)| c.to_string())
-        .unwrap_or_else(|| "\u{2022}".to_string())
+        .unwrap_or_else(|| match ch {
+            '\u{e000}'..='\u{ffff}' => "\u{2022}".to_string(), // PUA with no cell: dot, never tofu
+            _ => ch.to_string(),                               // unmapped symbol byte: keep it
+        })
 }
 
 /// Overlay one `<a:rPr>`/`<a:defRPr>` element's attributes onto `d`.
@@ -9783,6 +11471,421 @@ line2
     }
 
     #[test]
+    fn legacy_ppt_persist_chain_orders_live_slides_with_entries() {
+        let d = td("legacy_ppt_persist");
+        let p = d.join("deck.ppt");
+
+        // One SlideListWithText block: ref 1 carries two entries (body text
+        // listed before title — matching is by textType, not position),
+        // ref 2 only a blank one (never a placeholder to place).
+        let block = [
+            ppt_rec(0, 1011, &1u32.to_le_bytes()),
+            ppt_rec(0, 3999, &1u32.to_le_bytes()),
+            ppt_rec(0, 4000, &ppt_utf16("Outline body")),
+            ppt_rec(0, 3999, &0u32.to_le_bytes()),
+            ppt_rec(0, 4000, &ppt_utf16("Outline title")),
+            ppt_rec(0, 1011, &2u32.to_le_bytes()),
+            ppt_rec(0, 3999, &0u32.to_le_bytes()),
+            ppt_rec(0, 4000, &ppt_utf16("   ")),
+        ]
+        .concat();
+        let doc = ppt_rec_inst(0x0f, 0, 4080, &block);
+        let doc_container = ppt_rec(0x0f, 1000, &doc);
+        // A stale 1006 the chain doesn't list: stream order shows it first.
+        let orphan = ppt_rec(0x0f, 1006, &ppt_rec(0, 4000, &ppt_utf16("Stale slide")));
+        let slide1 = ppt_rec(0x0f, 1006, &ppt_rec(0, 4000, &ppt_utf16("Live one")));
+        let slide2 = ppt_rec(0x0f, 1006, &ppt_rec(0, 4000, &ppt_utf16("Live two")));
+
+        // Absolute offsets the chain walks: [pad][4085][6002][container]…
+        // — the pad puts the UserEditAtom off offset 0 (0 stops the walk),
+        // and the 6002 record's length is fixed by its slot count.
+        let pad = ppt_rec(0, 9, b"pad");
+        let mut edit_pay = vec![0u8; 20]; // prev@8, table@12, document ref@16
+        edit_pay[12..16].copy_from_slice(&39u32.to_le_bytes());
+        let edit = ppt_rec(0, 4085, &edit_pay);
+        assert_eq!((pad.len(), edit.len()), (11, 28));
+        let doc_off = (11 + 28 + 24) as u32;
+        let slide1_off = doc_off + doc_container.len() as u32 + orphan.len() as u32;
+        let slide2_off = slide1_off + slide1.len() as u32;
+        let table_pay = [
+            (3u32 << 20).to_le_bytes().to_vec(), // count 3, slots from 0
+            doc_off.to_le_bytes().to_vec(),
+            slide1_off.to_le_bytes().to_vec(),
+            slide2_off.to_le_bytes().to_vec(),
+        ]
+        .concat();
+        let table = ppt_rec(0, 6002, &table_pay);
+        assert_eq!(table.len(), 24, "fixed-size persist record under this layout");
+
+        let stream = vec![pad, edit, table, doc_container, orphan, slide1, slide2].concat();
+        let mut current_user = vec![0u8; 20];
+        current_user[16..20].copy_from_slice(&11u32.to_le_bytes()); // 4085 at 11
+
+        // Stream order sees three slides with the stale one first; the
+        // chain sees the two live ones, in show order.
+        let mut stream_slides = Vec::new();
+        collect_ppt_slide_payloads(&stream, &mut stream_slides, 0);
+        assert_eq!(stream_slides.len(), 3);
+        let slides = legacy_ppt_persist_slides(&stream, Some(&current_user)).expect("chain");
+        assert_eq!(slides.len(), 2, "stale slides aren't in the chain");
+        assert_eq!(
+            slides[0].payload,
+            ppt_rec(0, 4000, &ppt_utf16("Live one")),
+            "chain order, not stream order"
+        );
+        assert_eq!(slides[1].payload, ppt_rec(0, 4000, &ppt_utf16("Live two")));
+        assert_eq!(slides[0].entries.len(), 2);
+        assert_eq!(slides[0].entries[0].tt, 1);
+        assert_eq!(slides[0].entries[0].text, "Outline body");
+        assert_eq!(slides[0].entries[1].tt, 0);
+        assert_eq!(slides[0].entries[1].text, "Outline title");
+        assert!(
+            slides[1].entries.is_empty(),
+            "blank entries aren't placeholders to place"
+        );
+
+        // No Current User stream → no chain → callers keep stream order.
+        assert!(legacy_ppt_persist_slides(&stream, None).is_none());
+        assert!(legacy_ppt_slide_at(&stream, Some(&current_user), 1).is_some());
+        assert!(legacy_ppt_slide_at(&stream, Some(&current_user), 3).is_none());
+
+        // End to end through the CFB file: the count follows the chain.
+        {
+            let mut comp = cfb::create(&p).unwrap();
+            let mut s = comp.create_stream("/PowerPoint Document").unwrap();
+            s.write_all(&stream).unwrap();
+            s.flush().unwrap();
+            drop(s);
+            let mut s = comp.create_stream("/Current User").unwrap();
+            s.write_all(&current_user).unwrap();
+            s.flush().unwrap();
+            drop(s);
+            comp.flush().unwrap();
+        }
+        assert_eq!(legacy_ppt_current_user(&p).map(|c| c.len()), Some(20));
+        assert_eq!(legacy_ppt_slide_count(&p), Some(2), "count follows the chain");
+
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn legacy_ppt_style_decode_builds_paragraphs() {
+        // A 4001 over "AB": paragraph run cch = text_len + 1 (the count
+        // rule decks follow), bullet/align/margins present; the char run
+        // carries bold, size and a ColorIndexStruct color.
+        let mut pay = Vec::new();
+        pay.extend_from_slice(&3u32.to_le_bytes()); // cch
+        pay.extend_from_slice(&0u16.to_le_bytes()); // level
+        pay.extend_from_slice(&0x0000_0d0fu32.to_le_bytes()); // align|marL|indent|bulletFlags
+        pay.extend_from_slice(&1u16.to_le_bytes()); // bulletFlags: has bullet
+        pay.extend_from_slice(&1u16.to_le_bytes()); // textAlignment: center
+        pay.extend_from_slice(&100i16.to_le_bytes()); // leftMargin (master units)
+        pay.extend_from_slice(&(-100i16).to_le_bytes()); // indent (hanging)
+        pay.extend_from_slice(&3u32.to_le_bytes()); // char cch
+        pay.extend_from_slice(&0x0002_ffffu32.to_le_bytes()); // CFStyle | fontSize
+        pay.extend_from_slice(&1u16.to_le_bytes()); // CFStyle: bold
+        pay.extend_from_slice(&36u16.to_le_bytes()); // fontSize: 36pt
+
+        let (para_runs, char_runs) = legacy_ppt_decode_style(&pay, 2).expect("style decodes");
+        assert_eq!(para_runs.len(), 1);
+        let r = &para_runs[0];
+        assert_eq!((r.cch, r.level, r.align, r.has_bullet), (3, 0, Some("ctr"), Some(true)));
+        assert_eq!(r.mar_l_emu, Some(100.0 * 1587.5));
+        assert_eq!(r.indent_emu, Some(100.0 * 1587.5));
+        assert_eq!(char_runs.len(), 1);
+        assert_eq!(char_runs[0].cch, 3);
+        assert_eq!(char_runs[0].size_pt, Some(36.0));
+        assert_eq!(char_runs[0].cf, Some(1));
+        // A style that can't land byte-exact keeps the plain-text path.
+        assert!(legacy_ppt_decode_style(&pay[..pay.len() - 1], 2).is_none());
+
+        let scheme = [(0.0, 0.0, 0.0); 8];
+        let master = std::collections::HashMap::new();
+        let fonts = std::collections::HashMap::new();
+        let paras = legacy_ppt_box_paras("AB", Some(&pay), None, &master, &fonts, 18.0, &scheme)
+            .expect("paras");
+        assert_eq!(paras.len(), 1);
+        assert_eq!(paras[0].algn, "ctr");
+        assert!(
+            matches!(&paras[0].bullet, Some(ParaBullet::Char(c)) if c == "•"),
+            "hasBullet without a glyph defaults to the dot"
+        );
+        assert_eq!(paras[0].mar_l_emu, 100.0 * 1587.5);
+        assert_eq!(paras[0].hang_emu, 100.0 * 1587.5);
+        assert_eq!(paras[0].runs.len(), 1);
+        let run = &paras[0].runs[0];
+        assert_eq!(run.text, "AB");
+        assert_eq!(run.sz_pt, Some(36.0), "sz_pt always filled (renderer defaults 18)");
+        assert!(run.bold);
+        assert_eq!(run.font.as_deref(), Some("Sans"));
+
+        // The 4003 master level is the base where a box's runs don't say.
+        let mut master = std::collections::HashMap::new();
+        master.insert(
+            0u32,
+            vec![LegacyPptLevelStyle {
+                align: Some("r"),
+                has_bullet: Some(true),
+                bullet_char: Some(0xf0b7), // Symbol bullet (PUA) → default dot
+                mar_l_emu: Some(300.0),
+                size_pt: Some(14.0),
+                ..Default::default()
+            }],
+        );
+        let para_only = [
+            3u32.to_le_bytes().to_vec(),
+            0u16.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+        ]
+        .concat();
+        let paras = legacy_ppt_box_paras("AB", Some(&para_only), Some(0), &master, &fonts, 18.0, &scheme)
+            .expect("paras");
+        assert_eq!(paras[0].algn, "r");
+        assert!(
+            matches!(&paras[0].bullet, Some(ParaBullet::Char(c)) if c == "•"),
+            "private-use bulletChar falls back to the dot"
+        );
+        assert_eq!(paras[0].mar_l_emu, 300.0);
+        assert_eq!(
+            paras[0].hang_emu, 300.0,
+            "bullet + margin hangs without an indent"
+        );
+        assert_eq!(paras[0].runs[0].sz_pt, Some(14.0));
+    }
+
+    /// Symbol-font bullets: the document font list resolves `bulletFontRef`,
+    /// so a Wingdings byte ('l' = ●, 'ü' = ✔) becomes a glyph Sans can draw
+    /// while a text-font character stays the letter it is; unmapped bytes and
+    /// private-use codes keep the existing degradations.
+    #[test]
+    fn legacy_ppt_symbol_bullet_chars_resolve_font_list() {
+        assert_eq!(legacy_ppt_bullet_char(Some(108), Some("Wingdings")), '●', "Wingdings 'l'");
+        assert_eq!(legacy_ppt_bullet_char(Some(252), Some("Wingdings")), '✔', "Wingdings 'ü'");
+        assert_eq!(legacy_ppt_bullet_char(Some(167), Some("Wingdings")), '▪', "Wingdings '§'");
+        assert_eq!(legacy_ppt_bullet_char(Some(108), Some("Arial")), 'l', "text font keeps the letter");
+        assert_eq!(legacy_ppt_bullet_char(Some(108), None), 'l', "no font resolves to no mapping");
+        assert_eq!(legacy_ppt_bullet_char(Some(8226), Some("Wingdings")), '•', "Unicode char passes");
+        assert_eq!(legacy_ppt_bullet_char(Some(0xf0b7), None), '•', "unmapped PUA → the dot");
+        assert_eq!(legacy_ppt_bullet_char(Some(0x2d), Some("Wingdings")), '-', "unmapped byte keeps itself");
+        assert_eq!(legacy_ppt_bullet_char(Some(0), None), '•', "NUL → the dot");
+
+        // 4023 FontEntityAtom records: recInstance is the font index.
+        let utf16 = |s: &str| -> Vec<u8> {
+            let mut v: Vec<u8> = s.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+            v.extend_from_slice(&[0, 0]);
+            v
+        };
+        let stream = [
+            ppt_rec_inst(0, 0, 4023, &utf16("Arial")),
+            ppt_rec_inst(0, 3, 4023, &utf16("Wingdings")),
+        ]
+        .concat();
+        let fonts = legacy_ppt_font_names(&stream);
+        assert_eq!(fonts.get(&0).map(String::as_str), Some("Arial"));
+        assert_eq!(fonts.get(&3).map(String::as_str), Some("Wingdings"));
+
+        // The Chapter_6 case: the master level carries bullet + font, the
+        // box's own paragraph run carries neither → ●.
+        let scheme = [(0.0, 0.0, 0.0); 8];
+        let mut master = std::collections::HashMap::new();
+        master.insert(
+            1u32,
+            vec![LegacyPptLevelStyle {
+                has_bullet: Some(true),
+                bullet_char: Some(108),
+                bullet_font: Some(3),
+                ..Default::default()
+            }],
+        );
+        let para_only = [
+            3u32.to_le_bytes().to_vec(),
+            0u16.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+        ]
+        .concat();
+        let paras = legacy_ppt_box_paras("AB", Some(&para_only), Some(1), &master, &fonts, 18.0, &scheme)
+            .expect("paras");
+        assert!(
+            matches!(&paras[0].bullet, Some(ParaBullet::Char(c)) if c == "●"),
+            "font-list Wingdings 'l' → ●, got {:?}",
+            paras[0].bullet
+        );
+    }
+
+    #[test]
+    fn legacy_ppt_master_styles_read_levels_by_instance() {
+        // instance < 5: levels start straight at pflags; instance >= 5: a
+        // `level` word leads each one [MS-PPT].
+        let no_level = [
+            1u16.to_le_bytes().to_vec(),          // cLevels
+            0u32.to_le_bytes().to_vec(),          // pflags: no properties
+            0x0002_0000u32.to_le_bytes().to_vec(), // cflags: fontSize
+            32u16.to_le_bytes().to_vec(),
+        ]
+        .concat();
+        let with_level = [
+            1u16.to_le_bytes().to_vec(),          // cLevels
+            0u16.to_le_bytes().to_vec(),          // level word (instance >= 5)
+            0u32.to_le_bytes().to_vec(),          // pflags: no properties
+            0x0002_0000u32.to_le_bytes().to_vec(), // cflags: fontSize
+            28u16.to_le_bytes().to_vec(),
+        ]
+        .concat();
+        let restated = [
+            1u16.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+            0x0002_0000u32.to_le_bytes().to_vec(),
+            40u16.to_le_bytes().to_vec(),
+        ]
+        .concat();
+        let stream = [
+            ppt_rec_inst(0, 0, 4003, &no_level),
+            ppt_rec_inst(0, 5, 4003, &with_level),
+            ppt_rec_inst(0, 0, 4003, &restated),
+        ]
+        .concat();
+
+        let styles = legacy_ppt_master_styles(&stream);
+        assert_eq!(styles.len(), 2);
+        assert_eq!(
+            styles.get(&0).map(|l| l[0].size_pt),
+            Some(Some(32.0)),
+            "first successful decode per textType wins"
+        );
+        assert_eq!(styles.get(&5).map(|l| l[0].size_pt), Some(Some(28.0)));
+
+        // The other reading is only tried when the spec one fails: inst 5
+        // written without the level word still parses through the fallback.
+        let decoded = legacy_ppt_decode_master_style(5, &no_level).expect("fallback parse");
+        assert_eq!(decoded[0].size_pt, Some(32.0));
+        // And inst 0 written with one parses through the spec reading.
+        let decoded = legacy_ppt_decode_master_style(0, &with_level).expect("spec parse");
+        assert_eq!(decoded[0].size_pt, Some(28.0));
+    }
+
+    #[test]
+    fn legacy_ppt_outline_text_fills_empty_boxes() {
+        // PPT 97 keeps placeholder text in the document's SlideListWithText:
+        // the slide's own F00D box carries only its TextHeaderAtom, so the
+        // text — and its 4001 styles — arrive through the chain, matched by
+        // textType even though the entries aren't in box order.
+        let d = td("legacy_ppt_outline");
+        let p = d.join("deck.ppt");
+
+        // Style over the tt=0 entry's 12 characters: bold, 44pt.
+        let mut style = Vec::new();
+        style.extend_from_slice(&13u32.to_le_bytes()); // cch (text_len + 1)
+        style.extend_from_slice(&0u16.to_le_bytes()); // level
+        style.extend_from_slice(&0u32.to_le_bytes()); // no paragraph props
+        style.extend_from_slice(&13u32.to_le_bytes()); // char cch
+        style.extend_from_slice(&0x0002_ffffu32.to_le_bytes()); // CFStyle | fontSize
+        style.extend_from_slice(&1u16.to_le_bytes()); // CFStyle: bold
+        style.extend_from_slice(&44u16.to_le_bytes()); // fontSize: 44pt
+        let block = [
+            ppt_rec(0, 1011, &1u32.to_le_bytes()),
+            ppt_rec(0, 3999, &1u32.to_le_bytes()), // tt = body, listed first
+            ppt_rec(0, 4000, &ppt_utf16("Body first")),
+            ppt_rec(0, 3999, &0u32.to_le_bytes()), // tt = title — the box's own
+            ppt_rec(0, 4000, &ppt_utf16("Title second")),
+            ppt_rec(0, 4001, &style),
+        ]
+        .concat();
+        let doc = ppt_rec_inst(0x0f, 0, 4080, &block);
+
+        // Minimal escher slide: one text box whose F00D has no text atoms.
+        let escher = |ver: u16, inst: u16, rec_type: u16, payload: &[u8]| -> Vec<u8> {
+            let mut v = Vec::new();
+            v.extend_from_slice(&((inst << 4) | ver).to_le_bytes());
+            v.extend_from_slice(&rec_type.to_le_bytes());
+            v.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            v.extend_from_slice(payload);
+            v
+        };
+        let anchor: Vec<u8> = [100u16, 200, 300, 400]
+            .iter()
+            .flat_map(|u| u.to_le_bytes())
+            .collect();
+        let mut props = Vec::new();
+        props.extend_from_slice(&0x0181u16.to_le_bytes());
+        props.extend_from_slice(&0x00ff_ffffu32.to_le_bytes());
+        let textbox = ppt_rec(0, 3999, &0u32.to_le_bytes()); // header only
+        let mut sp = Vec::new();
+        sp.extend_from_slice(&0x0000_0400u32.to_le_bytes());
+        sp.extend_from_slice(&0x0a00u16.to_le_bytes()); // HAVEANCHOR|HASSHAPETYPE
+        sp.extend_from_slice(&0u16.to_le_bytes());
+        let shape = [
+            escher(0, 1, 0xf00a, &sp),
+            escher(0, 0, 0xf00b, &props),
+            escher(0, 0, 0xf010, &anchor),
+            escher(0x0f, 0, 0xf00d, &textbox),
+        ]
+        .concat();
+        let drawing = escher(
+            0x0f,
+            0,
+            1036,
+            &escher(0x0f, 0, 0xf002, &escher(0x0f, 0, 0xf003, &escher(0x0f, 0, 0xf004, &shape))),
+        );
+        let slide = ppt_rec(0x0f, 1006, &drawing);
+        let mut doc_atom = Vec::new();
+        doc_atom.extend_from_slice(&5760u32.to_le_bytes());
+        doc_atom.extend_from_slice(&4320u32.to_le_bytes());
+        let container_payload = [ppt_rec(0, 1001, &doc_atom), doc].concat();
+        let container = ppt_rec(0x0f, 1000, &container_payload);
+
+        // Offsets: [pad 11][4085 28][6002 …][container][slide].
+        let pad = ppt_rec(0, 9, b"pad");
+        let mut edit_pay = vec![0u8; 20];
+        edit_pay[12..16].copy_from_slice(&39u32.to_le_bytes());
+        let edit = ppt_rec(0, 4085, &edit_pay);
+        assert_eq!((pad.len(), edit.len()), (11, 28));
+        let container_off = (11 + 28 + 8 + 4 + 8) as u32; // pad + edit + 2 slots
+        let slide_off = container_off + container.len() as u32;
+        let table_pay = [
+            (2u32 << 20).to_le_bytes().to_vec(), // count 2, slots from 0
+            container_off.to_le_bytes().to_vec(),
+            slide_off.to_le_bytes().to_vec(),
+        ]
+        .concat();
+        let table = ppt_rec(0, 6002, &table_pay);
+        assert_eq!(table.len(), 8 + 4 + 8);
+        let mut current_user = vec![0u8; 20];
+        current_user[16..20].copy_from_slice(&11u32.to_le_bytes()); // 4085 at 11
+        let stream = vec![pad, edit, table, container, slide].concat();
+
+        {
+            let mut comp = cfb::create(&p).unwrap();
+            let mut s = comp.create_stream("/PowerPoint Document").unwrap();
+            s.write_all(&stream).unwrap();
+            s.flush().unwrap();
+            drop(s);
+            let mut s = comp.create_stream("/Current User").unwrap();
+            s.write_all(&current_user).unwrap();
+            s.flush().unwrap();
+            drop(s);
+            comp.flush().unwrap();
+        }
+
+        assert_eq!(legacy_ppt_slide_count(&p), Some(1));
+        let layout = legacy_ppt_structured_layout(&p, 1).expect("structured parse");
+        let SlideElement::Text(b) = layout.elements.last().expect("text box") else {
+            panic!("last element must be the text box");
+        };
+        assert_eq!(
+            b.text, "Title second",
+            "entry matched by textType, not list order"
+        );
+        let paras = b.paras.as_ref().expect("4001-backed paragraphs");
+        assert_eq!(paras.len(), 1);
+        assert_eq!(paras[0].runs.len(), 1);
+        assert_eq!(paras[0].runs[0].text, "Title second");
+        assert_eq!(paras[0].runs[0].sz_pt, Some(44.0), "size from the entry's 4001");
+        assert!(paras[0].runs[0].bold, "CFStyle bit0 = bold");
+
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn legacy_ppt_picture_shape_resolves_media() {
         // pib (0x104) = 1-based BlipStore index → uid → Pictures record →
         // cached image file → DrawPicture element.
@@ -10909,11 +13012,26 @@ accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
         if src.to_ascii_lowercase().ends_with(".ppt") {
             let n = legacy_ppt_slide_count(doc).expect("legacy slide count");
             fs::create_dir_all(&out).unwrap();
+            let mut census: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
             for slide in 1..=n {
                 let png = render_legacy_ppt_slide(doc, slide)
                     .unwrap_or_else(|| panic!("render legacy slide {slide}"));
                 fs::write(format!("{}/slide-{}.png", out, slide), &png).unwrap();
+                if let Some(layout) = legacy_ppt_structured_layout(doc, slide) {
+                    for el in &layout.elements {
+                        if let SlideElement::Text(t) = el {
+                            if let Some(paras) = &t.paras {
+                                for p in paras {
+                                    if let Some(ParaBullet::Char(c)) = &p.bullet {
+                                        *census.entry(c.clone()).or_insert(0) += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
+            println!("BULLET-CENSUS {census:?}");
             println!("rendered {n} legacy slides to {out}");
             return;
         }
@@ -11178,8 +13296,9 @@ accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
         );
 
         let prep = prepare_office(&path).expect("xlsx prepares");
-        // 35 rows → 2 chunks of 30+5, 20 rows → 1 chunk: 3 workbook pages.
-        assert_eq!(prep.pages.len(), 3);
+        // One page per sheet — Data (35 rows) + Stats (20 rows) = 2 pages,
+        // never row-chunked.
+        assert_eq!(prep.pages.len(), 2);
         let caps: Vec<Option<String>> = prep
             .pages
             .iter()
@@ -11187,17 +13306,19 @@ accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
             .collect();
         assert_eq!(
             caps,
-            vec![
-                Some("Data \u{b7} 1/2".to_string()),
-                Some("Data \u{b7} 2/2".to_string()),
-                Some("Stats".to_string()),
-            ]
+            vec![Some("Data".to_string()), Some("Stats".to_string())]
         );
         match &prep.pages[0].body {
-            OfficePageBody::Grid { sheet, rows, .. } => {
+            OfficePageBody::Grid {
+                sheet,
+                rows,
+                row_base,
+                ..
+            } => {
                 assert_eq!(sheet, "Data");
-                assert_eq!(rows.len(), 30);
+                assert_eq!(rows.len(), 35);
                 assert_eq!(rows[0][0], "Item 0");
+                assert_eq!(*row_base, 0);
             }
             other => panic!("expected Grid, got {other:?}"),
         }
@@ -11206,12 +13327,9 @@ accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
         let png = resolve_page_png(&path, 2).expect("sheet page 2 resolves");
         assert!(sane_png_file(&png));
         assert_eq!(resolve_page_png(&path, 2).as_deref(), Some(png.as_path()));
-        assert_eq!(
-            office_page_caption(&path, 2).as_deref(),
-            Some("Data \u{b7} 2/2")
-        );
+        assert_eq!(office_page_caption(&path, 2).as_deref(), Some("Stats"));
 
-        rm_office_cache(&path, 3);
+        rm_office_cache(&path, 2);
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -11255,8 +13373,42 @@ accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
     }
 
     #[test]
+    fn office_numfmt_displays_like_excel() {
+        // Decimal + grouping from the code, rounded half-up like Excel.
+        assert_eq!(
+            apply_num_format("###,###,##0.000", 124.15602).as_deref(),
+            Some("124.156")
+        );
+        assert_eq!(apply_num_format("##0.0", 283.25).as_deref(), Some("283.3"));
+        assert_eq!(
+            apply_num_format("#,##0.00", 1234.5).as_deref(),
+            Some("1,234.50")
+        );
+        assert_eq!(apply_num_format("#,##0", 1947.0).as_deref(), Some("1,947"));
+        // Percent scales ×100 and keeps the sign.
+        assert_eq!(apply_num_format("0.00%", 0.4532).as_deref(), Some("45.32%"));
+        // Quoted literals and locale currency tags in place.
+        assert_eq!(
+            apply_num_format("\"€\"#,##0.00", 1234.5).as_deref(),
+            Some("€1,234.50")
+        );
+        assert_eq!(
+            apply_num_format("[$€-407] #,##0.00", 9.0).as_deref(),
+            Some("€ 9.00")
+        );
+        // A date code on a plain number cell renders a date, never a serial.
+        assert_eq!(
+            apply_num_format("yyyy-mm-dd", 44927.0).as_deref(),
+            Some("2023-01-01")
+        );
+        // Unsupported shapes fall back to None → the exact value shows.
+        assert_eq!(apply_num_format("General", 1.5), None);
+        assert_eq!(apply_num_format("0.00E+00", 1.5), None);
+    }
+
+    #[test]
     fn office_csv_and_fods_grid_pages() {
-        // 70 CSV rows → 3 pages of 30/30/10.
+        // 70 CSV rows → one page (rows are never split into swipe pages).
         let d = td("office_csv");
         let csv = d.join("data.csv");
         let mut text = String::from("name,value\n");
@@ -11265,13 +13417,10 @@ accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
         }
         fs::write(&csv, &text).unwrap();
         let prep = prepare_office(&csv).expect("csv prepares");
-        assert_eq!(prep.pages.len(), 3, "70 rows chunk into 3 pages");
-        assert_eq!(
-            office_page_caption(&csv, 3).as_deref(),
-            Some("data \u{b7} 3/3")
-        );
-        match &prep.pages[2].body {
-            OfficePageBody::Grid { rows, .. } => assert_eq!(rows.len(), 10),
+        assert_eq!(prep.pages.len(), 1, "one page per sheet");
+        assert_eq!(office_page_caption(&csv, 1).as_deref(), Some("data"));
+        match &prep.pages[0].body {
+            OfficePageBody::Grid { rows, .. } => assert_eq!(rows.len(), 70),
             other => panic!("expected Grid, got {other:?}"),
         }
 
@@ -11293,7 +13442,7 @@ accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
             other => panic!("expected Grid, got {other:?}"),
         }
 
-        rm_office_cache(&csv, 3);
+        rm_office_cache(&csv, 1);
         let _ = fs::remove_dir_all(&d);
     }
 

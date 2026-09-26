@@ -2386,7 +2386,10 @@ fn icon_for(p: &std::path::Path, is_dir: bool) -> &'static str {
             "package-x-generic-symbolic"
         }
         Some("pdf") => "application-pdf",
-        Some("ppt" | "pptx" | "pps" | "ppsx" | "odp" | "otp" | "fodp" | "key") => {
+        Some(
+            "ppt" | "pptx" | "pptm" | "ppsm" | "potx" | "potm" | "pps" | "ppsx" | "odp" | "otp"
+            | "fodp" | "key",
+        ) => {
             "x-office-presentation"
         }
         Some("doc" | "docx" | "odt" | "rtf" | "ott" | "fodt" | "wps" | "pages") => {

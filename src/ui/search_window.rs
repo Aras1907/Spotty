@@ -2129,6 +2129,7 @@ impl SearchWindow {
             let ops_popover_kc = ops_popover.clone();
             let hints_popover_kc = hints_popover.clone();
             let mode_from_keybinding_kc = mode_from_keybinding.clone();
+            let preview_kc = preview.clone();
             kc.connect_key_pressed(move |_, key, _, state| {
                 use gtk::gdk::Key;
 
@@ -2629,8 +2630,31 @@ impl SearchWindow {
                         glib::Propagation::Stop
                     }
                     // While the Operations popover is open, Left/Right scrub the
-                    // playing track ±5s; otherwise they fall through to the
-                    // entry's normal cursor movement.
+                    // playing track ±5s; otherwise they flip through a
+                    // multi-page preview (slide deck / PDF / sheet tabs)
+                    // while one is on screen — same preconditions as the
+                    // wheel stepper. Only bare keys are hijacked: Ctrl/Alt/
+                    // Shift combos and popover time keep their meaning, and
+                    // when no multi-page preview shows the keys fall through
+                    // to the entry's normal cursor movement.
+                    Key::Left
+                        if !ctrl
+                            && !shift
+                            && !state.contains(gtk::gdk::ModifierType::ALT_MASK)
+                            && !popover_open_kc.get()
+                            && preview_kc.key_step_page(-1) =>
+                    {
+                        glib::Propagation::Stop
+                    }
+                    Key::Right
+                        if !ctrl
+                            && !shift
+                            && !state.contains(gtk::gdk::ModifierType::ALT_MASK)
+                            && !popover_open_kc.get()
+                            && preview_kc.key_step_page(1) =>
+                    {
+                        glib::Propagation::Stop
+                    }
                     Key::Left => {
                         glib::Propagation::Proceed
                     }
