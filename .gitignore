@@ -6,7 +6,6 @@ target/
 # Flatpak build cache (large, regenerated)
 build-dir/
 .flatpak-builder/
-triggers-repo
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
