@@ -56,12 +56,17 @@ fn main() -> glib::ExitCode {
             dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."))
         };
         let (new, updated, skipped) = ocr::scan(&path);
+        let (pnew, pupd, pskip) = ocr::scan_pdfs(&path);
         println!(
-            "ocr-scan: {} images, {} new, {} updated, {} skipped (unchanged)",
+            "ocr-scan: {} images ({} new, {} updated, {} skipped), {} pdfs ({} new, {} updated, {} skipped)",
             new + updated + skipped,
             new,
             updated,
-            skipped
+            skipped,
+            pnew + pupd + pskip,
+            pnew,
+            pupd,
+            pskip
         );
         return glib::ExitCode::SUCCESS;
     }
@@ -71,7 +76,7 @@ fn main() -> glib::ExitCode {
         let query = &args[2];
         let results = ocr::search(query);
         if results.is_empty() {
-            println!("ocr-query: no images found matching \"{query}\"");
+            println!("ocr-query: no files found matching \"{query}\"");
         } else {
             for (path, text) in &results {
                 println!("{}  —  {:.100}", path.display(), text);
