@@ -2072,7 +2072,7 @@ fn thumb_cache_path(path: &Path) -> PathBuf {
 
 /// Bump this when the office/pptx RENDER code changes, so old cached renders are
 /// invalidated and regenerated instead of being served stale forever.
-const RENDER_VERSION: u32 = 25;
+const RENDER_VERSION: u32 = 26;
 const PPTX_RENDER_VERSION: u32 = 6;
 
 /// A Spotty-private cache path for thumbnails Spotty RENDERS itself (office docs,
@@ -2805,14 +2805,23 @@ const OFFICE_MAX_PARAS: usize = 2000;
 const OFFICE_MAX_SHEETS: usize = 64;
 const OFFICE_MAX_ROWS: usize = 5000;
 const OFFICE_MAX_COLS: usize = 12;
+/// Sheet pages are 4:3 at 2× the preview box (the pane caps the picture at
+/// 320×240): an A4 page scaled into that box landed at ~2 px text, while
+/// this aspect fills the box exactly so type drawn at 17+ px survives the
+/// 0.5 fit-down as readable ~9 px glyphs.
+const SHEET_PAGE_W: i32 = 640;
+const SHEET_PAGE_H: i32 = 480;
 /// Sheet-grid row heights: comfortable while rows fit, shrinking toward the
 /// legible floor (with the font following) for dense sheets — never a
 /// second page, never unreadably small.
-const SHEET_ROW_H_MAX: f64 = 26.0;
-const SHEET_ROW_H_MIN: f64 = 15.0;
+const SHEET_ROW_H_MAX: f64 = 40.0;
+const SHEET_ROW_H_MIN: f64 = 26.0;
 /// Column width bounds for the content-measured layout.
-const SHEET_COL_W_MIN: f64 = 44.0;
-const SHEET_COL_W_MAX: f64 = 340.0;
+const SHEET_COL_W_MIN: f64 = 88.0;
+const SHEET_COL_W_MAX: f64 = 480.0;
+/// Data-cell font bounds in page px (17 ≈ 8.5 px after the pane's fit-down).
+const SHEET_DATA_FS_MIN: f64 = 17.0;
+const SHEET_DATA_FS_MAX: f64 = 24.0;
 
 // Document page canvas (A4 @ 96 dpi) + vertical rhythm — shared by the
 // paginator and the renderer so measured page breaks are exact.
@@ -2848,9 +2857,16 @@ enum OfficePageBody {
     /// rows/columns of the range aren't drawn but are numbered for);
     /// `extra_cols` counts cells beyond the hard column cap. Row/col
     /// overflow past what fits the page is reported inside the render.
+    /// `styles`/`style_pool` carry the workbook's real cell styling (fills,
+    /// text colors, weights) — empty for formats with no style data, where
+    /// the renderer falls back to neutral banding instead of inventing
+    /// colors.
     Grid {
         sheet: String,
         rows: Vec<Vec<String>>,
+        /// Per-cell pool index into `style_pool`, `u16::MAX` for plain cells.
+        styles: Vec<Vec<u16>>,
+        style_pool: Vec<SheetCellStyle>,
         row_base: usize,
         col_base: usize,
         extra_cols: usize,
@@ -2922,12 +2938,12 @@ fn build_prepared_office(doc: &Path) -> Option<PreparedOffice> {
                 return None;
             }
             let stem = file_stem_title(doc);
-            grid_pages(vec![SheetGrid::plain(stem, rows)])
+            grid_pages(vec![SheetGrid::plain(stem, rows)], Vec::new())
         }
         "csv" => {
             let rows = csv_rows_full(doc)?;
             let stem = file_stem_title(doc);
-            grid_pages(vec![SheetGrid::plain(stem, rows)])
+            grid_pages(vec![SheetGrid::plain(stem, rows)], Vec::new())
         }
         "odp" | "otp" => slides_from_odf(&zip_entry_string(doc, "content.xml")?),
         "fodp" => slides_from_odf(&read_bounded_text(doc, 8 * 1024 * 1024)?),
@@ -3375,6 +3391,9 @@ fn rtf_paragraphs(src: &str) -> Vec<String> {
 struct SheetGrid {
     name: String,
     rows: Vec<Vec<String>>,
+    /// Per-cell style pool indices parallel to `rows` (`u16::MAX` = plain).
+    /// Empty for formats with no style data at all.
+    styles: Vec<Vec<u16>>,
     row_base: usize,
     col_base: usize,
     /// Rows in the used range — may exceed `rows.len()` when the hard row
@@ -3389,6 +3408,7 @@ impl SheetGrid {
         SheetGrid {
             name,
             rows,
+            styles: Vec::new(),
             row_base: 0,
             col_base: 0,
             total_rows,
@@ -3406,42 +3426,49 @@ fn sheets_via_calamine(doc: &Path) -> Option<PreparedOffice> {
     use calamine::Reader;
     let mut wb = calamine::open_workbook_auto(doc).ok()?;
     let names = wb.sheet_names();
-    // An xlsx-only pass (None for xls/ods/csv — those read exact values).
-    let fmts = xlsx_cell_formats(doc, &names);
+    // An xlsx-only pass (None for xls/ods — those read exact values with no
+    // workbook styling to honor).
+    let info = xlsx_cell_info(doc, &names);
+    let fmts = info.as_ref().and_then(|i| i.formats.as_ref());
+    let stys = info.as_ref().and_then(|i| i.styles.as_ref());
+    let style_pool = stys.map(|s| s.pool.clone()).unwrap_or_default();
     let mut sheets: Vec<SheetGrid> = Vec::new();
-    for name in names.into_iter().take(OFFICE_MAX_SHEETS) {
+    for (si, name) in names.into_iter().enumerate().take(OFFICE_MAX_SHEETS) {
         let Ok(range) = wb.worksheet_range(&name) else {
             continue;
         };
         let (start_row, start_col) = range.start().unwrap_or((0, 0));
-        let rows: Vec<Vec<String>> = range
-            .rows()
-            .enumerate()
-            .take(OFFICE_MAX_ROWS)
-            .map(|(ri, row)| {
-                let abs_row = start_row as usize + ri;
-                let mut cells: Vec<String> = row
-                    .iter()
-                    .enumerate()
-                    .map(|(ci, c)| {
-                        if let Some(s) = fmts
-                            .as_ref()
-                            .and_then(|f| f.apply(start_col as usize + ci, abs_row, c))
-                        {
-                            return s;
-                        }
-                        crate::thumbnails::cell_value_str(c)
-                    })
-                    .collect();
-                while cells.last().map(|c| c.trim().is_empty()).unwrap_or(false) {
-                    cells.pop();
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        let mut styles: Vec<Vec<u16>> = Vec::new();
+        for (ri, row) in range.rows().enumerate().take(OFFICE_MAX_ROWS) {
+            let abs_row = start_row as usize + ri;
+            let mut cells: Vec<String> = Vec::new();
+            let mut srow: Vec<u16> = Vec::new();
+            for (ci, c) in row.iter().enumerate() {
+                let abs_col = start_col as usize + ci;
+                if let Some(s) = fmts.and_then(|f| f.apply(si, abs_col, abs_row, c)) {
+                    cells.push(s);
+                } else {
+                    cells.push(crate::thumbnails::cell_value_str(c));
                 }
-                cells
-            })
-            .collect();
+                srow.push(
+                    stys
+                        .and_then(|s| s.pool_index(si, abs_col, abs_row))
+                        .unwrap_or(u16::MAX),
+                );
+            }
+            while cells.last().map(|c| c.trim().is_empty()).unwrap_or(false) {
+                cells.pop();
+            }
+            // `srow` keeps one entry per cell the sheet actually holds —
+            // a styled-but-empty cell still shows its fill in the render.
+            rows.push(cells);
+            styles.push(srow);
+        }
         sheets.push(SheetGrid {
             name,
             rows,
+            styles,
             row_base: start_row as usize,
             col_base: start_col as usize,
             total_rows: range.height(),
@@ -3450,7 +3477,7 @@ fn sheets_via_calamine(doc: &Path) -> Option<PreparedOffice> {
     if sheets.is_empty() {
         return None;
     }
-    grid_pages(sheets)
+    grid_pages(sheets, style_pool)
 }
 
 /// Exactly one page per sheet, caption = the sheet name (the preview's
@@ -3458,7 +3485,7 @@ fn sheets_via_calamine(doc: &Path) -> Option<PreparedOffice> {
 /// A sheet is never split into row-chunk pages: what doesn't fit the page
 /// is counted inside it ("+N more rows/columns") instead of paginated
 /// away, and cells beyond the hard column cap are counted too.
-fn grid_pages(mut sheets: Vec<SheetGrid>) -> Option<PreparedOffice> {
+fn grid_pages(mut sheets: Vec<SheetGrid>, style_pool: Vec<SheetCellStyle>) -> Option<PreparedOffice> {
     let mut pages = Vec::new();
     for s in &mut sheets {
         let max_len = s.rows.iter().map(|r| r.len()).max().unwrap_or(0);
@@ -3468,11 +3495,16 @@ fn grid_pages(mut sheets: Vec<SheetGrid>) -> Option<PreparedOffice> {
                 row.truncate(OFFICE_MAX_COLS);
             }
         }
+        for srow in &mut s.styles {
+            srow.truncate(OFFICE_MAX_COLS);
+        }
         pages.push(OfficePage {
             caption: Some(s.name.clone()),
             body: OfficePageBody::Grid {
                 sheet: s.name.clone(),
                 rows: std::mem::take(&mut s.rows),
+                styles: std::mem::take(&mut s.styles),
+                style_pool: style_pool.clone(),
                 row_base: s.row_base,
                 col_base: s.col_base,
                 extra_cols,
@@ -3494,22 +3526,30 @@ fn grid_pages(mut sheets: Vec<SheetGrid>) -> Option<PreparedOffice> {
     })
 }
 
-// ── xlsx display formats ────────────────────────────────────────────
+// ── xlsx display formats + visual styles ────────────────────────────
 
 /// Per-cell display formats for one xlsx (built once per prepare, dropped
 /// right after the rows are stringified): a pool of unique format codes
-/// plus a map from absolute (row, col) to its index.
+/// plus a map from (sheet, row, col) to its index. The sheet dimension
+/// matters — sheets share coordinates, so A1 of two sheets must not
+/// resolve to each other's format.
 struct CellFormats {
     pool: Vec<String>,
-    map: std::collections::HashMap<(usize, usize), u16>,
+    map: std::collections::HashMap<(usize, usize, usize), u16>,
 }
 
 impl CellFormats {
     /// Formatted display value for a numeric cell, or None to fall back to
     /// the exact value (unstyled/General cell, unsupported format shape,
     /// or a non-numeric cell the style doesn't apply to).
-    fn apply(&self, col: usize, row: usize, cell: &calamine::Data) -> Option<String> {
-        let idx = *self.map.get(&(row, col))?;
+    fn apply(
+        &self,
+        sheet: usize,
+        col: usize,
+        row: usize,
+        cell: &calamine::Data,
+    ) -> Option<String> {
+        let idx = *self.map.get(&(sheet, row, col))?;
         let v = match cell {
             calamine::Data::Int(i) => *i as f64,
             calamine::Data::Float(f) => *f,
@@ -3519,14 +3559,24 @@ impl CellFormats {
     }
 }
 
-/// Display format codes for an xlsx: `xl/styles.xml` resolves each cell's
-/// `s` style index to a numFmt code (built-in ids mapped by hand), and the
-/// workbook rels pair sheet names with their worksheet part so codes land
-/// on the right (row, col). Only cells carrying a non-General format are
-/// kept — everything else, and every other container format (xls/ods/csv),
-/// reads as the exact value.
-fn xlsx_cell_formats(doc: &Path, sheet_names: &[String]) -> Option<CellFormats> {
-    let styles = zip_entry_string(doc, "xl/styles.xml")?;
+/// Display formats + resolved visual styles for an xlsx, both read from
+/// `xl/styles.xml` in ONE scan over the workbook's cells (dropped right
+/// after the rows are stringified). `s` style indices resolve to numFmt
+/// codes (built-in ids mapped by hand) and to the cell's real paint —
+/// fill, text color, weights — with workbook rels pairing sheet names
+/// with their worksheet part so both land on the right (row, col). A file
+/// without `xl/styles.xml`, a cell with a General format, and every other
+/// container format (xls/ods/csv) fall through to the plain exact value.
+struct XlsxCellInfo {
+    /// None = every cell is General.
+    formats: Option<CellFormats>,
+    /// None = no cell deviates from a plain white cell.
+    styles: Option<CellStyles>,
+}
+
+fn xlsx_cell_info(doc: &Path, sheet_names: &[String]) -> Option<XlsxCellInfo> {
+    let styles_xml = zip_entry_string(doc, "xl/styles.xml")?;
+    let styles = styles_xml.as_str();
 
     // Custom numFmt codes (ids ≥ 164).
     let mut custom: std::collections::HashMap<u16, String> = std::collections::HashMap::new();
@@ -3554,6 +3604,15 @@ fn xlsx_cell_formats(doc: &Path, sheet_names: &[String]) -> Option<CellFormats> 
         return None;
     }
 
+    // Visual side of the same cellXfs table: theme slots, the file's
+    // custom indexed palette, then fills/fonts → one resolved deviation
+    // per style index (None = paints like a plain cell).
+    let theme = xlsx_theme_colors(doc);
+    let indexed = xlsx_indexed_palette(styles);
+    let fills = xlsx_fills(styles, &theme, &indexed);
+    let fonts = xlsx_fonts(styles, &theme, &indexed);
+    let xf_styles = xlsx_xf_styles(styles, &fills, &fonts);
+
     // Sheet name → worksheet part (workbook order + rels).
     let wb_xml = zip_entry_string(doc, "xl/workbook.xml")?;
     let rels = zip_entry_string(doc, "xl/_rels/workbook.xml.rels")?;
@@ -3577,8 +3636,14 @@ fn xlsx_cell_formats(doc: &Path, sheet_names: &[String]) -> Option<CellFormats> 
 
     let mut pool: Vec<String> = Vec::new();
     let mut pool_idx: std::collections::HashMap<String, u16> = std::collections::HashMap::new();
-    let mut map: std::collections::HashMap<(usize, usize), u16> = std::collections::HashMap::new();
-    for name in sheet_names.iter().take(OFFICE_MAX_SHEETS) {
+    let mut map: std::collections::HashMap<(usize, usize, usize), u16> =
+        std::collections::HashMap::new();
+    let mut style_pool: Vec<SheetCellStyle> = Vec::new();
+    let mut style_idx: std::collections::HashMap<SheetCellStyle, u16> =
+        std::collections::HashMap::new();
+    let mut style_map: std::collections::HashMap<(usize, usize, usize), u16> =
+        std::collections::HashMap::new();
+    for (si, name) in sheet_names.iter().enumerate().take(OFFICE_MAX_SHEETS) {
         let Some(part) = part_of.get(name) else {
             continue;
         };
@@ -3594,32 +3659,304 @@ fn xlsx_cell_formats(doc: &Path, sheet_names: &[String]) -> Option<CellFormats> 
             let (Some(s), Some(r)) = (attr_u16(head, "s"), attr_value(head, "r")) else {
                 continue;
             };
-            let Some(xf) = xfs.get(s as usize) else {
-                continue;
-            };
-            let code = match *xf {
-                id if id == 0 || id == 49 => None, // General / Text
-                id if id < 164 => builtin_numfmt(id).map(str::to_string),
-                id => custom.get(&id).cloned(),
-            };
-            let Some(code) = code.filter(|c| !c.is_empty() && !c.contains("General")) else {
-                continue;
-            };
             let Some((r0, c0)) = cell_ref_rc(&r) else {
                 continue;
             };
-            let idx = *pool_idx.entry(code.clone()).or_insert_with(|| {
-                let i = pool.len() as u16;
-                pool.push(code);
-                i
-            });
-            map.insert((r0, c0), idx);
+            // Number format: only cells carrying a non-General code.
+            if let Some(xf) = xfs.get(s as usize) {
+                let code = match *xf {
+                    id if id == 0 || id == 49 => None, // General / Text
+                    id if id < 164 => builtin_numfmt(id).map(str::to_string),
+                    id => custom.get(&id).cloned(),
+                };
+                if let Some(code) = code.filter(|c| !c.is_empty() && !c.contains("General")) {
+                    let idx = *pool_idx.entry(code.clone()).or_insert_with(|| {
+                        let i = pool.len() as u16;
+                        pool.push(code);
+                        i
+                    });
+                    map.insert((si, r0, c0), idx);
+                }
+            }
+            // Visual style: only cells that deviate from a plain white cell.
+            if let Some(st) = xf_styles.get(s as usize).copied().flatten() {
+                let idx = *style_idx.entry(st).or_insert_with(|| {
+                    let i = style_pool.len() as u16;
+                    style_pool.push(st);
+                    i
+                });
+                style_map.insert((si, r0, c0), idx);
+            }
         }
     }
-    if map.is_empty() {
+    Some(XlsxCellInfo {
+        formats: (!map.is_empty()).then_some(CellFormats { pool, map }),
+        styles: (!style_map.is_empty()).then_some(CellStyles {
+            pool: style_pool,
+            map: style_map,
+        }),
+    })
+}
+
+/// One cell's resolved look: only deviations from a plain cell (white
+/// fill, default dark ink, no styling) are kept, so a pool entry always
+/// means "the render must change something here". Eq + pooled so thousands
+/// of cells share a handful of entries.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct SheetCellStyle {
+    fill: Option<[u8; 3]>,
+    text: Option<[u8; 3]>,
+    bold: bool,
+    italic: bool,
+    underline: bool,
+}
+
+impl SheetCellStyle {
+    /// A cell that paints like the renderer's default.
+    const DEFAULT: SheetCellStyle = SheetCellStyle {
+        fill: None,
+        text: None,
+        bold: false,
+        italic: false,
+        underline: false,
+    };
+}
+
+/// Resolved visual styles: a pool of unique cell looks plus a map from
+/// (sheet, row, col) to its index (the sheet keeps A1s of different
+/// sheets from resolving to each other's paint). Cells at their default
+/// are absent.
+struct CellStyles {
+    pool: Vec<SheetCellStyle>,
+    map: std::collections::HashMap<(usize, usize, usize), u16>,
+}
+
+impl CellStyles {
+    fn pool_index(&self, sheet: usize, col: usize, row: usize) -> Option<u16> {
+        self.map.get(&(sheet, row, col)).copied()
+    }
+}
+
+/// The workbook's theme slots as bytes — `xl/theme/theme1.xml`, with the
+/// Office defaults filling any gap — which `<color theme="N"/>` refers to.
+fn xlsx_theme_colors(doc: &Path) -> std::collections::HashMap<String, [u8; 3]> {
+    let mut colors = default_theme_colors();
+    if let Some(xml) = zip_entry_string(doc, "xl/theme/theme1.xml") {
+        parse_clr_scheme(&xml, &mut colors);
+    }
+    colors
+        .into_iter()
+        .map(|(k, (r, g, b))| {
+            (
+                k,
+                [
+                    (r * 255.0 + 0.5) as u8,
+                    (g * 255.0 + 0.5) as u8,
+                    (b * 255.0 + 0.5) as u8,
+                ],
+            )
+        })
+        .collect()
+}
+
+/// `<indexedColors>`: an old file's custom palette — `<rgb>` values in
+/// index order. Indices outside it fall back to the built-in auto slots.
+fn xlsx_indexed_palette(styles: &str) -> std::collections::HashMap<usize, [u8; 3]> {
+    let mut out = std::collections::HashMap::new();
+    let Some(body) = styles
+        .split_once("<indexedColors>")
+        .and_then(|(_, rest)| rest.split("</indexedColors>").next())
+    else {
+        return out;
+    };
+    for (i, seg) in body.split("<rgb>").skip(1).enumerate() {
+        let v = seg.split("</rgb>").next().unwrap_or("");
+        if let Some(c) = hex_rgb8(v) {
+            out.insert(i, c);
+        }
+    }
+    out
+}
+
+/// `<fills>` → per fillId the solid color it paints (None for the `none`
+/// and `gray125` placeholders and for pattern fills that show the plain
+/// background).
+fn xlsx_fills(
+    styles: &str,
+    theme: &std::collections::HashMap<String, [u8; 3]>,
+    indexed: &std::collections::HashMap<usize, [u8; 3]>,
+) -> Vec<Option<[u8; 3]>> {
+    let mut out = Vec::new();
+    let Some(body) = styles
+        .split_once("<fills")
+        .and_then(|(_, rest)| rest.split("</fills>").next())
+    else {
+        return out;
+    };
+    for seg in body.split("</fill>").filter(|s| s.contains("<fill")) {
+        out.push(solid_fill_color(seg, theme, indexed));
+    }
+    out
+}
+
+/// The visible color of one `<fill>` fragment: a solid pattern paints its
+/// `fgColor` (`bgColor` when that's all there is); every other pattern
+/// (`none`, `gray125`, stripes…) shows the cell background.
+fn solid_fill_color(
+    seg: &str,
+    theme: &std::collections::HashMap<String, [u8; 3]>,
+    indexed: &std::collections::HashMap<usize, [u8; 3]>,
+) -> Option<[u8; 3]> {
+    let pi = find_open_tag(seg, 0, "patternFill")?;
+    let pt_end = tag_end(seg, pi)?;
+    if attr_value(&seg[pi..pt_end], "patternType")? != "solid" {
         return None;
     }
-    Some(CellFormats { pool, map })
+    let ci =
+        find_open_tag(seg, 0, "fgColor").or_else(|| find_open_tag(seg, 0, "bgColor"))?;
+    let ct = tag_end(seg, ci)?;
+    xlsx_color8(&seg[ci..ct], theme, indexed)
+}
+
+/// One `<font>` in the font table: the color and weights that change how
+/// a cell's text is drawn.
+#[derive(Default, Clone, Copy)]
+struct XlsxFont {
+    color: Option<[u8; 3]>,
+    bold: bool,
+    italic: bool,
+    underline: bool,
+}
+
+/// `<fonts>` → per fontId the styling its cells inherit.
+fn xlsx_fonts(
+    styles: &str,
+    theme: &std::collections::HashMap<String, [u8; 3]>,
+    indexed: &std::collections::HashMap<usize, [u8; 3]>,
+) -> Vec<XlsxFont> {
+    let mut out = Vec::new();
+    let Some(body) = styles
+        .split_once("<fonts")
+        .and_then(|(_, rest)| rest.split("</fonts>").next())
+    else {
+        return out;
+    };
+    for seg in body.split("</font>").filter(|s| s.contains("<font")) {
+        let mut f = XlsxFont::default();
+        if let Some(ci) = find_open_tag(seg, 0, "color") {
+            if let Some(ct) = tag_end(seg, ci) {
+                f.color = xlsx_color8(&seg[ci..ct], theme, indexed);
+            }
+        }
+        f.bold = find_open_tag(seg, 0, "b").is_some();
+        f.italic = find_open_tag(seg, 0, "i").is_some();
+        f.underline = find_open_tag(seg, 0, "u").is_some();
+        out.push(f);
+    }
+    out
+}
+
+/// `<cellXfs>` → per style index the deviations from a plain cell it
+/// paints, joining each `<xf>`'s fillId to its fontId. Entries resolving
+/// to the default are `None` and never recorded per cell. Positional — an
+/// `<xf>` without fontId/fillId occupies its slot (both default to 0).
+fn xlsx_xf_styles(
+    styles: &str,
+    fills: &[Option<[u8; 3]>],
+    fonts: &[XlsxFont],
+) -> Vec<Option<SheetCellStyle>> {
+    let Some(body) = styles
+        .split_once("<cellXfs")
+        .and_then(|(_, rest)| rest.split("</cellXfs>").next())
+    else {
+        return Vec::new();
+    };
+    body.split("<xf ")
+        .skip(1)
+        .map(|xf| {
+            let head = &xf[..xf.find('>').unwrap_or(xf.len())];
+            let fill = attr_u16(head, "fillId").unwrap_or(0) as usize;
+            let font = attr_u16(head, "fontId").unwrap_or(0) as usize;
+            let ft = fonts.get(font).copied().unwrap_or_default();
+            let st = SheetCellStyle {
+                fill: fills.get(fill).copied().flatten(),
+                // Near-black reads as the default ink: without this every
+                // plain cell would carry a color entry for no visible gain.
+                text: ft
+                    .color
+                    .filter(|c| c[0] >= 48 || c[1] >= 48 || c[2] >= 48),
+                bold: ft.bold,
+                italic: ft.italic,
+                underline: ft.underline,
+            };
+            (st != SheetCellStyle::DEFAULT).then_some(st)
+        })
+        .collect()
+}
+
+/// One xlsx `<color …/>` open tag → its bytes: `rgb`, `theme` (+tint), or
+/// `indexed` (+ the file's custom palette). Excel's theme indices map
+/// 0=background1, 1=text1, 2=background2, 3=text2, 4–9=accents, 10/11=
+/// hyperlink / followed hyperlink.
+fn xlsx_color8(
+    tag: &str,
+    theme: &std::collections::HashMap<String, [u8; 3]>,
+    indexed: &std::collections::HashMap<usize, [u8; 3]>,
+) -> Option<[u8; 3]> {
+    let base = if let Some(rgb) = attr_value(tag, "rgb") {
+        hex_rgb8(&rgb)
+    } else if let Some(t) = attr_value(tag, "theme").and_then(|v| v.parse::<usize>().ok()) {
+        match t {
+            0 => theme.get("lt1").copied(),
+            1 => theme.get("dk1").copied(),
+            2 => theme.get("lt2").copied(),
+            3 => theme.get("dk2").copied(),
+            4..=9 => theme.get(&format!("accent{}", t - 3)).copied(),
+            10 => theme.get("hlink").copied(),
+            11 => theme.get("folHlink").copied(),
+            _ => None,
+        }
+    } else if let Some(i) = attr_value(tag, "indexed").and_then(|v| v.parse::<usize>().ok()) {
+        match i {
+            64 => Some([0, 0, 0]),       // auto (foreground)
+            65 => Some([255, 255, 255]), // system background
+            _ => indexed.get(&i).copied(),
+        }
+    } else {
+        None
+    }?;
+    let tint = attr_value(tag, "tint")
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    Some(if tint != 0.0 { apply_tint(base, tint) } else { base })
+}
+
+/// `RRGGBB`/`AARRGGBB` (alpha dropped) → bytes. Also tolerates a leading
+/// `#` so hand-written fixtures behave like Excel's own output.
+fn hex_rgb8(s: &str) -> Option<[u8; 3]> {
+    let h = s.trim().trim_start_matches('#');
+    if (h.len() != 6 && h.len() != 8) || !h.is_ascii() {
+        return None;
+    }
+    let off = if h.len() == 8 { 2 } else { 0 }; // 8-digit is AARRGGBB
+    let at = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).ok();
+    Some([at(off)?, at(off + 2)?, at(off + 4)?])
+}
+
+/// Excel's tint on a solid color: positive lightens toward white,
+/// negative darkens toward black.
+fn apply_tint(c: [u8; 3], tint: f64) -> [u8; 3] {
+    let t = tint.clamp(-1.0, 1.0);
+    let f = |v: u8| {
+        let x = v as f64 / 255.0;
+        let y = if t >= 0.0 {
+            t * x + (1.0 - t)
+        } else {
+            (1.0 + t) * x
+        };
+        (y.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
+    };
+    [f(c[0]), f(c[1]), f(c[2])]
 }
 
 /// Numeric built-in numFmt ids worth applying (dates included: if such a
@@ -4421,13 +4758,13 @@ fn render_spreadsheet(content: &OfficeContent) -> Option<Vec<u8>> {
         cr.move_to(row_header_w - tw - 6.0, y + 15.5);
         let _ = cr.show_text(&row_num);
 
-        // Row background: header tinted, body alternating like styled tables.
-        if ri == 0 {
-            cr.set_source_rgb(0.55, 0.82, 0.30);
-        } else if ri % 2 == 0 {
-            cr.set_source_rgb(0.86, 0.92, 0.98);
+        // Row background: no workbook styling is reachable here (this is
+        // the legacy text fallback), so a plain white header and quiet
+        // zebra — never a hue the file didn't declare.
+        if ri % 2 == 0 {
+            cr.set_source_rgb(1.0, 1.0, 1.0);
         } else {
-            cr.set_source_rgb(0.88, 0.95, 0.83);
+            cr.set_source_rgb(0.957, 0.965, 0.973);
         }
         cr.rectangle(row_header_w, y, table_w, row_h);
         cr.fill().ok()?;
@@ -4497,7 +4834,7 @@ fn render_spreadsheet(content: &OfficeContent) -> Option<Vec<u8>> {
     cr.stroke().ok()?;
     cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
     cr.set_font_size(9.0);
-    cr.set_source_rgb(0.18, 0.47, 0.27);
+    cr.set_source_rgb(0.20, 0.21, 0.23);
     cr.move_to(20.0, tab_y + 12.5);
     let _ = cr.show_text("Sheet1");
 
@@ -4538,12 +4875,16 @@ fn render_office_page(prep: &PreparedOffice, n: usize) -> Option<Vec<u8>> {
         OfficePageBody::Grid {
             sheet,
             rows,
+            styles,
+            style_pool,
             row_base,
             col_base,
             extra_cols,
             total_rows,
         } => render_sheet_grid(
             rows,
+            styles,
+            style_pool,
             sheet,
             *row_base,
             *col_base,
@@ -4624,7 +4965,7 @@ fn render_prose_page(
         }
     }
 
-    draw_folio(&cr, page_no, total, wf - DOC_MARGIN, hf - 24.0);
+    draw_folio(&cr, page_no, total, wf - DOC_MARGIN, hf - 24.0, 11.0);
 
     cr.set_source_rgb(0.88, 0.88, 0.90);
     cr.set_line_width(1.0);
@@ -4634,15 +4975,21 @@ fn render_prose_page(
     surface_to_png(surface, cr)
 }
 
-/// One page of spreadsheet rows — the WHOLE sheet: content-measured column
-/// widths (squeezed proportionally to the page, ellipsis-truncated at the
-/// cell edge), adaptive row height down to a legible floor, absolute row
-/// numbers/column letters, numbers right-aligned like a spreadsheet, and
-/// honest "+N more rows/columns" notes for anything that doesn't fit.
-/// Sheet tab (real name) + folio at the bottom; row 0 keeps the bold
-/// header band.
+/// One page of spreadsheet rows at SHEET_PAGE_W×SHEET_PAGE_H (2× the
+/// preview box — an A4 page in that box shrank text to ~2 px) — the WHOLE
+/// sheet: content-measured column widths (squeezed proportionally to the
+/// page, ellipsis-truncated at the cell edge), adaptive row height down to
+/// a legible floor, absolute row numbers/column letters, numbers
+/// right-aligned like a spreadsheet, and honest "+N more rows/columns"
+/// notes for anything that doesn't fit. The workbook's own cell styling —
+/// fills, text colors, bold/italic/underline — is painted as the file
+/// declares it; only files with NO style data get quiet zebra banding, and
+/// no header is ever colored in a hue the file didn't ask for. Sheet tab
+/// (real name) + folio at the bottom.
 fn render_sheet_grid(
     rows: &[Vec<String>],
+    styles: &[Vec<u16>],
+    style_pool: &[SheetCellStyle],
     sheet: &str,
     row_base: usize,
     col_base: usize,
@@ -4652,17 +4999,22 @@ fn render_sheet_grid(
     total: usize,
 ) -> Option<Vec<u8>> {
     use gtk::cairo;
-    let (surface, cr) = new_surface(DOC_PAGE_W, DOC_PAGE_H)?;
-    let wf = DOC_PAGE_W as f64;
-    let hf = DOC_PAGE_H as f64;
+    let (surface, cr) = new_surface(SHEET_PAGE_W, SHEET_PAGE_H)?;
+    let wf = SHEET_PAGE_W as f64;
+    let hf = SHEET_PAGE_H as f64;
 
     cr.set_source_rgb(1.0, 1.0, 1.0);
     cr.paint().ok()?;
 
-    let row_header_w = 46.0;
-    let col_header_h = 30.0;
+    // From here on the file's own colors rule: when it styles at least one
+    // cell of this page, every unstyled cell is plain white — no zebra, no
+    // invented header band.
+    let has_styles = styles.iter().any(|r| r.iter().any(|i| *i != u16::MAX));
+
+    let row_header_w = 84.0;
+    let col_header_h = 48.0;
     let table_w = wf - row_header_w - 1.0;
-    let table_bottom = hf - 40.0; // tab/folio strip below the grid
+    let table_bottom = hf - 48.0; // tab/folio strip below the grid
     let avail_h = table_bottom - col_header_h;
 
     // Rows: comfortable while the sheet is small, then shrink toward the
@@ -4681,7 +5033,7 @@ fn render_sheet_grid(
             .max(1)
     };
     let hidden_rows = total_rows.max(rows.len()).saturating_sub(shown);
-    let mut data_fs = (row_h - 5.5).clamp(9.5, 13.5);
+    let mut data_fs = (row_h - 8.0).clamp(SHEET_DATA_FS_MIN, SHEET_DATA_FS_MAX);
 
     // Columns: keep as many as fit at a sane minimum width; the rest is
     // reported under the grid (never silently dropped on the floor).
@@ -4708,7 +5060,7 @@ fn render_sheet_grid(
                     if let Some(cell) = row.get(ci) {
                         if !cell.is_empty() {
                             let tw = cr.text_extents(cell).map(|e| e.width()).unwrap_or(0.0);
-                            w = w.max(tw + 14.0);
+                            w = w.max(tw + 24.0);
                         }
                     }
                 }
@@ -4716,10 +5068,10 @@ fn render_sheet_grid(
             })
             .collect();
         let s: f64 = w.iter().sum();
-        if s <= table_w || data_fs <= 9.5 {
+        if s <= table_w || data_fs <= SHEET_DATA_FS_MIN {
             break w;
         }
-        data_fs = (data_fs - 0.5).max(9.5);
+        data_fs = (data_fs - 0.5).max(SHEET_DATA_FS_MIN);
     };
     let sum: f64 = widths.iter().sum();
     if sum > table_w {
@@ -4763,7 +5115,8 @@ fn render_sheet_grid(
         left += w;
     }
 
-    // Header bands + separator lines.
+    // Header bands + separator lines (neutral chrome — spreadsheet colors
+    // live in the cells, not in our furniture).
     cr.set_source_rgb(0.91, 0.92, 0.93);
     cr.rectangle(0.0, 0.0, wf, col_header_h);
     cr.fill().ok()?;
@@ -4781,33 +5134,30 @@ fn render_sheet_grid(
     // Column letters at their ABSOLUTE sheet columns (a range starting at
     // C4 still reads C, D, E…), centered per measured width.
     cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
-    cr.set_font_size(11.5);
+    cr.set_font_size(20.0);
     cr.set_source_rgb(0.28, 0.29, 0.31);
     for (ci, w) in widths.iter().enumerate() {
         let letter = col_letter(col_base + ci);
         let tw = cr.text_extents(&letter).map(|e| e.width()).unwrap_or(0.0);
-        cr.move_to(xs[ci] + (w - tw) / 2.0, 20.0);
+        cr.move_to(xs[ci] + (w - tw) / 2.0, 32.0);
         let _ = cr.show_text(&letter);
     }
 
-    // Rows.
+    // Rows: band (file fill / plain white / quiet zebra), then per-cell
+    // fills, then text in the cell's own color and weights.
     let mut y = col_header_h;
     for (ri, row) in rows.iter().take(shown).enumerate() {
         cr.set_source_rgb(0.91, 0.92, 0.93);
         cr.rectangle(0.0, y, row_header_w, row_h);
         cr.fill().ok()?;
         cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
-        cr.set_font_size(10.5);
+        cr.set_font_size(18.0);
         cr.set_source_rgb(0.38, 0.39, 0.41);
         let row_num = (row_base + ri + 1).to_string();
         let tw = cr.text_extents(&row_num).map(|e| e.width()).unwrap_or(0.0);
-        cr.move_to(row_header_w - tw - 7.0, y + row_h / 2.0 + 3.5);
+        cr.move_to(row_header_w - tw - 12.0, y + row_h / 2.0 + 6.0);
         let _ = cr.show_text(&row_num);
-        // Row 1 of the sheet is the header (bold on green); data rows get
-        // a quiet zebra instead of the old alternating color noise.
-        if ri == 0 {
-            cr.set_source_rgb(0.55, 0.82, 0.30);
-        } else if ri % 2 == 0 {
+        if has_styles || ri % 2 == 0 {
             cr.set_source_rgb(1.0, 1.0, 1.0);
         } else {
             cr.set_source_rgb(0.957, 0.965, 0.973);
@@ -4818,23 +5168,57 @@ fn render_sheet_grid(
         for ci in 0..ncols {
             let cw = widths[ci];
             let cell = row.get(ci).map(|s| s.as_str()).unwrap_or("");
-            if ri == 0 {
-                cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
-                cr.set_source_rgb(0.10, 0.12, 0.10);
-            } else {
-                cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
-                cr.set_source_rgb(0.15, 0.15, 0.17);
+            let st = grid_cell_style(styles, style_pool, ri, ci);
+            if let Some(fill) = st.and_then(|s| s.fill) {
+                cr.set_source_rgb(
+                    fill[0] as f64 / 255.0,
+                    fill[1] as f64 / 255.0,
+                    fill[2] as f64 / 255.0,
+                );
+                cr.rectangle(xs[ci], y, cw, row_h);
+                cr.fill().ok()?;
             }
+            let italic = st.is_some_and(|s| s.italic);
+            let bold = st.map_or(!has_styles && ri == 0, |s| s.bold);
+            let underline = st.is_some_and(|s| s.underline);
+            let ink = st.and_then(|s| s.text);
+            cr.select_font_face(
+                "Sans",
+                if italic {
+                    cairo::FontSlant::Italic
+                } else {
+                    cairo::FontSlant::Normal
+                },
+                if bold {
+                    cairo::FontWeight::Bold
+                } else {
+                    cairo::FontWeight::Normal
+                },
+            );
             cr.set_font_size(data_fs);
-            let text = truncate_to_width(&cr, cell, cw - 10.0);
+            match ink {
+                Some(c) => {
+                    cr.set_source_rgb(c[0] as f64 / 255.0, c[1] as f64 / 255.0, c[2] as f64 / 255.0)
+                }
+                // No style data: the header band is simply dark ink.
+                None if !has_styles && ri == 0 => cr.set_source_rgb(0.10, 0.12, 0.10),
+                None => cr.set_source_rgb(0.15, 0.15, 0.17),
+            }
+            let text = truncate_to_width(&cr, cell, cw - 18.0);
             let tw = cr.text_extents(&text).map(|e| e.width()).unwrap_or(0.0);
             let tx = if ri > 0 && cell_is_numeric(cell) {
-                (xs[ci] + cw - 5.0 - tw).max(xs[ci] + 4.0)
+                (xs[ci] + cw - 9.0 - tw).max(xs[ci] + 9.0)
             } else {
-                xs[ci] + 5.0
+                xs[ci] + 9.0
             };
             cr.move_to(tx, baseline);
             let _ = cr.show_text(&text);
+            if underline && !text.is_empty() {
+                cr.set_line_width(1.0);
+                cr.move_to(tx, baseline + 3.0);
+                cr.line_to(tx + tw, baseline + 3.0);
+                cr.stroke().ok()?;
+            }
         }
         y += row_h;
     }
@@ -4870,7 +5254,7 @@ fn render_sheet_grid(
     }
     if rows.is_empty() {
         cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
-        cr.set_font_size(15.0);
+        cr.set_font_size(26.0);
         cr.set_source_rgb(0.52, 0.54, 0.57);
         let msg = "empty sheet";
         let tw = cr.text_extents(msg).map(|e| e.width()).unwrap_or(0.0);
@@ -4880,19 +5264,19 @@ fn render_sheet_grid(
 
     // Sheet tab (real sheet name) bottom-left, overflow notes center,
     // folio bottom-right.
-    let tab_y = hf - 36.0;
+    let tab_y = hf - 44.0;
     cr.set_source_rgb(0.95, 0.96, 0.97);
-    cr.rectangle(8.0, tab_y, 180.0, 24.0);
+    cr.rectangle(16.0, tab_y, 200.0, 36.0);
     cr.fill().ok()?;
     cr.set_source_rgba(0.0, 0.0, 0.0, 0.16);
     cr.set_line_width(1.0);
-    cr.rectangle(8.5, tab_y + 0.5, 179.0, 23.0);
+    cr.rectangle(16.5, tab_y + 0.5, 199.0, 35.0);
     cr.stroke().ok()?;
     cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
-    cr.set_font_size(11.5);
-    cr.set_source_rgb(0.18, 0.47, 0.27);
-    let shown_sheet = truncate_to_width(&cr, sheet, 164.0);
-    cr.move_to(20.0, tab_y + 16.5);
+    cr.set_font_size(19.0);
+    cr.set_source_rgb(0.20, 0.21, 0.23);
+    let shown_sheet = truncate_to_width(&cr, sheet, 176.0);
+    cr.move_to(30.0, tab_y + 24.0);
     let _ = cr.show_text(&shown_sheet);
 
     let mut notes: Vec<String> = Vec::new();
@@ -4912,13 +5296,14 @@ fn render_sheet_grid(
     }
     if !notes.is_empty() {
         cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
-        cr.set_font_size(11.0);
+        cr.set_font_size(16.0);
         cr.set_source_rgb(0.45, 0.47, 0.50);
-        cr.move_to(204.0, tab_y + 16.5);
-        let _ = cr.show_text(&notes.join("  \u{b7}  "));
+        let joined = truncate_to_width(&cr, &notes.join("  \u{b7}  "), 330.0);
+        cr.move_to(236.0, tab_y + 24.0);
+        let _ = cr.show_text(&joined);
     }
 
-    draw_folio(&cr, page_no, total, wf - 24.0, tab_y + 16.5);
+    draw_folio(&cr, page_no, total, wf - 24.0, tab_y + 24.0, 16.0);
 
     cr.set_source_rgb(0.88, 0.88, 0.90);
     cr.set_line_width(1.0);
@@ -4926,6 +5311,21 @@ fn render_sheet_grid(
     cr.stroke().ok()?;
 
     surface_to_png(surface, cr)
+}
+
+/// A cell's pooled style when it deviates from a plain default
+/// (`u16::MAX` and short vectors both mean "no styling here").
+fn grid_cell_style<'a>(
+    styles: &'a [Vec<u16>],
+    pool: &'a [SheetCellStyle],
+    ri: usize,
+    ci: usize,
+) -> Option<&'a SheetCellStyle> {
+    let idx = *styles.get(ri)?.get(ci)?;
+    if idx == u16::MAX {
+        return None;
+    }
+    pool.get(idx as usize)
 }
 
 /// Spreadsheet column letter for an absolute column index: 0 → A, 25 → Z,
@@ -5045,7 +5445,7 @@ fn render_odf_slide(title: &str, bullets: &[String], page_no: usize, total: usiz
         y = draw_odf_bullet(&cr, bullet, 84.0, y, wf - 180.0);
     }
 
-    draw_folio(&cr, page_no, total, wf - 64.0, hf - 32.0);
+    draw_folio(&cr, page_no, total, wf - 64.0, hf - 32.0, 11.0);
 
     cr.set_source_rgb(0.85, 0.85, 0.87);
     cr.set_line_width(1.0);
@@ -5075,10 +5475,17 @@ fn draw_odf_bullet(cr: &gtk::cairo::Context, text: &str, x: f64, y: f64, max_w: 
 }
 
 /// Small gray "n / total" bottom-right folio on rendered office pages.
-fn draw_folio(cr: &gtk::cairo::Context, page_no: usize, total: usize, right_x: f64, baseline: f64) {
+fn draw_folio(
+    cr: &gtk::cairo::Context,
+    page_no: usize,
+    total: usize,
+    right_x: f64,
+    baseline: f64,
+    size: f64,
+) {
     use gtk::cairo;
     cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Normal);
-    cr.set_font_size(11.0);
+    cr.set_font_size(size);
     cr.set_source_rgb(0.55, 0.55, 0.58);
     let folio = format!("{}/{}", page_no, total);
     let tw = cr.text_extents(&folio).map(|e| e.width()).unwrap_or(0.0);
@@ -8443,6 +8850,34 @@ fn default_theme_colors() -> std::collections::HashMap<String, (f64, f64, f64)> 
     m
 }
 
+/// `<a:clrScheme>` color slots of a theme XML into `colors` (the Office
+/// defaults stand in for slots the file doesn't define). Shared by the
+/// pptx theme reader and xlsx `<color theme="N"/>` resolution.
+fn parse_clr_scheme(
+    xml: &str,
+    colors: &mut std::collections::HashMap<String, (f64, f64, f64)>,
+) {
+    let Some(i) = find_open_tag(xml, 0, "a:clrScheme") else {
+        return;
+    };
+    let Some((s, e)) = element_span(xml, i, "a:clrScheme") else {
+        return;
+    };
+    let scheme = &xml[s..e];
+    for slot in [
+        "dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4", "accent5",
+        "accent6", "hlink", "folHlink",
+    ] {
+        if let Some(si) = find_open_tag(scheme, 0, &format!("a:{}", slot)) {
+            if let Some((ss, se)) = element_span(scheme, si, &format!("a:{}", slot)) {
+                if let Some(c) = literal_hex(&scheme[ss..se]) {
+                    colors.insert(slot.to_string(), c);
+                }
+            }
+        }
+    }
+}
+
 /// Load `ppt/theme/theme1.xml`: color scheme (srgbClr/sysClr slots), the
 /// major/minor latin typefaces, and `<a:bgFillStyleLst>` fills.
 fn parse_theme_colors<R: std::io::Read + std::io::Seek>(
@@ -8459,23 +8894,7 @@ fn parse_theme_colors<R: std::io::Read + std::io::Seek>(
     };
 
     // color scheme slots
-    if let Some(i) = find_open_tag(&xml, 0, "a:clrScheme") {
-        if let Some((s, e)) = element_span(&xml, i, "a:clrScheme") {
-            let scheme = &xml[s..e];
-            for slot in [
-                "dk1", "lt1", "dk2", "lt2", "accent1", "accent2", "accent3", "accent4",
-                "accent5", "accent6", "hlink", "folHlink",
-            ] {
-                if let Some(si) = find_open_tag(scheme, 0, &format!("a:{}", slot)) {
-                    if let Some((ss, se)) = element_span(scheme, si, &format!("a:{}", slot)) {
-                        if let Some(c) = literal_hex(&scheme[ss..se]) {
-                            theme.colors.insert(slot.to_string(), c);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    parse_clr_scheme(&xml, &mut theme.colors);
 
     // latin typefaces (skip theme placeholders like "+mj-lt")
     if let Some(i) = find_open_tag(&xml, 0, "a:majorFont") {
@@ -13330,6 +13749,271 @@ accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>"#;
         assert_eq!(office_page_caption(&path, 2).as_deref(), Some("Stats"));
 
         rm_office_cache(&path, 2);
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// One or more sheets with REAL style data: every cell carries a style
+    /// index — 0 plain, 1 bold red on an amber fill, 2 a blue underlined
+    /// theme hyperlink, 3 the `0.000` number format, 4 the gray125
+    /// placeholder fill (which must never paint) — plus the styles.xml and
+    /// theme1.xml that define them. Values parsing as numbers are written
+    /// as numbers so numFmt applies.
+    fn xlsx_styled_parts(
+        sheets: &[(&str, Vec<Vec<(String, u16)>>)],
+    ) -> Vec<(String, Vec<u8>)> {
+        const STYLES_XML: &str = r#"<?xml version="1.0"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="0.000"/></numFmts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFCC00"/></patternFill></fill></fills><fonts count="3"><font><sz val="11"/><color theme="1"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFCC0000"/><name val="Calibri"/></font><font><u/><sz val="11"/><color theme="10"/><name val="Calibri"/></font></fonts><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="0" fillId="1" borderId="0" xfId="0"/></cellXfs></styleSheet>"#;
+        // The hlink slot is deliberately NOT the Office default, so the
+        // blue assertion only passes when THIS theme1.xml was read.
+        const THEME_XML: &str = r#"<?xml version="1.0"?><a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:themeElements><a:clrScheme name="QA"><a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1><a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1><a:dk2><a:srgbClr val="44546A"/></a:dk2><a:lt2><a:srgbClr val="E7E6E6"/></a:lt2><a:accent1><a:srgbClr val="4472C4"/></a:accent1><a:accent2><a:srgbClr val="ED7D31"/></a:accent2><a:accent3><a:srgbClr val="A5A5A5"/></a:accent3><a:accent4><a:srgbClr val="FFC000"/></a:accent4><a:accent5><a:srgbClr val="5B9BD5"/></a:accent5><a:accent6><a:srgbClr val="70AD47"/></a:accent6><a:hlink><a:srgbClr val="123456"/></a:hlink><a:folHlink><a:srgbClr val="954F72"/></a:folHlink></a:clrScheme></a:themeElements></a:theme>"#;
+
+        let plain: Vec<(&str, Vec<Vec<String>>)> = sheets
+            .iter()
+            .map(|(name, rows)| {
+                let texts: Vec<Vec<String>> = rows
+                    .iter()
+                    .map(|r| r.iter().map(|(t, _)| t.clone()).collect())
+                    .collect();
+                (*name, texts)
+            })
+            .collect();
+        let mut parts = xlsx_parts(&plain);
+        // Rebuild each sheet part with the per-cell style indices.
+        for (i, (_, rows)) in sheets.iter().enumerate() {
+            let n = i + 1;
+            let mut xml = String::from(
+                "<?xml version=\"1.0\"?><worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>",
+            );
+            for (ri, row) in rows.iter().enumerate() {
+                xml.push_str(&format!("<row r=\"{}\">", ri + 1));
+                for (ci, (cell, s)) in row.iter().enumerate() {
+                    let col = (b'A' + ci as u8) as char;
+                    if cell.parse::<f64>().is_ok() {
+                        xml.push_str(&format!(
+                            "<c r=\"{col}{}\" s=\"{s}\"><v>{cell}</v></c>",
+                            ri + 1
+                        ));
+                    } else {
+                        xml.push_str(&format!(
+                            "<c r=\"{col}{}\" s=\"{s}\" t=\"inlineStr\"><is><t>{cell}</t></is></c>",
+                            ri + 1
+                        ));
+                    }
+                }
+                xml.push_str("</row>");
+            }
+            xml.push_str("</sheetData></worksheet>");
+            let part = format!("xl/worksheets/sheet{n}.xml");
+            parts.retain(|(name, _)| name != &part);
+            parts.push((part, xml.into_bytes()));
+        }
+        parts.push(("xl/styles.xml".into(), STYLES_XML.as_bytes().to_vec()));
+        parts.push(("xl/theme/theme1.xml".into(), THEME_XML.as_bytes().to_vec()));
+        parts
+    }
+
+    /// The style half of the xlsx pass resolves the file's own paint —
+    /// fills, text colors (rgb + theme slots), weights — while plain cells
+    /// and no-op fills stay unrecorded; numFmt still formats alongside.
+    #[test]
+    fn xlsx_styles_resolve_real_colors_and_formats() {
+        let rows: Vec<Vec<(String, u16)>> = vec![
+            vec![
+                ("Region".into(), 1),
+                ("Link".into(), 2),
+                ("Plain".into(), 0),
+                ("1.5".into(), 3),
+            ],
+            vec![
+                ("Ghost".into(), 4),
+                ("x".into(), 0),
+                ("y".into(), 0),
+                ("z".into(), 0),
+            ],
+        ];
+        let path = zip_fixture(
+            "office_xlsx_styled",
+            "styled.xlsx",
+            &xlsx_styled_parts(&[
+                ("Data", rows),
+                (
+                    "Late",
+                    vec![vec![
+                        ("T1".into(), 0),
+                        ("T2".into(), 0),
+                        ("T3".into(), 0),
+                        ("4".into(), 0),
+                    ]],
+                ),
+            ]),
+        );
+
+        let info = xlsx_cell_info(&path, &["Data".to_string(), "Late".to_string()])
+            .expect("styles.xml read");
+        let st = info.styles.as_ref().expect("styled cells recorded");
+        // A1: bold red text on the file's amber fill.
+        let a1 = st.pool[st.pool_index(0, 0, 0).expect("A1 carries a style") as usize];
+        assert_eq!(a1.fill, Some([255, 204, 0]), "fill from <fgColor>");
+        assert_eq!(a1.text, Some([204, 0, 0]), "text from <color rgb>");
+        assert!(a1.bold && !a1.italic);
+        // B1: theme index 10 = the hyperlink slot of THIS theme1.xml.
+        let b1 = st.pool[st.pool_index(0, 1, 0).expect("B1 carries a style") as usize];
+        assert_eq!(b1.fill, None);
+        assert_eq!(b1.text, Some([0x12, 0x34, 0x56]), "theme hlink slot");
+        assert!(b1.underline && !b1.bold);
+        // Plain cells, default-looking xfs, and the gray125 placeholder
+        // fill are never recorded — nothing extra gets painted.
+        assert!(st.pool_index(0, 2, 0).is_none(), "C1 is plain");
+        assert!(st.pool_index(0, 0, 1).is_none(), "gray125 never paints");
+        // Same coordinates on a LATER sheet keep their own plain look:
+        // styles are keyed per sheet, never by bare (row, col) — otherwise
+        // every sheet's A1 would inherit the last styled one's paint.
+        assert!(
+            st.pool_index(1, 0, 0).is_none(),
+            "Late!A1 must not inherit Data's amber"
+        );
+        // The numFmt half of the same pass still works alongside styles.
+        let fmts = info.formats.as_ref().expect("0.000 format recorded");
+        assert_eq!(fmts.pool[0], "0.000", "custom code from <numFmts>");
+
+        // End to end: styled cells ride into the grid page, and the number
+        // shows as Excel would print it.
+        let prep = prepare_office(&path).expect("prepares");
+        match &prep.pages[0].body {
+            OfficePageBody::Grid {
+                rows,
+                styles,
+                style_pool,
+                ..
+            } => {
+                assert_eq!(rows[0][3], "1.500");
+                assert_eq!(styles[0][3], u16::MAX, "xf3 looks plain");
+                assert!(style_pool.len() >= 2, "pool shared with the render");
+            }
+            other => panic!("expected Grid, got {other:?}"),
+        }
+
+        rm_office_cache(&path, 2);
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// The sheet page is 640×480 — 2× the preview box, so the pane's fit
+    /// lands at readable size — and paints the FILE's colors: amber header
+    /// row (the old render's invented green fails this), white body.
+    #[test]
+    fn sheet_page_fits_preview_box_with_file_colors() {
+        let mut rows: Vec<Vec<(String, u16)>> = vec![vec![
+            ("Region".into(), 1),
+            ("Code".into(), 1),
+            ("Value".into(), 1),
+            ("Note".into(), 1),
+            ("Rank".into(), 1),
+            ("Trend".into(), 1),
+        ]];
+        for i in 1..=12 {
+            rows.push(vec![
+                (format!("R{i}"), 0),
+                (format!("C{i}"), 0),
+                ("10".into(), 0),
+                ("note".into(), 0),
+            ]);
+        }
+        let path = zip_fixture(
+            "office_xlsx_pixmap",
+            "pix.xlsx",
+            &xlsx_styled_parts(&[("Data", rows)]),
+        );
+
+        let prep = prepare_office(&path).expect("prepares");
+        let png = render_office_page(&prep, 1).expect("sheet page renders");
+        let img = image::load_from_memory(&png).unwrap().to_rgba8();
+        assert_eq!(
+            (img.width(), img.height()),
+            (640, 480),
+            "sheet page is 2× the 320×240 preview box"
+        );
+        let head = img.get_pixel(600, 52).0;
+        assert!(
+            head[0] > 240 && (185..=220).contains(&head[1]) && head[2] < 40,
+            "header = file amber (255,204,0), got {head:?}"
+        );
+        // A styled sheet's body is plain white: no zebra, no invented hue.
+        let body = img.get_pixel(600, 150).0;
+        assert!(
+            body[0] > 250 && body[1] > 250 && body[2] > 250,
+            "body = white, got {body:?}"
+        );
+
+        rm_office_cache(&path, 1);
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// Formats with no style data keep a plain white header (never the old
+    /// invented green) plus the quiet zebra on alternating rows.
+    #[test]
+    fn csv_sheet_page_never_invents_a_colored_header() {
+        let d = td("office_csv_colors");
+        let csv = d.join("plain.csv");
+        let mut text = String::from("name,value,note\n");
+        for i in 0..20 {
+            text.push_str(&format!("item{i},{i},note{i}\n"));
+        }
+        fs::write(&csv, &text).unwrap();
+
+        let prep = prepare_office(&csv).expect("csv prepares");
+        let png = render_office_page(&prep, 1).expect("csv page renders");
+        let img = image::load_from_memory(&png).unwrap().to_rgba8();
+        assert_eq!((img.width(), img.height()), (640, 480));
+        let head = img.get_pixel(600, 52).0;
+        assert!(
+            head[0] > 250 && head[1] > 250 && head[2] > 250,
+            "header = white, got {head:?}"
+        );
+        let zebra = img.get_pixel(600, 77).0;
+        assert!(
+            (240..=251).contains(&zebra[0]) && (243..=252).contains(&zebra[2]),
+            "row 2 = quiet zebra band, got {zebra:?}"
+        );
+
+        rm_office_cache(&csv, 1);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    /// The result row's overview is the real page-1 render (downscaled to
+    /// the 320×240 card), not the old synthesized gray grid card.
+    #[test]
+    fn xlsx_row_overview_is_the_real_sheet_render() {
+        let mut rows: Vec<Vec<(String, u16)>> = vec![vec![
+            ("Region".into(), 1),
+            ("Code".into(), 1),
+            ("Value".into(), 1),
+            ("Note".into(), 1),
+            ("Rank".into(), 1),
+            ("Trend".into(), 1),
+        ]];
+        for i in 1..=6 {
+            rows.push(vec![
+                (format!("R{i}"), 0),
+                (format!("C{i}"), 0),
+                ("10".into(), 0),
+            ]);
+        }
+        let path = zip_fixture(
+            "office_xlsx_row",
+            "row.xlsx",
+            &xlsx_styled_parts(&[("Data", rows)]),
+        );
+
+        let thumb = crate::thumbnails::thumbnail_for(&path).expect("row thumbnail");
+        let img = image::open(&thumb).unwrap().to_rgba8();
+        assert_eq!((img.width(), img.height()), (320, 240), "row card size");
+        let px = img.get_pixel(300, 30).0;
+        assert!(
+            px[0] > 240 && (185..=220).contains(&px[1]) && px[2] < 40,
+            "overview = real amber sheet render, got {px:?}"
+        );
+
+        let _ = fs::remove_file(&thumb);
+        rm_office_cache(&path, 1);
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 

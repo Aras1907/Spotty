@@ -21,7 +21,7 @@ use std::sync::{Mutex, OnceLock};
 // ── card constants ──────────────────────────────────────────────────
 const CARD_W: u32 = 320;
 const CARD_H: u32 = 240;
-const THUMB_VERSION: u32 = 1;
+const THUMB_VERSION: u32 = 2;
 const MAX_ENTRY_BYTES: u64 = 8 * 1024 * 1024;
 
 // ── memo (in-memory; avoids repeated disk stat + cache reads) ───────
@@ -169,6 +169,16 @@ pub fn thumbnail_for(path: &Path) -> Option<PathBuf> {
         "doc" | "docx" | "odt" | "ott" | "fodt" | "rtf" | "wps" | "ppt" | "otp"
         | "ots" | "fods" | "xls" | "odp" | "fodp" => {
             return reuse_full_preview(crate::preview::office_thumbnail(path), &cache_path);
+        }
+        // Spreadsheets: the real page-1 render carries the file's actual
+        // cell colors — a synthesized gray card is only the fallback when
+        // the workbook can't be prepared at all (falls through below).
+        "xlsx" | "ods" | "csv" => {
+            if let Some(icon) =
+                reuse_full_preview(crate::preview::office_thumbnail(path), &cache_path)
+            {
+                return Some(icon);
+            }
         }
         _ => {}
     }
