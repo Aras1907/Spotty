@@ -344,9 +344,11 @@ fn open_spotty_edit_dialog(
         .title("Search Window")
         .description("Keyboard shortcuts used inside the search window")
         .build();
-    let win_fields: [(&str, &str, &str); 2] = [
+    let win_fields: [(&str, &str, &str); 4] = [
         ("Uninstall app", "uninstall", "<Control>u"),
         ("Kill app", "kill", "<Control>k"),
+        ("Delete file / folder", "delete_file", "<Control>d"),
+        ("Open location in file manager", "open_location", "<Control>Return"),
     ];
     for &(title, field, default) in &win_fields {
         let current = shortcut_value(config, field, default);
@@ -1163,6 +1165,8 @@ fn shortcut_value(cfg: &Rc<RefCell<Config>>, field: &str, default: &str) -> Stri
         "cut" => c.cut_shortcut.clone(),
         "paste" => c.paste_shortcut.clone(),
         "terminal" => c.terminal_shortcut.clone(),
+        "open_location" => c.open_location_shortcut.clone(),
+        "delete_file" => c.delete_file_shortcut.clone(),
         "uninstall" => c.uninstall_shortcut.clone(),
         "kill" => c.kill_shortcut.clone(),
         "select_all" => c.select_all_shortcut.clone(),
@@ -1188,6 +1192,8 @@ fn set_shortcut(cfg: &mut Config, field: &str, value: &str) {
         "cut" => cfg.cut_shortcut = v,
         "paste" => cfg.paste_shortcut = v,
         "terminal" => cfg.terminal_shortcut = v,
+        "open_location" => cfg.open_location_shortcut = v,
+        "delete_file" => cfg.delete_file_shortcut = v,
         "uninstall" => cfg.uninstall_shortcut = v,
         "kill" => cfg.kill_shortcut = v,
         "select_all" => cfg.select_all_shortcut = v,

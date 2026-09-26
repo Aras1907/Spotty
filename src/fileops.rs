@@ -1,4 +1,6 @@
 // File operation engine: copy / cut / paste for selected search results.
+// Plus the find-mode shortcuts: trash a selected item and resolve which
+// directory "open location in file manager" should land in.
 //
 // State lives in a thread_local so pending copy/cut selections survive Spotty
 // being hidden and re-shown while the daemon keeps running.
@@ -7,9 +9,14 @@
 //   • copy(path)            — remember a path to be copied on next paste
 //   • cut(path)             — remember a path to be MOVED on next paste
 //   • paste(dest_dir)       — perform the pending copy/cut into dest_dir
+//   • trash_path(path)      — move a file/folder to the Trash (recoverable)
+//   • location_target(...)  — dir to open in the file manager for a result
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
+
+// `gio::FileExt` provides the `trash` method used by `trash_path`.
+use gtk::gio::prelude::FileExt;
 
 #[derive(Clone, Debug)]
 enum PendingOp {
@@ -138,5 +145,60 @@ fn remove_path(p: &Path) -> std::io::Result<()> {
         std::fs::remove_dir_all(p)
     } else {
         std::fs::remove_file(p)
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Delete + location (find-mode shortcuts)
+// ──────────────────────────────────────────────────────────────────────
+
+/// Move a file/folder to the Trash — recoverable, never a permanent delete.
+/// Uses GLib's trash API: the XDG trash natively, and the Trash portal inside
+/// the Flatpak sandbox so the item lands in the host's Trash, not a sandbox
+/// copy.
+pub fn trash_path(path: &Path) -> Result<(), String> {
+    let file = gtk::gio::File::for_path(path);
+    file.trash(None::<&gtk::gio::Cancellable>)
+        .map_err(|e| e.to_string())
+}
+
+/// Where "open location in file manager" lands for a selected result: a
+/// folder opens itself, a file opens its containing folder. Generic on
+/// purpose — asking a file manager to select the item would need
+/// file-manager-specific flags, and this must work with any of them.
+pub fn location_target(path: &Path, is_dir: bool) -> PathBuf {
+    if is_dir {
+        return path.to_path_buf();
+    }
+    match path.parent() {
+        // `parent()` of a bare relative name is Some("") — treat like None.
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => path.to_path_buf(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn location_target_opens_folder_itself_and_file_parent() {
+        assert_eq!(
+            location_target(Path::new("/home/u/Docs"), true),
+            PathBuf::from("/home/u/Docs")
+        );
+        assert_eq!(
+            location_target(Path::new("/home/u/Docs/report.pdf"), false),
+            PathBuf::from("/home/u/Docs")
+        );
+        assert_eq!(
+            location_target(Path::new("/file.txt"), false),
+            PathBuf::from("/")
+        );
+        // No usable parent (bare relative name) → the path itself, never "".
+        assert_eq!(
+            location_target(Path::new("file.txt"), false),
+            PathBuf::from("file.txt")
+        );
     }
 }

@@ -271,6 +271,14 @@ pub struct Config {
     pub paste_shortcut: String,
     #[serde(default = "default_terminal_shortcut")]
     pub terminal_shortcut: String,
+    /// Find mode: open the selected file's/folder's location in the default
+    /// file manager (works with any file manager).
+    #[serde(default = "default_open_location_shortcut")]
+    pub open_location_shortcut: String,
+    /// Find mode: move the selected file/folder to the Trash (confirmation
+    /// dialog first — default answer is No).
+    #[serde(default = "default_delete_file_shortcut")]
+    pub delete_file_shortcut: String,
     #[serde(default = "default_uninstall_shortcut")]
     pub uninstall_shortcut: String,
     #[serde(default = "default_kill_shortcut")]
@@ -356,7 +364,16 @@ fn default_paste_shortcut() -> String {
     "<Control>v".into()
 }
 fn default_terminal_shortcut() -> String {
+    // Ctrl+Enter is taken by "open location in file manager"; the terminal
+    // action lives on Ctrl+Shift+Enter (migrate_resource_defaults moves old
+    // configs off the previous Ctrl+Enter default).
+    "<Control><Shift>Return".into()
+}
+fn default_open_location_shortcut() -> String {
     "<Control>Return".into()
+}
+fn default_delete_file_shortcut() -> String {
+    "<Control>d".into()
 }
 fn default_uninstall_shortcut() -> String {
     "<Control>u".into()
@@ -402,6 +419,8 @@ impl Default for Config {
             cut_shortcut: default_cut_shortcut(),
             paste_shortcut: default_paste_shortcut(),
             terminal_shortcut: default_terminal_shortcut(),
+            open_location_shortcut: default_open_location_shortcut(),
+            delete_file_shortcut: default_delete_file_shortcut(),
             uninstall_shortcut: default_uninstall_shortcut(),
             kill_shortcut: default_kill_shortcut(),
             select_all_shortcut: default_select_all_shortcut(),
@@ -528,6 +547,13 @@ impl Config {
         if self.clipboard_history_limit == 100 {
             self.clipboard_history_limit = 1000;
         }
+        // Ctrl+Enter now opens the location in the file manager; the terminal
+        // action moved to Ctrl+Shift+Enter. Move configs still sitting on the
+        // old default so the two don't both match the same accelerator
+        // (same pattern as the old cmd/run Super+Ctrl+T move).
+        if self.terminal_shortcut == "<Control>Return" {
+            self.terminal_shortcut = default_terminal_shortcut();
+        }
         // Older defaults shipped an empty marketplace URL (the field existed
         // but pointed nowhere) — fill in the official repository so the
         // marketplace works without manual configuration.
@@ -612,5 +638,39 @@ mod tests {
         cfg.trigger_repo_url = custom.into();
         cfg.migrate_resource_defaults();
         assert_eq!(cfg.trigger_repo_url, custom);
+    }
+
+    #[test]
+    fn new_shortcut_defaults_and_terminal_migration() {
+        // Fresh defaults: Ctrl+Enter opens the location in the file manager,
+        // terminal moved to Ctrl+Shift+Enter, Ctrl+D deletes behind a
+        // confirmation dialog.
+        let cfg = Config::default();
+        assert_eq!(cfg.open_location_shortcut, "<Control>Return");
+        assert_eq!(cfg.delete_file_shortcut, "<Control>d");
+        assert_eq!(cfg.terminal_shortcut, "<Control><Shift>Return");
+
+        // Old configs still carrying the previous terminal default move off
+        // it so both actions don't match the same accelerator.
+        let mut cfg = Config::default();
+        cfg.terminal_shortcut = "<Control>Return".into();
+        cfg.migrate_resource_defaults();
+        assert_eq!(cfg.terminal_shortcut, "<Control><Shift>Return");
+
+        // A deliberately customized terminal shortcut is left alone.
+        cfg.terminal_shortcut = "<Super>t".into();
+        cfg.migrate_resource_defaults();
+        assert_eq!(cfg.terminal_shortcut, "<Super>t");
+    }
+
+    #[test]
+    fn config_without_new_fields_deserializes_with_defaults() {
+        // Configs written before the fields existed must still load and pick
+        // up the new defaults via serde.
+        let cfg: Config = serde_json::from_str(r#"{"shortcut": "Super+Space"}"#).unwrap();
+        assert_eq!(cfg.shortcut, "Super+Space");
+        assert_eq!(cfg.open_location_shortcut, "<Control>Return");
+        assert_eq!(cfg.delete_file_shortcut, "<Control>d");
+        assert_eq!(cfg.terminal_shortcut, "<Control><Shift>Return");
     }
 }

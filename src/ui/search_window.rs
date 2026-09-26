@@ -977,7 +977,8 @@ impl SearchWindow {
                     }
                 }
 
-                // Open folder in terminal — find mode + folder.
+                // Find mode contextual shortcuts: terminal (folder), delete +
+                // open location (file/folder).
                 let in_find = active_mode
                     .borrow()
                     .as_ref()
@@ -988,18 +989,51 @@ impl SearchWindow {
                     let browsing_folder = trimmed.starts_with('/')
                         || trimmed.starts_with("~/")
                         || trimmed == "~";
-                    let selected_is_folder = selected.as_ref().map_or(false, |res| {
-                        matches!(&res.action, Action::BrowseInto(_) | Action::OpenInFileManager(_))
-                            || matches!(&res.action, Action::OpenPath(_) if matches!(res.kind, crate::search::ResultKind::Folder))
+                    let selected_target = selected.as_ref().and_then(|res| match &res.action {
+                        Action::BrowseInto(p) | Action::OpenInFileManager(p) => {
+                            Some((p.clone(), true))
+                        }
+                        Action::OpenPath(p) => Some((
+                            p.clone(),
+                            matches!(res.kind, crate::search::ResultKind::Folder),
+                        )),
+                        _ => None,
                     });
+                    let selected_is_folder =
+                        selected_target.as_ref().is_some_and(|(_, is_dir)| *is_dir);
                     if browsing_folder || selected_is_folder {
                         let taccel = accel_or(
                             &config,
                             |c| c.terminal_shortcut.as_str(),
-                            "<Control>Return",
+                            "<Control><Shift>Return",
                         );
                         if !taccel.is_empty() {
                             entries.insert(0, ("Open folder in terminal", taccel));
+                        }
+                    }
+                    if selected_target.is_some() {
+                        let daccel = accel_or(
+                            &config,
+                            |c| c.delete_file_shortcut.as_str(),
+                            "<Control>d",
+                        );
+                        if !daccel.is_empty() {
+                            let label = if selected_is_folder {
+                                "Delete folder"
+                            } else {
+                                "Delete file"
+                            };
+                            entries.push((label, daccel));
+                        }
+                    }
+                    if selected_target.is_some() || browsing_folder {
+                        let laccel = accel_or(
+                            &config,
+                            |c| c.open_location_shortcut.as_str(),
+                            "<Control>Return",
+                        );
+                        if !laccel.is_empty() {
+                            entries.push(("Open location in file manager", laccel));
                         }
                     }
                 }
@@ -2268,7 +2302,95 @@ impl SearchWindow {
                     }
                 }
 
-                // Open folder in a terminal (default Ctrl+Enter). Only available in the
+                // Find mode: open the location of the selected file/folder in
+                // the default file manager (default Ctrl+Enter). A folder
+                // opens itself, a file opens its containing folder; with
+                // nothing selected the path being browsed is used. Deliberately
+                // FM-agnostic (gio/xdg-open based) so any file manager works.
+                {
+                    let in_find = mode_kc
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|kw| kw.all_files);
+                    let s = cfg_kc.borrow().open_location_shortcut.clone();
+                    if in_find && !s.is_empty() {
+                        if let Some((accel_key, accel_mods)) = gtk::accelerator_parse(&s) {
+                            let enter_family = |k: gtk::gdk::Key| {
+                                matches!(
+                                    k,
+                                    gtk::gdk::Key::Return
+                                        | gtk::gdk::Key::KP_Enter
+                                        | gtk::gdk::Key::Linefeed
+                                )
+                            };
+                            let key_matches =
+                                key == accel_key || (enter_family(accel_key) && enter_family(key));
+                            if key_matches && state == accel_mods {
+                                let target = l
+                                    .selected_row()
+                                    .and_then(|row| r.borrow().get(row.index() as usize).cloned())
+                                    .and_then(|res| match &res.action {
+                                        Action::OpenPath(p) => Some(
+                                            crate::fileops::location_target(
+                                                p,
+                                                res.kind == crate::search::ResultKind::Folder,
+                                            ),
+                                        ),
+                                        Action::BrowseInto(p)
+                                        | Action::OpenInFileManager(p) => Some(p.clone()),
+                                        _ => None,
+                                    })
+                                    .or_else(|| {
+                                        let typed = current_typed(&e, &typed_len_c);
+                                        let t = typed.trim();
+                                        if t.starts_with('/') || t.starts_with("~/") || t == "~" {
+                                            expand_path(t)
+                                        } else {
+                                            None
+                                        }
+                                    });
+                                if let Some(dir) = target {
+                                    log::info!(
+                                        "open-location shortcut: opening {} in file manager",
+                                        dir.display()
+                                    );
+                                    crate::app::open_in_file_manager(&dir);
+                                    dismiss(&w, &shown_kc, false);
+                                    return glib::Propagation::Stop;
+                                }
+                                log::info!("open-location shortcut pressed but no location resolved");
+                            }
+                        }
+                    }
+                }
+
+                // Find mode: delete the selected file/folder (default Ctrl+D).
+                // Always behind a confirmation dialog whose default is No.
+                if hit(|c| c.delete_file_shortcut.as_str(), key, state, false) {
+                    let in_find = mode_kc
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|kw| kw.all_files);
+                    if in_find {
+                        let target = l
+                            .selected_row()
+                            .and_then(|row| r.borrow().get(row.index() as usize).cloned())
+                            .and_then(|res| match &res.action {
+                                Action::OpenPath(p)
+                                | Action::BrowseInto(p)
+                                | Action::OpenInFileManager(p) => {
+                                    Some((p.clone(), res.title.clone()))
+                                }
+                                _ => None,
+                            });
+                        if let Some((path, name)) = target {
+                            confirm_delete_path(&w, &popover_open_kc, &e, &path, &name);
+                            return glib::Propagation::Stop;
+                        }
+                    }
+                }
+
+                // Open folder in a terminal (default Ctrl+Shift+Enter). Only available in the
                 // Find trigger when browsing a folder (query starts with ~/ or /) or when
                 // a folder result is selected.
                 {
@@ -3556,6 +3678,128 @@ fn show_confirm_dialog(
     }
     dialog.present();
     yes_btn.grab_focus();
+}
+
+/// Find-mode delete (Ctrl+D): confirmation popup asking
+/// `Do you want to delete "name"?` whose default answer is No (focused
+/// button, default widget, and Escape all cancel). On confirm the item goes
+/// to the Trash — never a permanent delete — and the search re-runs; failures
+/// surface as a desktop notification, like the app's other confirm dialogs.
+fn confirm_delete_path(
+    window: &gtk::Window,
+    popover_open: &Rc<Cell<bool>>,
+    entry: &gtk::Entry,
+    path: &std::path::Path,
+    name: &str,
+) {
+    // Block the focus-loss auto-hide while the dialog is up.
+    popover_open.set(true);
+
+    let dialog = gtk::Window::builder()
+        .transient_for(window)
+        .modal(true)
+        .resizable(false)
+        .decorated(false)
+        .default_width(340)
+        .build();
+    dialog.add_css_class("spotty-window");
+
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(8)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .margin_top(20)
+        .margin_bottom(20)
+        .margin_start(24)
+        .margin_end(24)
+        .build();
+    content.append(
+        &gtk::Label::builder()
+            .label(format!("Do you want to delete \"{name}\"?"))
+            .css_classes(["title-3"])
+            .halign(gtk::Align::Center)
+            .build(),
+    );
+    content.append(
+        &gtk::Label::builder()
+            .label("It will be moved to the Trash.")
+            .css_classes(["dim-label", "caption"])
+            .halign(gtk::Align::Center)
+            .build(),
+    );
+    let btn_row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(gtk::Align::Center)
+        .margin_top(8)
+        .build();
+    let delete_btn = gtk::Button::builder()
+        .label("Delete")
+        .css_classes(["destructive-action", "spotty-confirm-btn"])
+        .build();
+    let no_btn = gtk::Button::builder()
+        .label("No")
+        .css_classes(["spotty-confirm-btn"])
+        .build();
+    btn_row.append(&delete_btn);
+    btn_row.append(&no_btn);
+    content.append(&btn_row);
+    dialog.set_child(Some(&content));
+    // Default answer is No: it owns the default widget and the initial focus.
+    dialog.set_default_widget(Some(&no_btn));
+
+    let popover_open2 = popover_open.clone();
+    let finish = {
+        let dialog = dialog.clone();
+        let entry = entry.clone();
+        let path = path.to_path_buf();
+        let name = name.to_string();
+        move |confirmed: bool| {
+            popover_open2.set(false);
+            dialog.close();
+            if confirmed {
+                match crate::fileops::trash_path(&path) {
+                    Ok(()) => {
+                        log::info!("fileops: trashed {}", path.display());
+                        // Re-run the search; the indexer's change watcher
+                        // also drops the path from the snapshot shortly.
+                        entry.emit_by_name::<()>("changed", &[]);
+                    }
+                    Err(e) => {
+                        log::warn!("fileops: trash failed for {}: {e}", path.display());
+                        crate::app::send_desktop_notification(
+                            "Spotty",
+                            &format!("Couldn't delete \"{name}\": {e}"),
+                        );
+                    }
+                }
+            }
+            entry.grab_focus();
+        }
+    };
+    {
+        let finish = finish.clone();
+        delete_btn.connect_clicked(move |_| finish(true));
+    }
+    {
+        let finish = finish.clone();
+        no_btn.connect_clicked(move |_| finish(false));
+    }
+    {
+        let finish = finish.clone();
+        let kc = gtk::EventControllerKey::new();
+        kc.connect_key_pressed(move |_, key, _, _| {
+            if key == gtk::gdk::Key::Escape {
+                finish(false);
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        dialog.add_controller(kc);
+    }
+    dialog.present();
+    no_btn.grab_focus();
 }
 
 // Whether a result is eligible for universal pinning: real, static results
