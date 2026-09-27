@@ -1,3 +1,5 @@
+use crate::i18n::gettext;
+
 use adw::prelude::*;
 use gtk::pango;
 use std::io::Read;
@@ -131,6 +133,16 @@ pub struct PreviewPane {
     // Trigger help page widgets.
     htext: gtk::Label,
     hpic: gtk::Picture,
+    // Clip timestamp: shown above the preview while a clipboard entry is
+    // selected ("Clipped 27.09.2026 14:32").
+    clip_caption: gtk::Label,
+    // Update page widgets: libadwaita boxed list of pending packages plus
+    // the keyboard shortcuts that run each update scope.
+    u_title: gtk::Label,
+    u_sub: gtk::Label,
+    u_list: gtk::ListBox,
+    u_kb_head: gtk::Label,
+    u_kb: gtk::Box,
     // Identity of the track currently shown in the music page, so late async
     // cover/stats updates can verify they're still relevant.
     msel: std::rc::Rc<std::cell::RefCell<String>>,
@@ -197,7 +209,7 @@ impl PreviewPane {
         // Empty placeholder
         stack.add_named(
             &gtk::Label::builder()
-                .label("Highlight a result\nto preview")
+                .label(gettext("Highlight a result\nto preview"))
                 .css_classes(["dim-label"])
                 .wrap(true)
                 .justify(gtk::Justification::Center)
@@ -406,22 +418,77 @@ impl PreviewPane {
         hb.append(&hpic_clip);
         stack.add_named(&hb, Some("help"));
 
+        // Update page: title + count, a libadwaita boxed list of what wants
+        // updating, and the keyboard shortcuts for the scoped runs.
+        let u_title = gtk::Label::builder()
+            .xalign(0.0)
+            .wrap(true)
+            .css_classes(["title-4"])
+            .build();
+        let u_sub = gtk::Label::builder()
+            .xalign(0.0)
+            .wrap(true)
+            .css_classes(["caption", "dim-label"])
+            .build();
+        let u_list = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .css_classes(["boxed-list"])
+            .hexpand(true)
+            .build();
+        let u_kb_head = gtk::Label::builder()
+            .label(gettext("Keyboard"))
+            .xalign(0.0)
+            .css_classes(["heading"])
+            .margin_top(8)
+            .build();
+        let u_kb = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(4)
+            .build();
+        let ub = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(8)
+            .hexpand(true)
+            .build();
+        ub.append(&u_title);
+        ub.append(&u_sub);
+        ub.append(&u_list);
+        ub.append(&u_kb_head);
+        ub.append(&u_kb);
+        let u_scroll = gtk::ScrolledWindow::builder()
+            .child(&ub)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .max_content_height(360)
+            .propagate_natural_height(true)
+            .build();
+        stack.add_named(&u_scroll, Some("update"));
+
+        let clip_caption = gtk::Label::builder()
+            .css_classes(["caption", "dim-label"])
+            .halign(gtk::Align::Start)
+            .margin_start(8)
+            .margin_end(8)
+            .margin_top(6)
+            .wrap(true)
+            .visible(false)
+            .build();
+        container.append(&clip_caption);
         container.append(&stack);
         stack.set_visible_child_name("empty");
 
         // Navigation bar for multi-page documents (PPTX slides, PDF pages, etc.)
         let nav_prev = gtk::Button::builder()
-            .label("◀")
+            .label(gettext("◀"))
             .width_request(36)
             .sensitive(false)
             .build();
         let nav_label = gtk::Label::builder()
-            .label("1 / 1")
+            .label(gettext("1 / 1"))
             .width_request(80)
             .halign(gtk::Align::Center)
             .build();
         let nav_next = gtk::Button::builder()
-            .label("▶")
+            .label(gettext("▶"))
             .width_request(36)
             .sensitive(false)
             .build();
@@ -454,6 +521,12 @@ impl PreviewPane {
             mstats,
             htext,
             hpic,
+            clip_caption,
+            u_title,
+            u_sub,
+            u_list,
+            u_kb_head,
+            u_kb,
             msel: std::rc::Rc::new(std::cell::RefCell::new(String::new())),
             current: std::rc::Rc::new(std::cell::RefCell::new(std::path::PathBuf::new())),
             preview_debounce_id: std::rc::Rc::new(std::cell::Cell::new(None)),
@@ -529,7 +602,25 @@ impl PreviewPane {
         self.displayed.set(false);
         self.pending.set(false);
         self.current_stamp.set((0, 0));
+        self.clip_caption.set_visible(false);
         self.stack.set_visible_child_name("empty");
+    }
+
+    /// Show when a clipboard entry was captured ("Clipped <date> <time>"),
+    /// above the preview content; `None` hides it (as does `clear`).
+    pub fn show_clip_stamp(&self, at: Option<u64>) {
+        let when = at
+            .and_then(|s| gtk::glib::DateTime::from_unix_local(s as i64).ok())
+            .and_then(|dt| dt.format("%x %X").ok())
+            .map(|s| s.to_string());
+        match when {
+            Some(w) => {
+                self.clip_caption
+                    .set_label(&gettext("Clipped {time}").replace("{time}", &w));
+                self.clip_caption.set_visible(true);
+            }
+            None => self.clip_caption.set_visible(false),
+        }
     }
 
     /// Pause and detach the video player so it doesn't keep playing (or
@@ -549,6 +640,69 @@ impl PreviewPane {
         self.displayed.set(true);
         self.text.buffer().set_text(s);
         self.stack.set_visible_child_name("text");
+    }
+
+    /// Show what an update run will do: the package list as a libadwaita
+    /// boxed list, plus the keyboard shortcuts for the scoped runs.
+    /// An empty `shortcuts` hides the keyboard section (restart row).
+    pub fn show_update(
+        &self,
+        title: &str,
+        subtitle: &str,
+        packages: &[String],
+        shortcuts: &[(String, String)],
+    ) {
+        self.stop_video();
+        self.current_stamp.set((0, 0));
+        *self.current.borrow_mut() = std::path::PathBuf::new();
+        self.displayed.set(true);
+        self.u_title.set_label(title);
+        self.u_sub.set_label(subtitle);
+        self.u_sub.set_visible(!subtitle.is_empty());
+
+        // Rebuild the package rows — one adw row each, capped so a large
+        // update set can't stretch the pane past its scroll limit.
+        while let Some(child) = self.u_list.first_child() {
+            self.u_list.remove(&child);
+        }
+        const CAP: usize = 40;
+        for pkg in packages.iter().take(CAP) {
+            let row = adw::ActionRow::builder().title(pkg).build();
+            row.add_prefix(&gtk::Image::from_icon_name("software-update-available-symbolic"));
+            self.u_list.append(&row);
+        }
+        if packages.len() > CAP {
+            let more = gettext("…and {n} more").replace(
+                "{n}",
+                &(packages.len() - CAP).to_string(),
+            );
+            let row = adw::ActionRow::builder().title(more).build();
+            row.add_prefix(&gtk::Image::from_icon_name("view-more-symbolic"));
+            self.u_list.append(&row);
+        }
+        self.u_list.set_visible(!packages.is_empty());
+
+        // Keyboard section: label + accel per shortcut.
+        while let Some(child) = self.u_kb.first_child() {
+            self.u_kb.remove(&child);
+        }
+        self.u_kb_head.set_visible(!shortcuts.is_empty());
+        for (label, accel) in shortcuts {
+            let row = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(12)
+                .build();
+            row.append(
+                &gtk::Label::builder()
+                    .label(label)
+                    .xalign(0.0)
+                    .hexpand(true)
+                    .build(),
+            );
+            row.append(&gtk::ShortcutLabel::new(accel));
+            self.u_kb.append(&row);
+        }
+        self.stack.set_visible_child_name("update");
     }
 
     /// Show trigger help: instruction text, plus the help_image screenshot
@@ -2509,12 +2663,12 @@ fn info_icon_for(p: &Path) -> &'static str {
         .and_then(|s| s.to_str())
         .map(|s| s.to_lowercase());
     match ext.as_deref() {
-        Some("pdf") => "application-pdf",
+        Some("pdf") => "x-office-document-symbolic",
         Some("ppt" | "pptx" | "pptm" | "ppsm" | "potx" | "potm" | "odp" | "otp" | "fodp" | "pps" | "ppsx") => {
-            "x-office-presentation"
+            "x-office-presentation-symbolic"
         }
-        Some("doc" | "docx" | "odt" | "rtf" | "ott" | "fodt" | "wps") => "x-office-document",
-        Some("xls" | "xlsx" | "ods" | "ots" | "fods" | "csv") => "x-office-spreadsheet",
+        Some("doc" | "docx" | "odt" | "rtf" | "ott" | "fodt" | "wps") => "x-office-document-symbolic",
+        Some("xls" | "xlsx" | "ods" | "ots" | "fods" | "csv") => "x-office-spreadsheet-symbolic",
         Some(
             "mp4" | "mkv" | "webm" | "mov" | "avi" | "wmv" | "flv" | "m4v" | "mpeg" | "mpg"
             | "m2ts" | "mts" | "ogv" | "3gp" | "3g2" | "asf" | "rm" | "rmvb" | "vob" | "divx"
@@ -2533,7 +2687,7 @@ fn info_icon_for(p: &Path) -> &'static str {
         Some(
             "rs" | "py" | "js" | "ts" | "c" | "h" | "cpp" | "go" | "java" | "rb" | "sh" | "lua"
             | "sql",
-        ) => "text-x-script-symbolic",
+        ) => "text-x-generic-symbolic",
         _ => "text-x-generic-symbolic",
     }
 }
@@ -2718,7 +2872,7 @@ fn extract_csv(doc: &Path) -> Option<OfficeContent> {
     }
     Some(OfficeContent {
         kind: OfficeKind::Spreadsheet,
-        title: "Spreadsheet".into(),
+        title: gettext("Spreadsheet").into(),
         lines: rows.into_iter().map(|row| row.join("\t")).collect(),
     })
 }
@@ -4580,7 +4734,7 @@ fn extract_xlsx<R: std::io::Read + std::io::Seek>(
     let lines = rows.into_iter().map(|r| r.join("\t")).collect();
     Some(OfficeContent {
         kind: OfficeKind::Spreadsheet,
-        title: "Spreadsheet".into(),
+        title: gettext("Spreadsheet").into(),
         lines,
     })
 }

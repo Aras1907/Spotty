@@ -1,4 +1,5 @@
 use crate::search::{ResultKind, SearchResult};
+use crate::i18n::gettext;
 use adw::prelude::*;
 use gtk::glib;
 use gtk::pango;
@@ -95,18 +96,14 @@ impl ResultRow {
                         .unwrap_or((rest, "package-x-generic-symbolic"));
                     set_pkg_icon(&icon, name, fallback);
                 } else {
-                    icon.set_icon_name(Some(n));
+                    // Names the active theme doesn't know (legacy Adwaita
+                    // icons such as system-software-update or application-pdf)
+                    // render as an empty square — fall back to the kind's
+                    // generic icon instead.
+                    set_icon_name_or(&icon, n, generic_icon_for(r.kind));
                 }
             } else {
-                icon.set_icon_name(Some(match r.kind {
-                    ResultKind::App => "application-x-executable-symbolic",
-                    ResultKind::File | ResultKind::Calculator => "text-x-generic-symbolic",
-                    ResultKind::Folder => "folder-symbolic",
-                    ResultKind::Web => "web-browser-symbolic",
-                    ResultKind::Clipboard => "edit-paste-symbolic",
-                    ResultKind::System => "system-shutdown-symbolic",
-                    ResultKind::Emoji => "face-smile-symbolic",
-                }));
+                icon.set_icon_name(Some(generic_icon_for(r.kind)));
             }
             // Request an overview thumbnail for document files.
             if let Some(path) = match &r.action {
@@ -179,7 +176,7 @@ impl ResultRow {
                 .icon_name("user-trash-symbolic")
                 .css_classes(["flat", "circular", "row-action-btn"])
                 .valign(gtk::Align::Center)
-                .tooltip_text("Remove from history")
+                .tooltip_text(gettext("Remove from history"))
                 .build();
             c.append(&btn);
             Some(btn)
@@ -256,15 +253,15 @@ impl ResultRow {
         // disappears or turns into a generic glyph.
         let icon = gtk::Image::builder().pixel_size(24).build();
         match &icon_name {
-            Some(n) if is_app_id(n) => set_app_icon_or(&icon, n, "software-install-symbolic"),
+            Some(n) if is_app_id(n) => set_app_icon_or(&icon, n, "system-software-install-symbolic"),
             Some(n) if n.starts_with("pkg:") => {
                 let rest = n.strip_prefix("pkg:").unwrap();
                 let (name, fallback) = rest
                     .rsplit_once(':')
-                    .unwrap_or((rest, "software-install-symbolic"));
+                    .unwrap_or((rest, "system-software-install-symbolic"));
                 set_pkg_icon(&icon, name, fallback);
             }
-            _ => icon.set_icon_name(Some("software-install-symbolic")),
+            _ => icon.set_icon_name(Some("system-software-install-symbolic")),
         }
 
         c.append(&icon);
@@ -301,7 +298,7 @@ impl ResultRow {
                     .icon_name("process-stop-symbolic")
                     .css_classes(["flat", "circular"])
                     .valign(gtk::Align::Center)
-                    .tooltip_text("Cancel")
+                    .tooltip_text(gettext("Cancel"))
                     .build();
                 cancel_btn.connect_clicked(move |_| {
                     crate::operations::cancel(id);
@@ -317,7 +314,7 @@ impl ResultRow {
                     .icon_name("view-refresh-symbolic")
                     .css_classes(["flat", "circular"])
                     .valign(gtk::Align::Center)
-                    .tooltip_text("Retry")
+                    .tooltip_text(gettext("Retry"))
                     .build();
                 redo_btn.connect_clicked(move |_| {
                     crate::operations::restart(id);
@@ -462,6 +459,34 @@ fn is_app_id(name: &str) -> bool {
     name.contains('.') && !name.ends_with("-symbolic") && !name.contains('/')
 }
 
+/// Generic icon per result kind — used when a row carries no icon, and as
+/// the fallback when the active icon theme doesn't know a row's icon name.
+fn generic_icon_for(kind: ResultKind) -> &'static str {
+    match kind {
+        ResultKind::App => "application-x-executable-symbolic",
+        ResultKind::File | ResultKind::Calculator => "text-x-generic-symbolic",
+        ResultKind::Folder => "folder-symbolic",
+        ResultKind::Web => "web-browser-symbolic",
+        ResultKind::Clipboard => "edit-paste-symbolic",
+        ResultKind::System => "system-shutdown-symbolic",
+        ResultKind::Emoji => "face-smile-symbolic",
+        ResultKind::Translate => "tools-check-spelling-symbolic",
+    }
+}
+
+/// Set a plain themed icon, falling back to `fallback` when the active theme
+/// has no such icon — legacy names would otherwise render as an empty square.
+fn set_icon_name_or(icon: &gtk::Image, name: &str, fallback: &str) {
+    if let Some(display) = gtk::gdk::Display::default() {
+        let theme = gtk::IconTheme::for_display(&display);
+        if theme.has_icon(name) {
+            icon.set_icon_name(Some(name));
+            return;
+        }
+    }
+    icon.set_icon_name(Some(fallback));
+}
+
 /// Resolve an Operations-popover row icon from its stored `name`, robustly:
 /// an absolute path is loaded directly; an app-id or `pkg:`-prefixed package is
 /// resolved against the icon theme and host appstream (with an async fallback so
@@ -480,7 +505,7 @@ pub fn set_op_row_icon(icon: &gtk::Image, name: &str) {
     } else if is_app_id(name) {
         set_app_icon_or(icon, name, FALLBACK);
     } else {
-        icon.set_icon_name(Some(name));
+        set_icon_name_or(icon, name, FALLBACK);
     }
 }
 

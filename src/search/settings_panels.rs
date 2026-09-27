@@ -3,6 +3,7 @@
 use crate::search::{Action, ResultKind, SearchResult};
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Matcher, Utf32String};
+use crate::i18n::gettext;
 
 struct Panel {
     title: &'static str,
@@ -205,8 +206,8 @@ pub fn search(query: &str) -> Vec<SearchResult> {
         if score > 0 {
             results.push(SearchResult {
                 kind: ResultKind::System,
-                title: format!("Settings: {}", p.title),
-                subtitle: Some("Open in GNOME Settings".into()),
+                title: gettext("Settings: {title}").replace("{title}", &p.title),
+                subtitle: Some(gettext("Open in GNOME Settings").into()),
                 icon: Some(p.icon.into()),
                 action: Action::RunCommand(format!("gnome-control-center {}", p.panel)),
                 score,

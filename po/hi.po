@@ -1,0 +1,1159 @@
+# hi translation for Spotty.
+# Generated from po/spotty.pot + po/i18n/hi.json by scripts/make_po.py.
+msgid ""
+msgstr ""
+"Project-Id-Version: spotty\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: hi\n"
+"MIME-Version: 1.0\n"
+"PO-Revision-Date: 2026-09-26 00:00+0000\n"
+"Last-Translator: Spotty contributors\n"
+"Language-Team: hi\n"
+
+
+#: src/search/dictionary.rs:222
+msgid "    “{ex}”"
+msgstr ""
+
+#: src/preview.rs:486
+msgid "1 / 1"
+msgstr ""
+
+#: src/ui/settings_window.rs:495
+msgid "About"
+msgstr "के बारे में"
+
+#: src/ui/settings_window.rs:498
+msgid "About Spotty"
+msgstr "Spotty के बारे में"
+
+#: src/ui/settings_window.rs:1216
+msgid "Add Trigger"
+msgstr "ट्रिगर जोड़ें"
+
+#: src/ui/settings_window.rs:941
+msgid "Add Trigger Word"
+msgstr "ट्रिगर शब्द जोड़ें"
+
+#: src/ui/settings_window.rs:1616
+msgid "Add a local trigger"
+msgstr "स्थानीय ट्रिगर जोड़ें"
+
+#: src/search/cmd.rs:2112
+msgid "All packages are up to date"
+msgstr "सभी पैकेज अद्यतित हैं"
+
+#: src/ui/settings_window.rs:2127
+msgid "Allow typing / or ~/ to browse the filesystem directly"
+msgstr "/ या ~/ टाइप करके फ़ाइल सिस्टम सीधे ब्राउज़ करने की अनुमति देता है"
+
+#: src/search/translate.rs:569
+msgid "Already {language}"
+msgstr "पहले से {language}"
+
+#: src/ui/settings_window.rs:94
+msgid "Also suggest installable apps as you type"
+msgstr "टाइप करते समय इंस्टॉल करने योग्य ऐप्स भी सुझाएँ"
+
+#: src/ui/settings_window.rs:137
+msgid "Always show web search row"
+msgstr "हमेशा वेब खोज पंक्ति दिखाएँ"
+
+#: src/ui/settings_window.rs:87
+msgid "Applications"
+msgstr "अनुप्रयोग"
+
+#: src/ui/search_window.rs:2185
+#: src/ui/search_window.rs:3171
+msgid "Are you sure you want to install {name}?"
+msgstr "क्या आप वाकई {name} इंस्टॉल करना चाहते हैं?"
+
+#: src/ui/search_window.rs:2189
+#: src/ui/search_window.rs:3175
+msgid "Are you sure you want to uninstall {name}?"
+msgstr "क्या आप वाकई {name} को हटाना चाहते हैं?"
+
+#: src/ui/search_window.rs:2200
+#: src/ui/search_window.rs:3215
+#: src/ui/settings_window.rs:420
+msgid "Are you sure?"
+msgstr "क्या आप निश्चित हैं?"
+
+#: src/search/translate.rs:579
+#: src/search/translate.rs:665
+#: src/search/translate.rs:721
+#: src/search/translate.rs:772
+msgid "Auto"
+msgstr "स्वचालित"
+
+#: src/search/translate.rs:718
+msgid "Back to Auto (system language)"
+msgstr "स्वचालित पर वापस जाएँ (सिस्टम भाषा)"
+
+#: src/config.rs:204
+msgid "Bluetooth devices"
+msgstr "Bluetooth डिवाइस"
+
+#: src/ui/settings_window.rs:706
+msgid "Browse and install triggers"
+msgstr "ट्रिगर ब्राउज़ करें और इंस्टॉल करें"
+
+#: src/ui/settings_window.rs:99
+msgid "Calculator"
+msgstr "कैलकुलेटर"
+
+#: src/ui/result_row.rs:301
+#: src/ui/search_window.rs:529
+#: src/ui/search_window.rs:754
+#: src/ui/search_window.rs:2202
+#: src/ui/search_window.rs:3217
+#: src/ui/search_window.rs:4765
+#: src/ui/search_window.rs:5221
+#: src/ui/settings_window.rs:422
+#: src/ui/settings_window.rs:1037
+#: src/ui/settings_window.rs:1799
+msgid "Cancel"
+msgstr "रद्द करें"
+
+#: src/ui/settings_window.rs:1572
+msgid "Cannot save the manifest: {e}"
+msgstr "मैनिफ़ेस्ट सहेजा नहीं जा सकता: {e}"
+
+#: src/ui/settings_window.rs:1364
+msgid "Cannot save the trigger: {e}"
+msgstr "ट्रिगर सहेजा नहीं जा सकता: {e}"
+
+#: src/ui/settings_window.rs:330
+msgid "Check every"
+msgstr "जाँच अंतराल"
+
+#: src/ui/settings_window.rs:260
+msgid "Check for updates"
+msgstr "अपडेट जाँचें"
+
+#: src/ui/settings_window.rs:272
+msgid "Check now"
+msgstr "अभी जाँचें"
+
+#: src/search/cmd.rs:1854
+msgid "Check spelling or try a different name"
+msgstr "वर्तनी जाँचें या कोई और नाम आज़माएँ"
+
+#: src/search/cmd.rs:2008
+msgid "Check spelling or try fewer characters"
+msgstr "वर्तनी जाँचें या कम अक्षरों के साथ आज़माएँ"
+
+#: src/search/cmd.rs:2045
+#: src/search/cmd.rs:3485
+#: src/search/cmd.rs:3495
+msgid "Checking for updates…"
+msgstr "अपडेट की जाँच हो रही है…"
+
+#: src/ui/settings_window.rs:82
+msgid "Choose what types of results appear"
+msgstr "चुनें कि किस प्रकार के परिणाम दिखाई दें"
+
+#: src/ui/settings_window.rs:2026
+msgid "Clipboard"
+msgstr "क्लिपबोर्ड"
+
+#: src/preview.rs:619
+msgid "Clipped {time}"
+msgstr "कॉपी किया गया {time}"
+
+#: src/ui/settings_window.rs:1263
+msgid "Command"
+msgstr "कमांड"
+
+#: src/ui/settings_window.rs:1269
+msgid "Command line"
+msgstr "कमांड लाइन"
+
+#: src/ui/search_window.rs:2203
+#: src/ui/search_window.rs:3218
+#: src/ui/settings_window.rs:423
+msgid "Confirm"
+msgstr "पुष्टि करें"
+
+#: src/ui/search_window.rs:4058
+msgid "Couldn't delete \"{name}\": {e}"
+msgstr "\\\"{name}\\\" हटाया नहीं जा सका: {e}"
+
+#: src/ui/settings_window.rs:1390
+msgid "Couldn't install"
+msgstr "इंस्टॉल नहीं हो सका"
+
+#: src/ui/settings_window.rs:1679
+msgid "Couldn't load the trigger repository"
+msgstr "ट्रिगर रिपॉज़िटरी लोड नहीं हो सकी"
+
+#: src/ui/settings_window.rs:1769
+msgid "Couldn't load {url}: {e}"
+msgstr "{url} लोड नहीं हो सका: {e}"
+
+#: src/ui/settings_window.rs:1514
+msgid "Couldn't uninstall: {e}"
+msgstr "अनइंस्टॉल नहीं हो सका: {e}"
+
+#: src/ui/settings_window.rs:1201
+msgid "Create a Trigger"
+msgstr "ट्रिगर बनाएँ"
+
+#: src/ui/settings_window.rs:122
+msgid "Custom Search URL"
+msgstr "कस्टम खोज URL"
+
+#: src/ui/settings_window.rs:339
+msgid "Daily"
+msgstr "प्रतिदिन"
+
+#: src/ui/search_window.rs:4023
+msgid "Delete"
+msgstr "हटाएँ"
+
+#: src/ui/settings_window.rs:2076
+msgid "Delete clipboard entries older than this (pinned items are exempt)"
+msgstr "इससे पुरानी क्लिपबोर्ड प्रविष्टियाँ हटाता है (पिन की गई छूटी जाती हैं)"
+
+#: src/ui/search_window.rs:1102
+msgid "Delete file"
+msgstr "फ़ाइल हटाएँ"
+
+#: src/ui/search_window.rs:1100
+msgid "Delete folder"
+msgstr "फ़ोल्डर हटाएँ"
+
+#: src/ui/settings_window.rs:1251
+msgid "Description (optional)"
+msgstr "विवरण (वैकल्पिक)"
+
+#: src/search/translate.rs:666
+msgid "Detected automatically — press Enter to choose"
+msgstr "स्वतः पहचाना गया — चुनने के लिए Enter दबाएँ"
+
+#: src/search/dictionary.rs:188
+msgid "Dictionary: {query}"
+msgstr "शब्दकोश: {query}"
+
+#: src/search/cmd.rs:2187
+msgid "Disable update checks"
+msgstr "अपडेट जाँच बंद करें"
+
+#: src/ui/settings_window.rs:538
+msgid "Disabled · {base}"
+msgstr "अक्षम · {base}"
+
+#: src/search/cmd.rs:2137
+#: src/ui/settings_window.rs:373
+msgid "Dismiss update notice"
+msgstr "अपडेट सूचना छिपाएँ"
+
+#: src/ui/settings_window.rs:2095
+msgid "Display a hint bar in the clipboard manager"
+msgstr "क्लिपबोर्ड मैनेजर में संकेत पट्टी दिखाता है"
+
+#: src/ui/search_window.rs:4004
+msgid "Do you want to delete \"{name}\"?"
+msgstr "क्या आप \\\"{name}\\\" हटाना चाहते हैं?"
+
+#: src/ui/search_window.rs:2182
+#: src/ui/search_window.rs:3167
+msgid "Do you want to update {name}?"
+msgstr "क्या आप {name} अपडेट करना चाहते हैं?"
+
+#: src/ui/search_window.rs:2191
+msgid "Do you want to {action}?"
+msgstr "क्या आप {action} करना चाहते हैं?"
+
+#: src/ui/search_window.rs:533
+msgid "Done"
+msgstr "हो गया"
+
+#: src/ui/settings_window.rs:1576
+msgid "Download failed: {e}"
+msgstr "डाउनलोड विफल: {e}"
+
+#: src/ui/settings_window.rs:553
+msgid "Edit \"Open Spotty\" shortcut"
+msgstr "\\\"Spotty खोलें\\\" शॉर्टकट संपादित करें"
+
+#: src/ui/settings_window.rs:1880
+#: src/ui/settings_window.rs:1887
+msgid "Edit \"{name}\" trigger"
+msgstr "ट्रिगर \\\"{name}\\\" संपादित करें"
+
+#: src/ui/settings_window.rs:677
+msgid "Edit trigger words, import a manifest with +, or delete installed triggers."
+msgstr "ट्रिगर शब्द संपादित करें, + से मैनिफ़ेस्ट आयात करें या इंस्टॉल किए ट्रिगर हटाएँ।"
+
+#: src/search/cmd.rs:2189
+msgid "Enable update checks"
+msgstr "अपडेट जाँच चालू करें"
+
+#: src/ui/settings_window.rs:1923
+msgid "Enabled"
+msgstr "सक्षम"
+
+#: src/ui/settings_window.rs:338
+msgid "Every 12 hours"
+msgstr "हर 12 घंटे"
+
+#: src/ui/settings_window.rs:337
+msgid "Every 6 hours"
+msgstr "हर 6 घंटे"
+
+#: src/search/dictionary.rs:129
+msgid "Fetching the definition"
+msgstr "परिभाषा प्राप्त की जा रही है"
+
+#: src/ui/settings_window.rs:1669
+msgid "Fetching triggers…"
+msgstr "ट्रिगर प्राप्त किए जा रहे हैं…"
+
+#: src/ui/settings_window.rs:2122
+msgid "Find"
+msgstr "खोजें"
+
+#: src/ui/settings_window.rs:256
+msgid "Find package updates in the background"
+msgstr "पृष्ठभूमि में पैकेज अपडेट खोजता है"
+
+#: src/ui/settings_window.rs:74
+msgid "General"
+msgstr "सामान्य"
+
+#: src/search/cmd.rs:2138
+#: src/ui/settings_window.rs:374
+msgid "Hidden until a new update appears"
+msgstr "नया अपडेट आने तक छिपा रहेगा"
+
+#: src/search/cmd.rs:2130
+#: src/ui/settings_window.rs:365
+msgid "Hide the update notice for 24 hours"
+msgstr "अपडेट सूचना 24 घंटे तक छिपाएँ"
+
+#: src/preview.rs:212
+msgid "Highlight a result\nto preview"
+msgstr "पूर्वावलोकन के लिए\\nपरिणाम हाइलाइट करें"
+
+#: src/ui/settings_window.rs:2060
+msgid "History Limit"
+msgstr "इतिहास सीमा"
+
+#: src/ui/settings_window.rs:336
+msgid "Hourly"
+msgstr "हर घंटे"
+
+#: src/ui/settings_window.rs:1254
+msgid "Icon name (optional)"
+msgstr "आइकन नाम (वैकल्पिक)"
+
+#: src/ui/settings_window.rs:100
+msgid "Inline arithmetic"
+msgstr "तात्कालिक गणना"
+
+#: src/search/cmd.rs:1552
+#: src/ui/settings_window.rs:1038
+#: src/ui/settings_window.rs:1520
+msgid "Install"
+msgstr "इंस्टॉल करें"
+
+#: src/ui/settings_window.rs:1123
+msgid "Install failed"
+msgstr "इंस्टॉल विफल"
+
+#: src/search/cmd.rs:2159
+msgid "Install the updates, then restart"
+msgstr "अपडेट इंस्टॉल करें, फिर पुनः आरंभ करें"
+
+#: src/ui/settings_window.rs:1034
+msgid "Install {name}?"
+msgstr "{name} इंस्टॉल करें?"
+
+#: src/config.rs:174
+msgid "Install, uninstall, and manage apps"
+msgstr "ऐप इंस्टॉल, अनइंस्टॉल और प्रबंधित करता है"
+
+#: src/search/cmd.rs:2532
+#: src/search/cmd.rs:2626
+#: src/search/cmd.rs:2645
+#: src/search/cmd.rs:2732
+msgid "Install: {name}"
+msgstr "इंस्टॉल: {name}"
+
+#: src/ui/settings_window.rs:1117
+msgid "Installed \"{name}\""
+msgstr "\\\"{name}\\\" इंस्टॉल हो गया"
+
+#: src/search/cmd.rs:2538
+msgid "Installing {name}"
+msgstr "{name} इंस्टॉल हो रहा है"
+
+#: src/ui/search_window.rs:4011
+msgid "It will be moved to the Trash."
+msgstr "इसे रीसाइकिल बिन में ले जाया जाएगा।"
+
+#: src/ui/search_window.rs:1439
+msgid "Item deleted"
+msgstr "आइटम हटाया गया"
+
+#: src/ui/search_window.rs:1480
+msgid "Item unpinned — Press Ctrl+Z to undo"
+msgstr "आइटम अनपिन हुआ — वापस लेने के लिए Ctrl+Z दबाएँ"
+
+#: src/ui/settings_window.rs:1797
+msgid "Its trigger word and shortcut will be removed."
+msgstr "उसका ट्रिगर शब्द और शॉर्टकट हटा दिया जाएगा।"
+
+#: src/ui/settings_window.rs:2075
+msgid "Keep history"
+msgstr "इतिहास रखें"
+
+#: src/preview.rs:439
+#: src/ui/settings_window.rs:450
+msgid "Keyboard"
+msgstr "कीबोर्ड"
+
+#: src/ui/settings_window.rs:581
+#: src/ui/settings_window.rs:1275
+#: src/ui/settings_window.rs:2006
+msgid "Keyboard Shortcut"
+msgstr "कीबोर्ड शॉर्टकट"
+
+#: src/ui/search_window.rs:1143
+msgid "Keyboard Shortcuts"
+msgstr "कीबोर्ड शॉर्टकट"
+
+#: src/ui/settings_window.rs:615
+msgid "Keyboard shortcuts used inside the search window"
+msgstr "खोज विंडो में प्रयुक्त कीबोर्ड शॉर्टकट"
+
+#: src/ui/settings_window.rs:1249
+msgid "Keyword"
+msgstr "कीवर्ड"
+
+#: src/ui/settings_window.rs:1331
+msgid "Keyword: letters, digits, -, _ and . only."
+msgstr "कीवर्ड: केवल अक्षर, अंक, -, _ और ."
+
+#: src/search/cmd.rs:1544
+msgid "Kill"
+msgstr "समाप्त करें"
+
+#: src/ui/search_window.rs:1050
+msgid "Kill app"
+msgstr "ऐप समाप्त करें"
+
+#: src/ui/search_window.rs:2419
+msgid "Kill {name}?"
+msgstr "{name} समाप्त करें?"
+
+#: src/search/cmd.rs:2489
+msgid "Kill: {name}"
+msgstr "समाप्त करें: {name}"
+
+#: src/search/translate.rs:790
+msgid "Local translation engine not reachable"
+msgstr "स्थानीय अनुवाद इंजन उपलब्ध नहीं है"
+
+#: src/search/dictionary.rs:128
+msgid "Looking up \"{word}\"…"
+msgstr "\\\"{word}\\\" खोजा जा रहा है…"
+
+#: src/ui/settings_window.rs:2061
+msgid "Maximum number of clipboard entries to keep"
+msgstr "रखने के लिए अधिकतम क्लिपबोरड प्रविष्टियाँ"
+
+#: src/ui/settings_window.rs:1248
+msgid "Name"
+msgstr "नाम"
+
+#: src/ui/settings_window.rs:1323
+msgid "Name, keyword and command are required."
+msgstr "नाम, कीवर्ड और कमांड आवश्यक हैं।"
+
+#: src/ui/search_window.rs:3908
+#: src/ui/search_window.rs:4027
+msgid "No"
+msgstr "नहीं"
+
+#: src/search/cmd.rs:1853
+msgid "No apps found for \"{query}\""
+msgstr "\\\"{query}\\\" के लिए कोई ऐप नहीं मिला"
+
+#: src/search/cmd.rs:2007
+msgid "No installed app matching \"{query}\""
+msgstr "\\\"{query}\\\" से मेल खाता कोई इंस्टॉल ऐप नहीं"
+
+#: src/search/cmd.rs:2097
+msgid "No matching updates"
+msgstr "कोई मेल खाता अपडेट नहीं"
+
+#: src/ui/search_window.rs:616
+msgid "No operations yet"
+msgstr "अभी कोई कार्य नहीं"
+
+#: src/search/cmd.rs:1686
+msgid "No running app matching \"{query}\""
+msgstr "\\\"{query}\\\" से मेल खाता कोई चलता ऐप नहीं"
+
+#: src/ui/settings_window.rs:1675
+msgid "No triggers found"
+msgstr "कोई ट्रिगर नहीं मिला"
+
+#: src/ui/settings_window.rs:1434
+msgid "No triggers match \"{q}\"."
+msgstr "कोई ट्रिगर \\\"{q}\\\" से मेल नहीं खाता।"
+
+#: src/search/cmd.rs:2109
+#: src/search/cmd.rs:3140
+#: src/search/cmd.rs:3492
+msgid "No updates available"
+msgstr "कोई अपडेट उपलब्ध नहीं"
+
+#: src/ui/settings_window.rs:1126
+#: src/ui/settings_window.rs:1393
+msgid "OK"
+msgstr "ठीक है"
+
+#: src/search/cmd.rs:3126
+#: src/search/cmd.rs:3493
+#: src/ui/search_window.rs:3513
+msgid "One update available"
+msgstr "एक अपडेट उपलब्ध है"
+
+#: src/search/cmd.rs:1687
+msgid "Only running apps can be killed"
+msgstr "केवल चलते ऐप समाप्त किए जा सकते हैं"
+
+#: src/ui/settings_window.rs:684
+msgid "Open Spotty"
+msgstr "Spotty खोलें"
+
+#: src/ui/search_window.rs:1089
+msgid "Open folder in terminal"
+msgstr "टर्मिनल में फ़ोल्डर खोलें"
+
+#: src/search/dictionary.rs:190
+msgid "Open https://www.dictionary.com/browse/{query}"
+msgstr ""
+
+#: src/search/settings_panels.rs:210
+msgid "Open in GNOME Settings"
+msgstr "GNOME सेटिंग्स में खोलें"
+
+#: src/ui/search_window.rs:1114
+msgid "Open location in file manager"
+msgstr "फ़ाइल मैनेजर में स्थान खोलें"
+
+#: src/ui/search_window.rs:593
+msgid "Operations"
+msgstr "कार्य"
+
+#: src/ui/settings_window.rs:214
+#: src/ui/settings_window.rs:218
+msgid "Package Manager"
+msgstr "पैकेज मैनेजर"
+
+#: src/ui/settings_window.rs:1924
+msgid "Pause this trigger without uninstalling it"
+msgstr "इस ट्रिगर को बिना हटाए रोकें"
+
+#: src/ui/search_window.rs:1025
+msgid "Pin / Unpin selected"
+msgstr "चयनित को पिन/अनपिन करें"
+
+#: src/search/cmd.rs:1582
+msgid "Please wait…"
+msgstr "कृपया प्रतीक्षा करें…"
+
+#: src/search/cmd.rs:2046
+#: src/search/cmd.rs:2113
+msgid "Press Enter to check again"
+msgstr "दोबारा जाँचने के लिए Enter दबाएँ"
+
+#: src/search/translate.rs:736
+msgid "Press Enter to choose another language"
+msgstr "दूसरी भाषा चुनने के लिए Enter दबाएँ"
+
+#: src/search/translate.rs:659
+msgid "Press Enter to detect automatically"
+msgstr "स्वतः पहचान के लिए Enter दबाएँ"
+
+#: src/ui/search_window.rs:4936
+msgid "Press Enter to restart"
+msgstr "पुनरारंभ करने के लिए Enter दबाएँ"
+
+#: src/ui/settings_window.rs:2141
+msgid "Recent File/Folder Searches"
+msgstr "हाल की फ़ाइल/फ़ोल्डर खोजें"
+
+#: src/search/cmd.rs:2129
+#: src/ui/settings_window.rs:364
+msgid "Remind tomorrow"
+msgstr "कल याद दिलाएँ"
+
+#: src/ui/result_row.rs:179
+msgid "Remove from history"
+msgstr "इतिहास से हटाएँ"
+
+#: src/ui/settings_window.rs:1510
+msgid "Removed \"{name}\""
+msgstr "\\\"{name}\\\" हटाया गया"
+
+#: src/ui/settings_window.rs:2178
+#: src/ui/settings_window.rs:2420
+msgid "Reset"
+msgstr "रीसेट करें"
+
+#: src/ui/settings_window.rs:731
+msgid "Reset trigger words and shortcuts to defaults"
+msgstr "ट्रिगर शब्द और शॉर्टकट को डिफ़ॉल्ट पर रीसेट करता है"
+
+#: src/ui/settings_window.rs:393
+msgid "Restart"
+msgstr "रीस्टार्ट करें"
+
+#: src/search/cmd.rs:2172
+#: src/ui/search_window.rs:4935
+#: src/ui/settings_window.rs:388
+msgid "Restart required to finish the update"
+msgstr "अपडेट पूरा करने के लिए रीस्टार्ट आवश्यक है"
+
+#: src/ui/settings_window.rs:81
+msgid "Results"
+msgstr "परिणाम"
+
+#: src/ui/result_row.rs:317
+msgid "Retry"
+msgstr "पुनः प्रयास करें"
+
+#: src/ui/settings_window.rs:2126
+msgid "Root Path Browsing"
+msgstr "रूट पथ ब्राउज़िंग"
+
+#: src/config.rs:184
+msgid "Run a command"
+msgstr "कमांड चलाएँ"
+
+#: src/search/mod.rs:428
+msgid "Run {name}"
+msgstr "{name} चलाएँ"
+
+#: src/operations.rs:126
+msgid "Run: {command}"
+msgstr "चलाएँ: {command}"
+
+#: src/ui/search_window.rs:495
+msgid "Running…"
+msgstr "चल रहा है…"
+
+#: src/search/run.rs:78
+msgid "Runs through your shell, output shown here"
+msgstr "आपके शेल में चलता है, आउटपुट यहाँ दिखता है"
+
+#: src/search/cmd.rs:2001
+msgid "Scanning installed apps…"
+msgstr "इंस्टॉल ऐप स्कैन हो रहे हैं…"
+
+#: src/search/cmd.rs:1663
+msgid "Scanning running processes…"
+msgstr "चलती प्रक्रियाएँ स्कैन हो रही हैं…"
+
+#: src/ui/search_window.rs:221
+msgid "Search"
+msgstr "खोजें"
+
+#: src/ui/settings_window.rs:149
+msgid "Search Engine"
+msgstr "खोज इंजन"
+
+#: src/ui/settings_window.rs:614
+msgid "Search Window"
+msgstr "खोज विंडो"
+
+#: src/config.rs:154
+msgid "Search all files and folders"
+msgstr "सभी फ़ाइलों और फ़ोल्डरों में खोजता है"
+
+#: src/config.rs:164
+#: src/ui/search_window.rs:3391
+msgid "Search clipboard history"
+msgstr "क्लिपबोर्ड इतिहास में खोजता है"
+
+#: src/config.rs:194
+msgid "Search emoji"
+msgstr "इमोजी खोजें"
+
+#: src/ui/settings_window.rs:93
+msgid "Search for new Apps"
+msgstr "नए ऐप्स भी खोजें"
+
+#: src/ui/settings_window.rs:1640
+msgid "Search triggers"
+msgstr "ट्रिगर खोजें"
+
+#: src/ui/search_window.rs:1577
+msgid "Searching for Bluetooth device{dots}"
+msgstr "Bluetooth डिवाइस खोजा जा रहा है{dots}"
+
+#: src/search/cmd.rs:1847
+msgid "Searching for \"{query}\"…"
+msgstr "\\\"{query}\\\" खोजा जा रहा है…"
+
+#: src/ui/settings_window.rs:2441
+msgid "Set shortcut…"
+msgstr "शॉर्टकट सेट करें…"
+
+#: src/ui/settings_window.rs:1736
+msgid "Set the trigger repository URL in the Trigger Repository row."
+msgstr "ट्रिगर रिपॉज़िटरी URL ट्रिगर रिपॉज़िटरी पंक्ति में सेट करें।"
+
+#: src/ui/search_window.rs:294
+msgid "Settings"
+msgstr "सेटिंग्स"
+
+#: src/search/settings_panels.rs:209
+msgid "Settings: {title}"
+msgstr "सेटिंग्स: {title}"
+
+#: src/ui/settings_window.rs:582
+msgid "Shortcut to focus the Spotty launcher"
+msgstr "Spotty लॉन्चर पर फ़ोकस करने का शॉर्टकट"
+
+#: src/ui/settings_window.rs:2094
+msgid "Show Keyboard Shortcuts"
+msgstr "कीबोर्ड शॉर्टकट दिखाएँ"
+
+#: src/ui/settings_window.rs:316
+msgid "Show a badge and a desktop notification when updates exist"
+msgstr "अपडेट उपलब्ध होने पर बैज और डेस्कटॉप सूचना दिखाएँ"
+
+#: src/ui/settings_window.rs:2142
+msgid "Show recently opened files and folders"
+msgstr "हाल में खोली गई फ़ाइलें और फ़ोल्डर दिखाता है"
+
+#: src/search/translate.rs:658
+#: src/search/translate.rs:665
+#: src/search/translate.rs:691
+msgid "Source: {name}"
+msgstr "स्रोत: {name}"
+
+#: src/ui/search_window.rs:205
+msgid "Spotty"
+msgstr ""
+
+#: src/ui/settings_window.rs:17
+msgid "Spotty Settings"
+msgstr "Spotty सेटिंग्स"
+
+#: src/preview.rs:2875
+#: src/preview.rs:4737
+msgid "Spreadsheet"
+msgstr "स्प्रेडशीट"
+
+#: src/ui/settings_window.rs:705
+msgid "Store"
+msgstr "स्टोर"
+
+#: src/ui/settings_window.rs:88
+msgid "System, Flatpak and Snap apps"
+msgstr "सिस्टम, Flatpak और Snap ऐप्स"
+
+#: src/search/translate.rs:735
+msgid "Target: {name}"
+msgstr "लक्ष्य: {name}"
+
+#: src/search/files.rs:189
+msgid "Text match: {snippet}"
+msgstr "पाठ मिलान: {snippet}"
+
+#: src/ui/settings_window.rs:1336
+msgid "The keyword \"{word}\" is already taken."
+msgstr "कीवर्ड \\\"{word}\\\" पहले से लिया जा चुका है।"
+
+#: src/ui/settings_window.rs:1432
+msgid "The repository has no triggers yet."
+msgstr "रिपॉज़िटरी में अभी कोई ट्रिगर नहीं है।"
+
+#: src/ui/search_window.rs:5219
+msgid "The trigger word and its files will be removed."
+msgstr "उसका ट्रिगर शब्द और फ़ाइलें हटा दी जाएँगी।"
+
+#: src/search/translate.rs:632
+msgid "Translate to {name}"
+msgstr "{name} में अनुवाद करें"
+
+#: src/search/translate.rs:611
+msgid "Translating…"
+msgstr "अनुवाद हो रहा है…"
+
+#: src/search/translate.rs:599
+msgid "Translation unavailable"
+msgstr "अनुवाद उपलब्ध नहीं"
+
+#: src/ui/settings_window.rs:1245
+msgid "Trigger"
+msgstr "ट्रिगर"
+
+#: src/ui/settings_window.rs:1601
+msgid "Trigger Store"
+msgstr "ट्रिगर स्टोर"
+
+#: src/ui/settings_window.rs:1929
+msgid "Trigger word"
+msgstr "ट्रिगर शब्द"
+
+#: src/ui/settings_window.rs:2232
+msgid "Trigger word \"{word}\" is already in use"
+msgstr "ट्रिगर शब्द \\\"{word}\\\" पहले से प्रयोग में है"
+
+#: src/ui/settings_window.rs:2227
+msgid "Trigger word cannot be empty"
+msgstr "ट्रिगर शब्द खाली नहीं हो सकता"
+
+#: src/ui/settings_window.rs:671
+msgid "Triggers"
+msgstr "ट्रिगर"
+
+#: src/search/run.rs:77
+msgid "Type a command to run"
+msgstr "चलाने के लिए कमांड टाइप करें"
+
+#: src/search/mod.rs:416
+msgid "Type a command to run with {name}"
+msgstr "{name} के साथ चलाने के लिए कमांड टाइप करें"
+
+#: src/ui/search_window.rs:968
+msgid "Type a keyword"
+msgstr "कीवर्ड टाइप करें"
+
+#: src/search/dictionary.rs:64
+msgid "Type a word to look up"
+msgstr "खोजने के लिए शब्द टाइप करें"
+
+#: src/search/cmd.rs:2099
+msgid "Type all, flatpak, distro or a package name"
+msgstr "all, flatpak, distro या पैकेज का नाम लिखें"
+
+#: src/search/mod.rs:394
+msgid "Type something to search with {name}"
+msgstr "{name} से खोजने के लिए कुछ टाइप करें"
+
+#: src/search/translate.rs:769
+msgid "Type text to translate"
+msgstr "अनुवाद के लिए पाठ टाइप करें"
+
+#: src/ui/search_window.rs:1445
+#: src/ui/search_window.rs:4795
+msgid "Undo"
+msgstr "पूर्ववत करें"
+
+#: src/search/cmd.rs:1560
+#: src/ui/search_window.rs:5222
+#: src/ui/settings_window.rs:1493
+#: src/ui/settings_window.rs:1800
+msgid "Uninstall"
+msgstr "अनइंस्टॉल करें"
+
+#: src/ui/settings_window.rs:1796
+msgid "Uninstall \"{id}\"?"
+msgstr "\\\"{id}\\\" अनइंस्टॉल करें?"
+
+#: src/ui/search_window.rs:1041
+msgid "Uninstall app"
+msgstr "ऐप अनइंस्टॉल करें"
+
+#: src/ui/settings_window.rs:860
+msgid "Uninstall trigger"
+msgstr "ट्रिगर अनइंस्टॉल करें"
+
+#: src/ui/search_window.rs:2390
+#: src/ui/search_window.rs:5218
+msgid "Uninstall {name}?"
+msgstr "{name} अनइंस्टॉल करें?"
+
+#: src/search/cmd.rs:2555
+msgid "Uninstall: {name}"
+msgstr "अनइंस्टॉल करें: {name}"
+
+#: src/search/cmd.rs:2559
+msgid "Uninstalling {name}"
+msgstr "{name} अनइंस्टॉल हो रहा है"
+
+#: src/search/cmd.rs:1568
+msgid "Update"
+msgstr "अपडेट करें"
+
+#: src/search/cmd.rs:2154
+#: src/ui/settings_window.rs:386
+#: src/ui/settings_window.rs:391
+#: src/ui/settings_window.rs:410
+msgid "Update & Restart"
+msgstr "अपडेट करें और पुनः आरंभ करें"
+
+#: src/ui/search_window.rs:4857
+msgid "Update all packages"
+msgstr "सभी पैकेज अपडेट करें"
+
+#: src/ui/search_window.rs:1127
+#: src/ui/search_window.rs:4885
+#: src/ui/settings_window.rs:462
+msgid "Update everything"
+msgstr "सब अपडेट करें"
+
+#: src/ui/search_window.rs:4858
+msgid "Update flatpak packages"
+msgstr "Flatpak पैकेज अपडेट करें"
+
+#: src/ui/search_window.rs:1135
+#: src/ui/search_window.rs:4887
+#: src/ui/settings_window.rs:469
+msgid "Update flatpak packages only"
+msgstr "केवल Flatpak पैकेज अपडेट करें"
+
+#: src/ui/settings_window.rs:315
+msgid "Update notification"
+msgstr "अपडेट सूचना"
+
+#: src/ui/search_window.rs:4884
+msgid "Update now"
+msgstr "अभी अपडेट करें"
+
+#: src/ui/search_window.rs:4859
+msgid "Update snap packages"
+msgstr "Snap पैकेज अपडेट करें"
+
+#: src/ui/search_window.rs:4860
+msgid "Update system packages"
+msgstr "सिस्टम पैकेज अपडेट करें"
+
+#: src/ui/search_window.rs:1131
+#: src/ui/search_window.rs:4886
+#: src/ui/settings_window.rs:464
+msgid "Update system packages only"
+msgstr "केवल सिस्टम पैकेज अपडेट करें"
+
+#: src/search/cmd.rs:2263
+#: src/search/cmd.rs:2308
+msgid "Update: {name}"
+msgstr "अपडेट: {name}"
+
+#: src/ui/settings_window.rs:255
+msgid "Updates"
+msgstr "अपडेट"
+
+#: src/ui/settings_window.rs:219
+msgid "Used for app search, install, and uninstall via the cmd trigger"
+msgstr "cmd ट्रिगर से ऐप खोजने, इंस्टॉल करने और हटाने के लिए प्रयुक्त"
+
+#: src/ui/settings_window.rs:150
+msgid "Used for web search results"
+msgstr "वेब खोज परिणामों के लिए प्रयुक्त"
+
+#: src/ui/settings_window.rs:167
+#: src/ui/settings_window.rs:192
+msgid "Uses {name} (detected from your default browser)"
+msgstr "{name} प्रयोग करता है (आपके डिफ़ॉल्ट ब्राउज़र से पता चला)"
+
+#: src/ui/settings_window.rs:130
+#: src/ui/settings_window.rs:136
+msgid "Web Search"
+msgstr "वेब खोज"
+
+#: src/ui/settings_window.rs:340
+msgid "Weekly"
+msgstr "साप्ताहिक"
+
+#: src/ui/settings_window.rs:1246
+msgid "What you type to open it."
+msgstr "खोलने के लिए आप क्या टाइप करते हैं।"
+
+#: src/ui/settings_window.rs:531
+msgid "Word: {word} · No shortcut"
+msgstr "शब्द: {word} · कोई शॉर्टकट नहीं"
+
+#: src/ui/settings_window.rs:533
+msgid "Word: {word} · {shortcut}"
+msgstr "शब्द: {word} · {shortcut}"
+
+#: src/ui/search_window.rs:3912
+msgid "Yes"
+msgstr "हाँ"
+
+#: src/search/cmd.rs:2367
+msgid "all packages ({sources})"
+msgstr "सभी पैकेज ({sources})"
+
+#: src/triggers.rs:346
+msgid "curl exited with {status}"
+msgstr "curl {status} के साथ बंद हुआ"
+
+#: src/search/translate.rs:322
+#: src/search/translate.rs:329
+#: src/triggers.rs:350
+#: src/triggers.rs:377
+msgid "empty response"
+msgstr "खाली प्रतिक्रिया"
+
+#: src/triggers.rs:312
+msgid "id '{id}' is a built-in trigger"
+msgstr "id '{id}' एक अंतर्निहित ट्रिगर है"
+
+#: src/search/cmd.rs:1553
+msgid "install <app>  —  install from Flatpak, distro, or Snap"
+msgstr "install <app>  —  Flatpak, डिस्ट्रो या Snap से इंस्टॉल करें"
+
+#: src/triggers.rs:300
+msgid "invalid id '{id}': use only letters, digits, '_', '-' or '.'"
+msgstr "अमान्य id '{id}': केवल अक्षर, अंक, '_', '-' और '.' प्रयोग करें"
+
+#: src/operations.rs:157
+msgid "just now"
+msgstr "अभी-अभी"
+
+#: src/search/cmd.rs:1545
+msgid "kill <app-name>  —  stop a running process"
+msgstr "kill <app-name>  —  चलती प्रक्रिया रोकें"
+
+#: src/triggers.rs:306
+msgid "missing 'word' (the trigger text)"
+msgstr "'word' गायब है (ट्रिगर का पाठ)"
+
+#: src/triggers.rs:326
+msgid "shell action needs a 'command' template"
+msgstr "shell कार्रवाई को 'command' टेम्पलेट चाहिए"
+
+#: src/triggers.rs:316
+msgid "trigger '{id}' is already installed"
+msgstr "ट्रिगर '{id}' पहले से इंस्टॉल है"
+
+#: src/triggers.rs:257
+msgid "trigger '{id}' is not installed"
+msgstr "ट्रिगर '{id}' इंस्टॉल नहीं है"
+
+#: src/triggers.rs:319
+msgid "trigger word '{word}' is already in use"
+msgstr "ट्रिगर शब्द '{word}' पहले से प्रयोग में है"
+
+#: src/search/cmd.rs:1561
+msgid "uninstall <app>  —  remove an installed app"
+msgstr "uninstall <app>  —  इंस्टॉल ऐप हटाएँ"
+
+#: src/search/cmd.rs:1569
+msgid "update  —  update installed packages"
+msgstr "update  —  इंस्टॉल पैकेज अपडेट करें"
+
+#: src/search/cmd.rs:2521
+#: src/search/cmd.rs:2556
+msgid "via Flatpak ({app})"
+msgstr ""
+
+#: src/search/cmd.rs:2754
+msgid "via snap"
+msgstr ""
+
+#: src/triggers.rs:323
+msgid "web action needs a 'url' template"
+msgstr "web कार्रवाई को 'url' टेम्पलेट चाहिए"
+
+#: src/search/cmd.rs:2523
+msgid "{description} — via Flatpak ({app})"
+msgstr ""
+
+#: src/search/mod.rs:405
+#: src/search/mod.rs:432
+msgid "{name}: {query}"
+msgstr ""
+
+#: src/operations.rs:588
+msgid "{noun} {target} {suffix}"
+msgstr ""
+
+#: src/search/cmd.rs:2379
+msgid "{n} flatpak packages"
+msgstr "{n} flatpak पैकेज"
+
+#: src/search/cmd.rs:2412
+msgid "{n} snap packages"
+msgstr "{n} snap पैकेज"
+
+#: src/search/cmd.rs:2398
+msgid "{n} system packages ({pm})"
+msgstr "{n} सिस्टम पैकेज ({pm})"
+
+#: src/search/cmd.rs:3401
+#: src/search/cmd.rs:3494
+#: src/ui/search_window.rs:3515
+msgid "{n} updates available"
+msgstr "{n} अपडेट उपलब्ध हैं"
+
+#: src/operations.rs:163
+msgid "{n}d ago"
+msgstr "{n} दिन पहले"
+
+#: src/operations.rs:161
+msgid "{n}h ago"
+msgstr "{n} घंटे पहले"
+
+#: src/operations.rs:159
+msgid "{n}m ago"
+msgstr "{n} मिनट पहले"
+
+#: src/search/dictionary.rs:215
+#: src/search/dictionary.rs:275
+msgid "{pos} — {text}"
+msgstr ""
+
+#: src/search/cmd.rs:2274
+#: src/search/cmd.rs:2320
+#: src/ui/search_window.rs:4864
+msgid "{source} Update"
+msgstr "{source} अपडेट"
+
+#: src/operations.rs:175
+#: src/operations.rs:195
+#: src/operations.rs:846
+#: src/operations.rs:872
+#: src/operations.rs:897
+msgid "{source} · {status}"
+msgstr ""
+
+#: src/search/translate.rs:585
+#: src/search/translate.rs:720
+#: src/search/translate.rs:771
+msgid "{src} → {tgt}"
+msgstr "{src} → {tgt}"
+
+#: src/operations.rs:591
+msgid "{title} {suffix}"
+msgstr ""
+
+#: src/ui/search_window.rs:3664
+msgid "{title} — {detail}"
+msgstr ""
+
+#: src/search/dictionary.rs:148
+msgid "{word} — complete the word with Tab"
+msgstr "{word} — Tab से शब्द पूरा करें"
+
+#: src/ui/settings_window.rs:1480
+msgid "{word} — {description}"
+msgstr ""
+
+#: src/search/dictionary.rs:213
+msgid "• {text}"
+msgstr ""
+
+#: src/preview.rs:675
+msgid "…and {n} more"
+msgstr "…और {n} और"
+
+#: src/preview.rs:491
+msgid "▶"
+msgstr ""
+
+#: src/preview.rs:481
+msgid "◀"
+msgstr ""

@@ -15,13 +15,39 @@
 //! Action security: `{query}` in a shell command template is substituted
 //! single-quote-escaped, so user input can never break out of the template
 //! into additional shell commands — the template itself is author-controlled.
-//! Shell triggers additionally require an explicit confirmation at install
-//! time (shown in the triggers window).
+//! Shell triggers additionally require an explicit confirmation before the
+//! install runs.
 use crate::config::CommandKeyword;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, RwLock};
+use crate::i18n::gettext;
+
+/// Public home of the installable trigger manifests — the Settings Trigger
+/// page and the About dialog link here.
+pub const REPO_URL: &str = "https://github.com/Aras1907/spotty-triggers";
+
+/// One entry of the repository's `index.json` listing: every manifest field
+/// except `action`, which arrives with the full manifest fetch at install
+/// time. This is what the Trigger Store (Settings → Trigger → Store) shows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepoTrigger {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub word: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub icon: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub author: String,
+    #[serde(default)]
+    pub shortcut: String,
+}
 
 /// What a trigger does with the user's typed query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,9 +254,12 @@ pub fn install_from_file(path: &Path) -> Result<TriggerManifest, String> {
 pub fn uninstall(id: &str) -> Result<(), String> {
     let path = triggers_dir().join(format!("{id}.json"));
     if !path.exists() {
-        return Err(format!("trigger '{id}' is not installed"));
+        return Err(gettext("trigger '{id}' is not installed").replace("{id}", id));
     }
     fs::remove_file(&path).map_err(|e| format!("cannot remove trigger: {e}"))?;
+    // Delete everything else the trigger owns — its cached help image —
+    // so an uninstall leaves no trace behind.
+    let _ = fs::remove_file(triggers_dir().join("cache").join(format!("{id}.img")));
     load_all();
     Ok(())
 }
@@ -268,33 +297,33 @@ pub fn validate(m: &TriggerManifest) -> Result<(), String> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
     {
-        return Err(format!(
-            "invalid id '{}': use only letters, digits, '_', '-' or '.'",
-            m.id
+        return Err(gettext("invalid id '{id}': use only letters, digits, '_', '-' or '.'").replace(
+            "{id}",
+            &m.id,
         ));
     }
     if m.word.trim().is_empty() {
-        return Err("missing 'word' (the trigger text)".into());
+        return Err(gettext("missing 'word' (the trigger text)"));
     }
     for builtin in [
         "files", "clipboard", "cmd", "run", "emoji",
     ] {
         if m.id == builtin {
-            return Err(format!("id '{}' is a built-in trigger", m.id));
+            return Err(gettext("id '{id}' is a built-in trigger").replace("{id}", &m.id));
         }
     }
     if by_id(&m.id).is_some() {
-        return Err(format!("trigger '{}' is already installed", m.id));
+        return Err(gettext("trigger '{id}' is already installed").replace("{id}", &m.id));
     }
     if keyword_for_word(&m.word).is_some() {
-        return Err(format!("trigger word '{}' is already in use", m.word));
+        return Err(gettext("trigger word '{word}' is already in use").replace("{word}", &m.word));
     }
     match &m.action {
         TriggerAction::Web { url } if url.trim().is_empty() => {
-            return Err("web action needs a 'url' template".into());
+            return Err(gettext("web action needs a 'url' template"));
         }
         TriggerAction::Shell { command } if command.trim().is_empty() => {
-            return Err("shell action needs a 'command' template".into());
+            return Err(gettext("shell action needs a 'command' template"));
         }
         _ => {}
     }
@@ -305,17 +334,47 @@ pub fn validate(m: &TriggerManifest) -> Result<(), String> {
 /// http(s) and file:// URLs — used for dictionary lookups and trigger help
 /// images.
 pub fn fetch_text(url: &str) -> Result<String, String> {
+    // Redirects capped and responses size-capped — the payloads here
+    // (dictionary APIs) are small; the lenient `-s` (no `-f`) stays, some
+    // callers read 404 bodies deliberately.
     let out = crate::app::run_host_shell_command(&format!(
-        "curl -sL --max-time 4 '{}'",
+        "curl -sL --max-time 4 --max-redirs 5 --max-filesize 2097152 '{}'",
         url.replace('\'', "'\\''")
     ))
     .map_err(|e| e.to_string())?;
     if !out.status.success() {
-        return Err(format!("curl exited with {}", out.status));
+        return Err(gettext("curl exited with {status}").replace("{status}", &out.status.to_string()));
     }
     let text = String::from_utf8_lossy(&out.stdout).to_string();
     if text.trim().is_empty() {
-        return Err("empty response".into());
+        return Err(gettext("empty response"));
+    }
+    Ok(text)
+}
+
+/// Fetch a URL as JSON: like [`fetch_text`], but `-f` makes HTTP errors
+/// (404, 500, …) fail loudly instead of handing the error page back as if it
+/// were the payload. Used by the Trigger Store, where a missing index or
+/// manifest must read as "couldn't load", not as an unparseable response.
+/// 8s budget — a cold raw-GitHub CDN can take a couple of seconds.
+pub fn fetch_json_text(url: &str) -> Result<String, String> {
+    let out = crate::app::run_host_shell_command(&format!(
+        "curl -fsSL --max-time 8 --max-redirs 5 --max-filesize 1048576 '{}'",
+        url.replace('\'', "'\\''")
+    ))
+    .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let err = err.trim();
+        return Err(if err.is_empty() {
+            format!("curl exited with {}", out.status)
+        } else {
+            err.to_string()
+        });
+    }
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    if text.trim().is_empty() {
+        return Err(gettext("empty response"));
     }
     Ok(text)
 }
@@ -358,6 +417,35 @@ mod tests {
             help_image: String::new(),
             action,
         }
+    }
+
+    #[test]
+    fn repo_index_entry_parses_everything_spotty_shows() {
+        // The exact shape of the repository's index.json — the browse list
+        // renders word, description and icon straight from these fields.
+        let raw = r#"[{
+            "id": "dictionary",
+            "name": "Dictionary",
+            "word": "dict",
+            "description": "Look up a word definition",
+            "icon": "accessories-dictionary-symbolic",
+            "version": "1.0.0",
+            "author": "spotty",
+            "shortcut": ""
+        }]"#;
+        let list: Vec<RepoTrigger> = serde_json::from_str(raw).expect("index.json shape");
+        assert_eq!(list.len(), 1);
+        let t = &list[0];
+        assert_eq!(t.id, "dictionary");
+        assert_eq!(t.word, "dict");
+        assert_eq!(t.description, "Look up a word definition");
+        assert_eq!(t.icon, "accessories-dictionary-symbolic");
+
+        // Fields the repository omits still deserialize with defaults.
+        let minimal: Vec<RepoTrigger> =
+            serde_json::from_str(r#"[{"id":"x","name":"X"}]"#).expect("minimal shape");
+        assert!(minimal[0].word.is_empty());
+        assert!(minimal[0].icon.is_empty());
     }
 
     #[test]

@@ -32,7 +32,6 @@
 use crate::clipboard::ClipboardHistory;
 use crate::config::Config;
 use crate::index::Indexer;
-use crate::ui::triggers_window::TriggersWindow;
 use crate::ui::search_window::SearchWindow;
 use crate::ui::settings_window::SettingsWindow;
 use adw::prelude::*;
@@ -59,7 +58,6 @@ pub struct AppState {
     pub clipboard: Rc<RefCell<ClipboardHistory>>,
     pub search_win: RefCell<Option<SearchWindow>>,
     pub settings_win: RefCell<Option<SettingsWindow>>,
-    pub triggers_win: RefCell<Option<Rc<TriggersWindow>>>,
 }
 
 const APP_ID: &str = "com.spotty.Spotty";
@@ -486,15 +484,6 @@ fn install_actions(app: &adw::Application, cfg: &Config) {
     });
     app.add_action(&refresh);
 
-    let app_weak = app.downgrade();
-    let triggers = gtk::gio::SimpleAction::new("triggers", None);
-    triggers.connect_activate(move |_, _| {
-        if let Some(app) = app_weak.upgrade() {
-            glib::idle_add_local_once(move || open_triggers_window(&app));
-        }
-    });
-    app.add_action(&triggers);
-
     let trigger_kws = crate::triggers::keywords();
     for kw in cfg.command_keywords.iter().chain(trigger_kws.iter()) {
         if kw.id == "clipboard" || !kw.enabled {
@@ -544,6 +533,22 @@ pub fn on_startup(app: &adw::Application) {
     }
     let config = Rc::new(RefCell::new(Config::load()));
     crate::search::cmd::preload_install_cache_async(config.borrow().package_manager);
+    // Background update check: once shortly after startup, then hourly
+    // ticks that honour the user-configured interval (Settings → Updates).
+    // Reboot pending? Evaluate once at startup — the live state clears
+    // itself after the machine is actually rebooted.
+    crate::search::cmd::refresh_reboot_state();
+    {
+        let cfg_tick = config.clone();
+        glib::timeout_add_local_once(std::time::Duration::from_secs(8), move || {
+            crate::search::cmd::periodic_update_check(&cfg_tick.borrow());
+        });
+        let cfg_tick = config.clone();
+        glib::timeout_add_local(std::time::Duration::from_secs(3600), move || {
+            crate::search::cmd::periodic_update_check(&cfg_tick.borrow());
+            glib::ControlFlow::Continue
+        });
+    }
     let indexer = Rc::new(Indexer::new(config.clone()));
     indexer.start_background_indexing();
     let clipboard = Rc::new(RefCell::new(ClipboardHistory::load(
@@ -649,7 +654,6 @@ pub fn on_startup(app: &adw::Application) {
             clipboard,
             search_win: RefCell::new(None),
             settings_win: RefCell::new(None),
-            triggers_win: RefCell::new(None),
         })
     });
     // Load installed triggers (trigger keywords from imported manifests) before
@@ -1016,38 +1020,6 @@ pub fn open_settings(app: &adw::Application) {
     });
 }
 
-/// Open the triggers window (installed list + file import). Reuses the
-/// cached window like settings — installed list is refreshed on every show.
-pub fn open_triggers_window(app: &adw::Application) {
-    with_state(|st| {
-        let mut w = st.triggers_win.borrow_mut();
-        if let Some(win) = w.as_ref() {
-            win.present();
-        } else {
-            let win = TriggersWindow::new(app);
-            win.present();
-            *w = Some(win);
-        }
-    });
-}
-
-/// Open the triggers window and start the local import flow — the settings
-/// Trigger-page `+` installs a manifest file the user downloaded (there is
-/// no in-app marketplace).
-pub fn open_triggers_import(app: &adw::Application) {
-    let win = with_state(|st| {
-        let mut w = st.triggers_win.borrow_mut();
-        if let Some(win) = w.as_ref() {
-            win.clone()
-        } else {
-            let win = TriggersWindow::new(app);
-            *w = Some(win.clone());
-            win
-        }
-    });
-    win.present();
-    win.import_from_file();
-}
 /// Take the signal mark (timestamp + majflt at SIGUSR1 arrival).
 /// Returns `None` if no signal is pending; `Some((t, majflt))` otherwise.
 pub(crate) fn take_signal_mark() -> Option<(Instant, i64)> {

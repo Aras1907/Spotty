@@ -1,0 +1,1159 @@
+# el translation for Spotty.
+# Generated from po/spotty.pot + po/i18n/el.json by scripts/make_po.py.
+msgid ""
+msgstr ""
+"Project-Id-Version: spotty\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: el\n"
+"MIME-Version: 1.0\n"
+"PO-Revision-Date: 2026-09-26 00:00+0000\n"
+"Last-Translator: Spotty contributors\n"
+"Language-Team: el\n"
+
+
+#: src/search/dictionary.rs:222
+msgid "    “{ex}”"
+msgstr ""
+
+#: src/preview.rs:486
+msgid "1 / 1"
+msgstr ""
+
+#: src/ui/settings_window.rs:495
+msgid "About"
+msgstr "Σχετικά"
+
+#: src/ui/settings_window.rs:498
+msgid "About Spotty"
+msgstr "Σχετικά με το Spotty"
+
+#: src/ui/settings_window.rs:1216
+msgid "Add Trigger"
+msgstr "Προσθήκη Trigger"
+
+#: src/ui/settings_window.rs:941
+msgid "Add Trigger Word"
+msgstr "Προσθήκη λέξης-ενεργοποιητή"
+
+#: src/ui/settings_window.rs:1616
+msgid "Add a local trigger"
+msgstr "Προσθήκη τοπικού trigger"
+
+#: src/search/cmd.rs:2112
+msgid "All packages are up to date"
+msgstr "Όλα τα πακέτα είναι ενημερωμένα"
+
+#: src/ui/settings_window.rs:2127
+msgid "Allow typing / or ~/ to browse the filesystem directly"
+msgstr "Επιτρέπει την πληκτρολόγηση / ή ~/ για άμεση περιήγηση στο αρχείο"
+
+#: src/search/translate.rs:569
+msgid "Already {language}"
+msgstr "Ήδη σε {language}"
+
+#: src/ui/settings_window.rs:94
+msgid "Also suggest installable apps as you type"
+msgstr "Πρότεινη επίσης εγκαταστάσιμες εφαρμογές καθώς πληκτρολογείς"
+
+#: src/ui/settings_window.rs:137
+msgid "Always show web search row"
+msgstr "Πάντα εμφάνιση γραμμής αναζήτησης στον ιστό"
+
+#: src/ui/settings_window.rs:87
+msgid "Applications"
+msgstr "Εφαρμογές"
+
+#: src/ui/search_window.rs:2185
+#: src/ui/search_window.rs:3171
+msgid "Are you sure you want to install {name}?"
+msgstr "Σίγουρα θέλεις να εγκαταστήσεις το {name};"
+
+#: src/ui/search_window.rs:2189
+#: src/ui/search_window.rs:3175
+msgid "Are you sure you want to uninstall {name}?"
+msgstr "Σίγουρα θέλεις να αφαιρέσεις το {name};"
+
+#: src/ui/search_window.rs:2200
+#: src/ui/search_window.rs:3215
+#: src/ui/settings_window.rs:420
+msgid "Are you sure?"
+msgstr "Σίγουρα;"
+
+#: src/search/translate.rs:579
+#: src/search/translate.rs:665
+#: src/search/translate.rs:721
+#: src/search/translate.rs:772
+msgid "Auto"
+msgstr "Αυτόματο"
+
+#: src/search/translate.rs:718
+msgid "Back to Auto (system language)"
+msgstr "Πίσω σε Αυτόματο (γλώσσα συστήματος)"
+
+#: src/config.rs:204
+msgid "Bluetooth devices"
+msgstr "Συσκευές Bluetooth"
+
+#: src/ui/settings_window.rs:706
+msgid "Browse and install triggers"
+msgstr "Περιήγηση και εγκατάσταση triggers"
+
+#: src/ui/settings_window.rs:99
+msgid "Calculator"
+msgstr "Αριθμομηχανή"
+
+#: src/ui/result_row.rs:301
+#: src/ui/search_window.rs:529
+#: src/ui/search_window.rs:754
+#: src/ui/search_window.rs:2202
+#: src/ui/search_window.rs:3217
+#: src/ui/search_window.rs:4765
+#: src/ui/search_window.rs:5221
+#: src/ui/settings_window.rs:422
+#: src/ui/settings_window.rs:1037
+#: src/ui/settings_window.rs:1799
+msgid "Cancel"
+msgstr "Ακύρωση"
+
+#: src/ui/settings_window.rs:1572
+msgid "Cannot save the manifest: {e}"
+msgstr "Αδυναμία αποθήκευσης του manifest: {e}"
+
+#: src/ui/settings_window.rs:1364
+msgid "Cannot save the trigger: {e}"
+msgstr "Αδυναμία αποθήκευσης του trigger: {e}"
+
+#: src/ui/settings_window.rs:330
+msgid "Check every"
+msgstr "Συχνότητα ελέγχου"
+
+#: src/ui/settings_window.rs:260
+msgid "Check for updates"
+msgstr "Έλεγχος για ενημερώσεις"
+
+#: src/ui/settings_window.rs:272
+msgid "Check now"
+msgstr "Έλεγχος τώρα"
+
+#: src/search/cmd.rs:1854
+msgid "Check spelling or try a different name"
+msgstr "Έλεγξε την ορθογραφία ή δοκίμασε άλλο όνομα"
+
+#: src/search/cmd.rs:2008
+msgid "Check spelling or try fewer characters"
+msgstr "Έλεγξε την ορθογραφία ή δοκίμασε λιγότερους χαρακτήρες"
+
+#: src/search/cmd.rs:2045
+#: src/search/cmd.rs:3485
+#: src/search/cmd.rs:3495
+msgid "Checking for updates…"
+msgstr "Αναζήτηση ενημερώσεων…"
+
+#: src/ui/settings_window.rs:82
+msgid "Choose what types of results appear"
+msgstr "Επίλεξε ποιοι τύποι αποτελεσμάτων εμφανίζονται"
+
+#: src/ui/settings_window.rs:2026
+msgid "Clipboard"
+msgstr "Πρόχειρο"
+
+#: src/preview.rs:619
+msgid "Clipped {time}"
+msgstr "Αντιγράφηκε {time}"
+
+#: src/ui/settings_window.rs:1263
+msgid "Command"
+msgstr "Εντολή"
+
+#: src/ui/settings_window.rs:1269
+msgid "Command line"
+msgstr "Γραμμή εντολών"
+
+#: src/ui/search_window.rs:2203
+#: src/ui/search_window.rs:3218
+#: src/ui/settings_window.rs:423
+msgid "Confirm"
+msgstr "Επιβεβαίωση"
+
+#: src/ui/search_window.rs:4058
+msgid "Couldn't delete \"{name}\": {e}"
+msgstr "Αδυναμία διαγραφής του \\\"{name}\\\": {e}"
+
+#: src/ui/settings_window.rs:1390
+msgid "Couldn't install"
+msgstr "Αδυναμία εγκατάστασης"
+
+#: src/ui/settings_window.rs:1679
+msgid "Couldn't load the trigger repository"
+msgstr "Αδυναμία φόρτωσης του αποθετηρίου triggers"
+
+#: src/ui/settings_window.rs:1769
+msgid "Couldn't load {url}: {e}"
+msgstr "Αδυναμία φόρτωσης {url}: {e}"
+
+#: src/ui/settings_window.rs:1514
+msgid "Couldn't uninstall: {e}"
+msgstr "Αδυναμία αφαίρεσης: {e}"
+
+#: src/ui/settings_window.rs:1201
+msgid "Create a Trigger"
+msgstr "Δημιουργία Trigger"
+
+#: src/ui/settings_window.rs:122
+msgid "Custom Search URL"
+msgstr "Προσαρμοσμένο URL αναζήτησης"
+
+#: src/ui/settings_window.rs:339
+msgid "Daily"
+msgstr "Καθημερινά"
+
+#: src/ui/search_window.rs:4023
+msgid "Delete"
+msgstr "Διαγραφή"
+
+#: src/ui/settings_window.rs:2076
+msgid "Delete clipboard entries older than this (pinned items are exempt)"
+msgstr "Διαγραφή παλαιότερων εγγραφών προχείρου (τα καρφιτσωμένα εξαιρούνται)"
+
+#: src/ui/search_window.rs:1102
+msgid "Delete file"
+msgstr "Διαγραφή αρχείου"
+
+#: src/ui/search_window.rs:1100
+msgid "Delete folder"
+msgstr "Διαγραφή φακέλου"
+
+#: src/ui/settings_window.rs:1251
+msgid "Description (optional)"
+msgstr "Περιγραφή (προαιρετικό)"
+
+#: src/search/translate.rs:666
+msgid "Detected automatically — press Enter to choose"
+msgstr "Ανιχνεύεται αυτόματα — πάτα Enter για επιλογή"
+
+#: src/search/dictionary.rs:188
+msgid "Dictionary: {query}"
+msgstr "Λεξικό: {query}"
+
+#: src/search/cmd.rs:2187
+msgid "Disable update checks"
+msgstr "Απενεργοποίηση ελέγχου ενημερώσεων"
+
+#: src/ui/settings_window.rs:538
+msgid "Disabled · {base}"
+msgstr "Απενεργοποιημένο · {base}"
+
+#: src/search/cmd.rs:2137
+#: src/ui/settings_window.rs:373
+msgid "Dismiss update notice"
+msgstr "Απόκρυψη της ειδοποίησης ενημέρωσης"
+
+#: src/ui/settings_window.rs:2095
+msgid "Display a hint bar in the clipboard manager"
+msgstr "Εμφάνιση γραμμής υποδείξεων στη διαχείριση προχείρου"
+
+#: src/ui/search_window.rs:4004
+msgid "Do you want to delete \"{name}\"?"
+msgstr "Θέλεις να διαγράψεις το \\\"{name}\\\";"
+
+#: src/ui/search_window.rs:2182
+#: src/ui/search_window.rs:3167
+msgid "Do you want to update {name}?"
+msgstr "Θέλεις να ενημερώσεις το {name};"
+
+#: src/ui/search_window.rs:2191
+msgid "Do you want to {action}?"
+msgstr "Θέλεις να {action};"
+
+#: src/ui/search_window.rs:533
+msgid "Done"
+msgstr "Ολοκληρώθηκε"
+
+#: src/ui/settings_window.rs:1576
+msgid "Download failed: {e}"
+msgstr "Η λήψη απέτυχε: {e}"
+
+#: src/ui/settings_window.rs:553
+msgid "Edit \"Open Spotty\" shortcut"
+msgstr "Επεξεργασία συντόμευσης \\\"Άνοιγμα Spotty\\\""
+
+#: src/ui/settings_window.rs:1880
+#: src/ui/settings_window.rs:1887
+msgid "Edit \"{name}\" trigger"
+msgstr "Επεξεργασία trigger \\\"{name}\\\""
+
+#: src/ui/settings_window.rs:677
+msgid "Edit trigger words, import a manifest with +, or delete installed triggers."
+msgstr "Επεξεργασία λέξεων-ενεργοποιητών, εισαγωγή manifest με + ή διαγραφή εγκατεστημένων triggers."
+
+#: src/search/cmd.rs:2189
+msgid "Enable update checks"
+msgstr "Ενεργοποίηση ελέγχου ενημερώσεων"
+
+#: src/ui/settings_window.rs:1923
+msgid "Enabled"
+msgstr "Ενεργό"
+
+#: src/ui/settings_window.rs:338
+msgid "Every 12 hours"
+msgstr "Κάθε 12 ώρες"
+
+#: src/ui/settings_window.rs:337
+msgid "Every 6 hours"
+msgstr "Κάθε 6 ώρες"
+
+#: src/search/dictionary.rs:129
+msgid "Fetching the definition"
+msgstr "Λήψη ορισμού"
+
+#: src/ui/settings_window.rs:1669
+msgid "Fetching triggers…"
+msgstr "Λήψη triggers…"
+
+#: src/ui/settings_window.rs:2122
+msgid "Find"
+msgstr "Εύρεση"
+
+#: src/ui/settings_window.rs:256
+msgid "Find package updates in the background"
+msgstr "Ψάχνει ενημερώσεις πακέτων στο παρασκήνιο"
+
+#: src/ui/settings_window.rs:74
+msgid "General"
+msgstr "Γενικά"
+
+#: src/search/cmd.rs:2138
+#: src/ui/settings_window.rs:374
+msgid "Hidden until a new update appears"
+msgstr "Κρυμμένο μέχρι να εμφανιστεί νέα ενημέρωση"
+
+#: src/search/cmd.rs:2130
+#: src/ui/settings_window.rs:365
+msgid "Hide the update notice for 24 hours"
+msgstr "Απόκρυψη της ειδοποίησης ενημέρωσης για 24 ώρες"
+
+#: src/preview.rs:212
+msgid "Highlight a result\nto preview"
+msgstr "Επισήμανση αποτελέσματος\\nγια προεπισκόπηση"
+
+#: src/ui/settings_window.rs:2060
+msgid "History Limit"
+msgstr "Όριο ιστορικού"
+
+#: src/ui/settings_window.rs:336
+msgid "Hourly"
+msgstr "Κάθε ώρα"
+
+#: src/ui/settings_window.rs:1254
+msgid "Icon name (optional)"
+msgstr "Όνομα εικονιδίου (προαιρετικό)"
+
+#: src/ui/settings_window.rs:100
+msgid "Inline arithmetic"
+msgstr "Άμεσοι υπολογισμοί"
+
+#: src/search/cmd.rs:1552
+#: src/ui/settings_window.rs:1038
+#: src/ui/settings_window.rs:1520
+msgid "Install"
+msgstr "Εγκατάσταση"
+
+#: src/ui/settings_window.rs:1123
+msgid "Install failed"
+msgstr "Η εγκατάσταση απέτυχε"
+
+#: src/search/cmd.rs:2159
+msgid "Install the updates, then restart"
+msgstr "Εγκαθιστά τις ενημερώσεις και μετά επανεκκινά"
+
+#: src/ui/settings_window.rs:1034
+msgid "Install {name}?"
+msgstr "Εγκατάσταση {name};"
+
+#: src/config.rs:174
+msgid "Install, uninstall, and manage apps"
+msgstr "Εγκατάσταση, αφαίρεση και διαχείριση εφαρμογών"
+
+#: src/search/cmd.rs:2532
+#: src/search/cmd.rs:2626
+#: src/search/cmd.rs:2645
+#: src/search/cmd.rs:2732
+msgid "Install: {name}"
+msgstr "Εγκατάσταση: {name}"
+
+#: src/ui/settings_window.rs:1117
+msgid "Installed \"{name}\""
+msgstr "Το \\\"{name}\\\" εγκαταστάθηκε"
+
+#: src/search/cmd.rs:2538
+msgid "Installing {name}"
+msgstr "Εγκατάσταση {name}"
+
+#: src/ui/search_window.rs:4011
+msgid "It will be moved to the Trash."
+msgstr "Θα μεταφερθεί στον Κάδο."
+
+#: src/ui/search_window.rs:1439
+msgid "Item deleted"
+msgstr "Το στοιχείο διαγράφηκε"
+
+#: src/ui/search_window.rs:1480
+msgid "Item unpinned — Press Ctrl+Z to undo"
+msgstr "Το στοιχείο ξεκαρφίτσωσε — πάτα Ctrl+Z για αναίρεση"
+
+#: src/ui/settings_window.rs:1797
+msgid "Its trigger word and shortcut will be removed."
+msgstr "Η λέξη-ενεργοποιητής και η συντόμευσή του θα αφαιρεθούν."
+
+#: src/ui/settings_window.rs:2075
+msgid "Keep history"
+msgstr "Διατήρηση ιστορικού"
+
+#: src/preview.rs:439
+#: src/ui/settings_window.rs:450
+msgid "Keyboard"
+msgstr "Πληκτρολόγιο"
+
+#: src/ui/settings_window.rs:581
+#: src/ui/settings_window.rs:1275
+#: src/ui/settings_window.rs:2006
+msgid "Keyboard Shortcut"
+msgstr "Συντόμευση πληκτρολογίου"
+
+#: src/ui/search_window.rs:1143
+msgid "Keyboard Shortcuts"
+msgstr "Συντομεύσεις πληκτρολογίου"
+
+#: src/ui/settings_window.rs:615
+msgid "Keyboard shortcuts used inside the search window"
+msgstr "Συντομεύσεις πληκτρολογίου που χρησιμοποιούνται στο παράθυρο αναζήτησης"
+
+#: src/ui/settings_window.rs:1249
+msgid "Keyword"
+msgstr "Λέξη-κλειδί"
+
+#: src/ui/settings_window.rs:1331
+msgid "Keyword: letters, digits, -, _ and . only."
+msgstr "Λέξη-κλειδί: μόνο γράμματα, ψηφία, -, _ και ."
+
+#: src/search/cmd.rs:1544
+msgid "Kill"
+msgstr "Τερματισμός"
+
+#: src/ui/search_window.rs:1050
+msgid "Kill app"
+msgstr "Τερματισμός εφαρμογής"
+
+#: src/ui/search_window.rs:2419
+msgid "Kill {name}?"
+msgstr "Τερματισμός {name};"
+
+#: src/search/cmd.rs:2489
+msgid "Kill: {name}"
+msgstr "Τερματισμός: {name}"
+
+#: src/search/translate.rs:790
+msgid "Local translation engine not reachable"
+msgstr "Η τοπική μηχανή μετάφρασης δεν είναι διαθέσιμη"
+
+#: src/search/dictionary.rs:128
+msgid "Looking up \"{word}\"…"
+msgstr "Αναζήτηση \\\"{word}\\\"…"
+
+#: src/ui/settings_window.rs:2061
+msgid "Maximum number of clipboard entries to keep"
+msgstr "Μέγιστος αριθμός εγγραφών προχείρου"
+
+#: src/ui/settings_window.rs:1248
+msgid "Name"
+msgstr "Όνομα"
+
+#: src/ui/settings_window.rs:1323
+msgid "Name, keyword and command are required."
+msgstr "Όνομα, λέξη-κλειδί και εντολή είναι υποχρεωτικά."
+
+#: src/ui/search_window.rs:3908
+#: src/ui/search_window.rs:4027
+msgid "No"
+msgstr "Όχι"
+
+#: src/search/cmd.rs:1853
+msgid "No apps found for \"{query}\""
+msgstr "Δεν βρέθηκαν εφαρμογές για \\\"{query}\\\""
+
+#: src/search/cmd.rs:2007
+msgid "No installed app matching \"{query}\""
+msgstr "Καμία εγκατεστημένη εφαρμογή δεν ταιριάζει με \\\"{query}\\\""
+
+#: src/search/cmd.rs:2097
+msgid "No matching updates"
+msgstr "Καμία σχετική ενημέρωση"
+
+#: src/ui/search_window.rs:616
+msgid "No operations yet"
+msgstr "Δεν υπάρχουν λειτουργίες ακόμη"
+
+#: src/search/cmd.rs:1686
+msgid "No running app matching \"{query}\""
+msgstr "Καμία εκτελούμενη εφαρμογή δεν ταιριάζει με \\\"{query}\\\""
+
+#: src/ui/settings_window.rs:1675
+msgid "No triggers found"
+msgstr "Δεν βρέθηκαν triggers"
+
+#: src/ui/settings_window.rs:1434
+msgid "No triggers match \"{q}\"."
+msgstr "Κανένα trigger δεν ταιριάζει με \\\"{q}\\\"."
+
+#: src/search/cmd.rs:2109
+#: src/search/cmd.rs:3140
+#: src/search/cmd.rs:3492
+msgid "No updates available"
+msgstr "Δεν υπάρχουν ενημερώσεις"
+
+#: src/ui/settings_window.rs:1126
+#: src/ui/settings_window.rs:1393
+msgid "OK"
+msgstr "OK"
+
+#: src/search/cmd.rs:3126
+#: src/search/cmd.rs:3493
+#: src/ui/search_window.rs:3513
+msgid "One update available"
+msgstr "Μία διαθέσιμη ενημέρωση"
+
+#: src/search/cmd.rs:1687
+msgid "Only running apps can be killed"
+msgstr "Μόνο οι εκτελούμενες εφαρμογές μπορούν να τερματιστούν"
+
+#: src/ui/settings_window.rs:684
+msgid "Open Spotty"
+msgstr "Άνοιγμα Spotty"
+
+#: src/ui/search_window.rs:1089
+msgid "Open folder in terminal"
+msgstr "Άνοιγμα φακέλου σε τερματικό"
+
+#: src/search/dictionary.rs:190
+msgid "Open https://www.dictionary.com/browse/{query}"
+msgstr ""
+
+#: src/search/settings_panels.rs:210
+msgid "Open in GNOME Settings"
+msgstr "Άνοιγμα στις ρυθμίσεις GNOME"
+
+#: src/ui/search_window.rs:1114
+msgid "Open location in file manager"
+msgstr "Άνοιγμα τοποθεσίας στη διαχείριση αρχείων"
+
+#: src/ui/search_window.rs:593
+msgid "Operations"
+msgstr "Λειτουργίες"
+
+#: src/ui/settings_window.rs:214
+#: src/ui/settings_window.rs:218
+msgid "Package Manager"
+msgstr "Διαχειριστής πακέτων"
+
+#: src/ui/settings_window.rs:1924
+msgid "Pause this trigger without uninstalling it"
+msgstr "Παύση του trigger χωρίς αφαίρεση"
+
+#: src/ui/search_window.rs:1025
+msgid "Pin / Unpin selected"
+msgstr "Καρφίτσωμα/Αφαίρεση επιλεγμένου"
+
+#: src/search/cmd.rs:1582
+msgid "Please wait…"
+msgstr "Περιμένετε…"
+
+#: src/search/cmd.rs:2046
+#: src/search/cmd.rs:2113
+msgid "Press Enter to check again"
+msgstr "Πατήστε Enter για νέο έλεγχο"
+
+#: src/search/translate.rs:736
+msgid "Press Enter to choose another language"
+msgstr "Πάτα Enter για να επιλέξεις άλλη γλώσσα"
+
+#: src/search/translate.rs:659
+msgid "Press Enter to detect automatically"
+msgstr "Πάτα Enter για αυτόματη ανίχνευση"
+
+#: src/ui/search_window.rs:4936
+msgid "Press Enter to restart"
+msgstr "Πατήστε Enter για επανεκκίνηση"
+
+#: src/ui/settings_window.rs:2141
+msgid "Recent File/Folder Searches"
+msgstr "Πρόσφατες αναζητήσεις αρχείων/φακέλων"
+
+#: src/search/cmd.rs:2129
+#: src/ui/settings_window.rs:364
+msgid "Remind tomorrow"
+msgstr "Υπενθύμιση αύριο"
+
+#: src/ui/result_row.rs:179
+msgid "Remove from history"
+msgstr "Αφαίρεση από το ιστορικό"
+
+#: src/ui/settings_window.rs:1510
+msgid "Removed \"{name}\""
+msgstr "Το \\\"{name}\\\" αφαιρέθηκε"
+
+#: src/ui/settings_window.rs:2178
+#: src/ui/settings_window.rs:2420
+msgid "Reset"
+msgstr "Επαναφορά"
+
+#: src/ui/settings_window.rs:731
+msgid "Reset trigger words and shortcuts to defaults"
+msgstr "Επαναφορά λέξεων-ενεργοποιητών και συντομεύσεων στα προεπιλεγμένα"
+
+#: src/ui/settings_window.rs:393
+msgid "Restart"
+msgstr "Επανεκκίνηση"
+
+#: src/search/cmd.rs:2172
+#: src/ui/search_window.rs:4935
+#: src/ui/settings_window.rs:388
+msgid "Restart required to finish the update"
+msgstr "Απαιτείται επανεκκίνηση για ολοκλήρωση της ενημέρωσης"
+
+#: src/ui/settings_window.rs:81
+msgid "Results"
+msgstr "Αποτελέσματα"
+
+#: src/ui/result_row.rs:317
+msgid "Retry"
+msgstr "Δοκιμή ξανά"
+
+#: src/ui/settings_window.rs:2126
+msgid "Root Path Browsing"
+msgstr "Περιήγηση απόλυτων διαδρομών"
+
+#: src/config.rs:184
+msgid "Run a command"
+msgstr "Εκτέλεση εντολής"
+
+#: src/search/mod.rs:428
+msgid "Run {name}"
+msgstr "Εκτέλεση {name}"
+
+#: src/operations.rs:126
+msgid "Run: {command}"
+msgstr "Εκτέλεση: {command}"
+
+#: src/ui/search_window.rs:495
+msgid "Running…"
+msgstr "Εκτελείται…"
+
+#: src/search/run.rs:78
+msgid "Runs through your shell, output shown here"
+msgstr "Εκτελείται στο κέλυφός σου, η έξοδος εμφανίζεται εδώ"
+
+#: src/search/cmd.rs:2001
+msgid "Scanning installed apps…"
+msgstr "Σάρωση εγκατεστημένων εφαρμογών…"
+
+#: src/search/cmd.rs:1663
+msgid "Scanning running processes…"
+msgstr "Σάρωση εκτελούμενων διεργασιών…"
+
+#: src/ui/search_window.rs:221
+msgid "Search"
+msgstr "Αναζήτηση"
+
+#: src/ui/settings_window.rs:149
+msgid "Search Engine"
+msgstr "Μηχάνη αναζήτησης"
+
+#: src/ui/settings_window.rs:614
+msgid "Search Window"
+msgstr "Παράθυρο αναζήτησης"
+
+#: src/config.rs:154
+msgid "Search all files and folders"
+msgstr "Αναζητεί σε όλα τα αρχεία και τους φακέλους"
+
+#: src/config.rs:164
+#: src/ui/search_window.rs:3391
+msgid "Search clipboard history"
+msgstr "Αναζητεί στο ιστορικό προχείρου"
+
+#: src/config.rs:194
+msgid "Search emoji"
+msgstr "Αναζήτηση emoji"
+
+#: src/ui/settings_window.rs:93
+msgid "Search for new Apps"
+msgstr "Αναζήτηση νέων εφαρμογών επίσης"
+
+#: src/ui/settings_window.rs:1640
+msgid "Search triggers"
+msgstr "Αναζήτηση triggers"
+
+#: src/ui/search_window.rs:1577
+msgid "Searching for Bluetooth device{dots}"
+msgstr "Αναζήτηση συσκευής Bluetooth{dots}"
+
+#: src/search/cmd.rs:1847
+msgid "Searching for \"{query}\"…"
+msgstr "Αναζήτηση \\\"{query}\\\"…"
+
+#: src/ui/settings_window.rs:2441
+msgid "Set shortcut…"
+msgstr "Ορισμός συντόμευσης…"
+
+#: src/ui/settings_window.rs:1736
+msgid "Set the trigger repository URL in the Trigger Repository row."
+msgstr "Ορίστε το URL του αποθετηρίου triggers στη γραμμή αποθετηρίου."
+
+#: src/ui/search_window.rs:294
+msgid "Settings"
+msgstr "Ρυθμίσεις"
+
+#: src/search/settings_panels.rs:209
+msgid "Settings: {title}"
+msgstr "Ρυθμίσεις: {title}"
+
+#: src/ui/settings_window.rs:582
+msgid "Shortcut to focus the Spotty launcher"
+msgstr "Συντόμευση εστίασης του Spotty"
+
+#: src/ui/settings_window.rs:2094
+msgid "Show Keyboard Shortcuts"
+msgstr "Εμφάνιση συντομεύσεων πληκτρολογίου"
+
+#: src/ui/settings_window.rs:316
+msgid "Show a badge and a desktop notification when updates exist"
+msgstr "Εμφάνιση σήμανσης και ειδοποίησης όταν υπάρχουν διαθέσιμες ενημερώσεις"
+
+#: src/ui/settings_window.rs:2142
+msgid "Show recently opened files and folders"
+msgstr "Εμφάνιση πρόσφατων αρχείων και φακέλων"
+
+#: src/search/translate.rs:658
+#: src/search/translate.rs:665
+#: src/search/translate.rs:691
+msgid "Source: {name}"
+msgstr "Πηγή: {name}"
+
+#: src/ui/search_window.rs:205
+msgid "Spotty"
+msgstr ""
+
+#: src/ui/settings_window.rs:17
+msgid "Spotty Settings"
+msgstr "Ρυθμίσεις Spotty"
+
+#: src/preview.rs:2875
+#: src/preview.rs:4737
+msgid "Spreadsheet"
+msgstr "Φύλλο υπολογισμού"
+
+#: src/ui/settings_window.rs:705
+msgid "Store"
+msgstr "Κατάστημα"
+
+#: src/ui/settings_window.rs:88
+msgid "System, Flatpak and Snap apps"
+msgstr "Εφαρμογές συστήματος, Flatpak και Snap"
+
+#: src/search/translate.rs:735
+msgid "Target: {name}"
+msgstr "Στόχος: {name}"
+
+#: src/search/files.rs:189
+msgid "Text match: {snippet}"
+msgstr "Ταύτιση κειμένου: {snippet}"
+
+#: src/ui/settings_window.rs:1336
+msgid "The keyword \"{word}\" is already taken."
+msgstr "Η λέξη-κλειδί \\\"{word}\\\" χρησιμοποιείται ήδη."
+
+#: src/ui/settings_window.rs:1432
+msgid "The repository has no triggers yet."
+msgstr "Το αποθετήριο δεν έχει triggers ακόμη."
+
+#: src/ui/search_window.rs:5219
+msgid "The trigger word and its files will be removed."
+msgstr "Η λέξη-ενεργοποιητής και τα αρχεία της θα αφαιρεθούν."
+
+#: src/search/translate.rs:632
+msgid "Translate to {name}"
+msgstr "Μετάφραση σε {name}"
+
+#: src/search/translate.rs:611
+msgid "Translating…"
+msgstr "Μετάφραση…"
+
+#: src/search/translate.rs:599
+msgid "Translation unavailable"
+msgstr "Η μετάφραση δεν είναι διαθέσιμη"
+
+#: src/ui/settings_window.rs:1245
+msgid "Trigger"
+msgstr "Trigger"
+
+#: src/ui/settings_window.rs:1601
+msgid "Trigger Store"
+msgstr "Κατάστημα Triggers"
+
+#: src/ui/settings_window.rs:1929
+msgid "Trigger word"
+msgstr "Λέξη-ενεργοποιητής"
+
+#: src/ui/settings_window.rs:2232
+msgid "Trigger word \"{word}\" is already in use"
+msgstr "Η λέξη-ενεργοποιητής \\\"{word}\\\" χρησιμοποιείται ήδη"
+
+#: src/ui/settings_window.rs:2227
+msgid "Trigger word cannot be empty"
+msgstr "Η λέξη-ενεργοποιητής δεν μπορεί να είναι κενή"
+
+#: src/ui/settings_window.rs:671
+msgid "Triggers"
+msgstr "Διεγέρτες"
+
+#: src/search/run.rs:77
+msgid "Type a command to run"
+msgstr "Πληκτρολόγησε μια εντολή για εκτέλεση"
+
+#: src/search/mod.rs:416
+msgid "Type a command to run with {name}"
+msgstr "Πληκτρολόγησε μια εντολή για εκτέλεση με {name}"
+
+#: src/ui/search_window.rs:968
+msgid "Type a keyword"
+msgstr "Πληκτρολόγησε μια λέξη-κλειδί"
+
+#: src/search/dictionary.rs:64
+msgid "Type a word to look up"
+msgstr "Πληκτρολόγησε μια λέξη για αναζήτηση"
+
+#: src/search/cmd.rs:2099
+msgid "Type all, flatpak, distro or a package name"
+msgstr "Πληκτρολογήστε all, flatpak, distro ή όνομα πακέτου"
+
+#: src/search/mod.rs:394
+msgid "Type something to search with {name}"
+msgstr "Πληκτρολόγησε κάτι για αναζήτηση με {name}"
+
+#: src/search/translate.rs:769
+msgid "Type text to translate"
+msgstr "Πληκτρολόγησε το κείμενο προς μετάφραση"
+
+#: src/ui/search_window.rs:1445
+#: src/ui/search_window.rs:4795
+msgid "Undo"
+msgstr "Αναίρεση"
+
+#: src/search/cmd.rs:1560
+#: src/ui/search_window.rs:5222
+#: src/ui/settings_window.rs:1493
+#: src/ui/settings_window.rs:1800
+msgid "Uninstall"
+msgstr "Αφαίρεση"
+
+#: src/ui/settings_window.rs:1796
+msgid "Uninstall \"{id}\"?"
+msgstr "Αφαίρεση \\\"{id}\\\";"
+
+#: src/ui/search_window.rs:1041
+msgid "Uninstall app"
+msgstr "Αφαίρεση εφαρμογής"
+
+#: src/ui/settings_window.rs:860
+msgid "Uninstall trigger"
+msgstr "Αφαίρεση trigger"
+
+#: src/ui/search_window.rs:2390
+#: src/ui/search_window.rs:5218
+msgid "Uninstall {name}?"
+msgstr "Αφαίρεση {name};"
+
+#: src/search/cmd.rs:2555
+msgid "Uninstall: {name}"
+msgstr "Αφαίρεση: {name}"
+
+#: src/search/cmd.rs:2559
+msgid "Uninstalling {name}"
+msgstr "Αφαίρεση {name}"
+
+#: src/search/cmd.rs:1568
+msgid "Update"
+msgstr "Ενημέρωση"
+
+#: src/search/cmd.rs:2154
+#: src/ui/settings_window.rs:386
+#: src/ui/settings_window.rs:391
+#: src/ui/settings_window.rs:410
+msgid "Update & Restart"
+msgstr "Ενημέρωση και επανεκκίνηση"
+
+#: src/ui/search_window.rs:4857
+msgid "Update all packages"
+msgstr "Ενημέρωση όλων των πακέτων"
+
+#: src/ui/search_window.rs:1127
+#: src/ui/search_window.rs:4885
+#: src/ui/settings_window.rs:462
+msgid "Update everything"
+msgstr "Ενημέρωση όλων"
+
+#: src/ui/search_window.rs:4858
+msgid "Update flatpak packages"
+msgstr "Ενημέρωση πακέτων Flatpak"
+
+#: src/ui/search_window.rs:1135
+#: src/ui/search_window.rs:4887
+#: src/ui/settings_window.rs:469
+msgid "Update flatpak packages only"
+msgstr "Ενημέρωση μόνο των πακέτων Flatpak"
+
+#: src/ui/settings_window.rs:315
+msgid "Update notification"
+msgstr "Ειδοποίηση ενημέρωσης"
+
+#: src/ui/search_window.rs:4884
+msgid "Update now"
+msgstr "Ενημέρωση τώρα"
+
+#: src/ui/search_window.rs:4859
+msgid "Update snap packages"
+msgstr "Ενημέρωση πακέτων Snap"
+
+#: src/ui/search_window.rs:4860
+msgid "Update system packages"
+msgstr "Ενημέρωση πακέτων συστήματος"
+
+#: src/ui/search_window.rs:1131
+#: src/ui/search_window.rs:4886
+#: src/ui/settings_window.rs:464
+msgid "Update system packages only"
+msgstr "Ενημέρωση μόνο των πακέτων συστήματος"
+
+#: src/search/cmd.rs:2263
+#: src/search/cmd.rs:2308
+msgid "Update: {name}"
+msgstr "Ενημέρωση: {name}"
+
+#: src/ui/settings_window.rs:255
+msgid "Updates"
+msgstr "Ενημερώσεις"
+
+#: src/ui/settings_window.rs:219
+msgid "Used for app search, install, and uninstall via the cmd trigger"
+msgstr "Χρησιμοποιείται για αναζήτηση, εγκατάσταση και αφαίρεση εφαρμογών μέσω του cmd trigger"
+
+#: src/ui/settings_window.rs:150
+msgid "Used for web search results"
+msgstr "Χρησιμοποιείται για αποτελέσματα ιστού"
+
+#: src/ui/settings_window.rs:167
+#: src/ui/settings_window.rs:192
+msgid "Uses {name} (detected from your default browser)"
+msgstr "Χρησιμοποιεί το {name} (ανιχνεύθηκε από το προεπιλεγμένο πρόγραμμα περιήγησης)"
+
+#: src/ui/settings_window.rs:130
+#: src/ui/settings_window.rs:136
+msgid "Web Search"
+msgstr "Αναζήτηση στον ιστό"
+
+#: src/ui/settings_window.rs:340
+msgid "Weekly"
+msgstr "Εβδομαδιαία"
+
+#: src/ui/settings_window.rs:1246
+msgid "What you type to open it."
+msgstr "Τι πληκτρολογείς για να το ανοίξεις."
+
+#: src/ui/settings_window.rs:531
+msgid "Word: {word} · No shortcut"
+msgstr "Λέξη: {word} · Χωρίς συντόμευση"
+
+#: src/ui/settings_window.rs:533
+msgid "Word: {word} · {shortcut}"
+msgstr "Λέξη: {word} · {shortcut}"
+
+#: src/ui/search_window.rs:3912
+msgid "Yes"
+msgstr "Ναι"
+
+#: src/search/cmd.rs:2367
+msgid "all packages ({sources})"
+msgstr "όλα τα πακέτα ({sources})"
+
+#: src/triggers.rs:346
+msgid "curl exited with {status}"
+msgstr "το curl τερμάτισε με {status}"
+
+#: src/search/translate.rs:322
+#: src/search/translate.rs:329
+#: src/triggers.rs:350
+#: src/triggers.rs:377
+msgid "empty response"
+msgstr "κενή απάντηση"
+
+#: src/triggers.rs:312
+msgid "id '{id}' is a built-in trigger"
+msgstr "το id '{id}' είναι ενσωματωμένο trigger"
+
+#: src/search/cmd.rs:1553
+msgid "install <app>  —  install from Flatpak, distro, or Snap"
+msgstr "install <app>  —  εγκατάσταση από Flatpak, διανομή ή Snap"
+
+#: src/triggers.rs:300
+msgid "invalid id '{id}': use only letters, digits, '_', '-' or '.'"
+msgstr "μη έγκυρο id '{id}': επιτρέπονται μόνο γράμματα, ψηφία, '_', '-' και '.'"
+
+#: src/operations.rs:157
+msgid "just now"
+msgstr "μόλις τώρα"
+
+#: src/search/cmd.rs:1545
+msgid "kill <app-name>  —  stop a running process"
+msgstr "kill <app-name>  —  διακοπή εκτελούμενης διεργασίας"
+
+#: src/triggers.rs:306
+msgid "missing 'word' (the trigger text)"
+msgstr "λείπει το 'word' (το κείμενο του trigger)"
+
+#: src/triggers.rs:326
+msgid "shell action needs a 'command' template"
+msgstr "η ενέργεια shell χρειάζεται πρότυπο 'command'"
+
+#: src/triggers.rs:316
+msgid "trigger '{id}' is already installed"
+msgstr "το trigger '{id}' είναι ήδη εγκατεστημένο"
+
+#: src/triggers.rs:257
+msgid "trigger '{id}' is not installed"
+msgstr "το trigger '{id}' δεν είναι εγκατεστημένο"
+
+#: src/triggers.rs:319
+msgid "trigger word '{word}' is already in use"
+msgstr "η λέξη-ενεργοποιητής '{word}' χρησιμοποιείται ήδη"
+
+#: src/search/cmd.rs:1561
+msgid "uninstall <app>  —  remove an installed app"
+msgstr "uninstall <app>  —  αφαίρεση εγκατεστημένης εφαρμογής"
+
+#: src/search/cmd.rs:1569
+msgid "update  —  update installed packages"
+msgstr "update  —  ενημέρωση εγκατεστημένων πακέτων"
+
+#: src/search/cmd.rs:2521
+#: src/search/cmd.rs:2556
+msgid "via Flatpak ({app})"
+msgstr ""
+
+#: src/search/cmd.rs:2754
+msgid "via snap"
+msgstr ""
+
+#: src/triggers.rs:323
+msgid "web action needs a 'url' template"
+msgstr "η ενέργεια web χρειάζεται πρότυπο 'url'"
+
+#: src/search/cmd.rs:2523
+msgid "{description} — via Flatpak ({app})"
+msgstr ""
+
+#: src/search/mod.rs:405
+#: src/search/mod.rs:432
+msgid "{name}: {query}"
+msgstr ""
+
+#: src/operations.rs:588
+msgid "{noun} {target} {suffix}"
+msgstr ""
+
+#: src/search/cmd.rs:2379
+msgid "{n} flatpak packages"
+msgstr "{n} πακέτα flatpak"
+
+#: src/search/cmd.rs:2412
+msgid "{n} snap packages"
+msgstr "{n} πακέτα snap"
+
+#: src/search/cmd.rs:2398
+msgid "{n} system packages ({pm})"
+msgstr "{n} πακέτα συστήματος ({pm})"
+
+#: src/search/cmd.rs:3401
+#: src/search/cmd.rs:3494
+#: src/ui/search_window.rs:3515
+msgid "{n} updates available"
+msgstr "{n} διαθέσιμες ενημερώσεις"
+
+#: src/operations.rs:163
+msgid "{n}d ago"
+msgstr "{n} ημέρες πριν"
+
+#: src/operations.rs:161
+msgid "{n}h ago"
+msgstr "{n} ώρες πριν"
+
+#: src/operations.rs:159
+msgid "{n}m ago"
+msgstr "{n} λεπτά πριν"
+
+#: src/search/dictionary.rs:215
+#: src/search/dictionary.rs:275
+msgid "{pos} — {text}"
+msgstr ""
+
+#: src/search/cmd.rs:2274
+#: src/search/cmd.rs:2320
+#: src/ui/search_window.rs:4864
+msgid "{source} Update"
+msgstr "Ενημέρωση {source}"
+
+#: src/operations.rs:175
+#: src/operations.rs:195
+#: src/operations.rs:846
+#: src/operations.rs:872
+#: src/operations.rs:897
+msgid "{source} · {status}"
+msgstr ""
+
+#: src/search/translate.rs:585
+#: src/search/translate.rs:720
+#: src/search/translate.rs:771
+msgid "{src} → {tgt}"
+msgstr "{src} → {tgt}"
+
+#: src/operations.rs:591
+msgid "{title} {suffix}"
+msgstr ""
+
+#: src/ui/search_window.rs:3664
+msgid "{title} — {detail}"
+msgstr ""
+
+#: src/search/dictionary.rs:148
+msgid "{word} — complete the word with Tab"
+msgstr "{word} — ολοκλήρωσε τη λέξη με Tab"
+
+#: src/ui/settings_window.rs:1480
+msgid "{word} — {description}"
+msgstr ""
+
+#: src/search/dictionary.rs:213
+msgid "• {text}"
+msgstr ""
+
+#: src/preview.rs:675
+msgid "…and {n} more"
+msgstr "…και άλλα {n}"
+
+#: src/preview.rs:491
+msgid "▶"
+msgstr ""
+
+#: src/preview.rs:481
+msgid "◀"
+msgstr ""

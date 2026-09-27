@@ -24,6 +24,7 @@ use crate::index::Indexer;
 use crate::preview::PreviewPane;
 use crate::search::{self, Action, SearchResult};
 use crate::ui::result_row::ResultRow;
+use crate::i18n::gettext;
 use adw::prelude::*;
 use gtk::{gio, glib};
 use std::cell::{Cell, RefCell};
@@ -179,7 +180,16 @@ pub struct SearchWindow {
     busy_stack: gtk::Stack,
     busy_label: gtk::Label,
     busy_revealer: gtk::Revealer,
+    /// Settings gear next to the orb slot — revealed purely on hover.
+    gear_revealer: gtk::Revealer,
+    /// Inline process pill right of the orb, toggled by clicking the orb.
+    ops_pill_revealer: gtk::Revealer,
+    ops_pill_label: gtk::Label,
+    ops_pill_open: Rc<Cell<bool>>,
     toast_gen: Rc<Cell<u64>>,
+    /// Update badge in the orb slot. Nothing expands on its own — the
+    /// options appear once the user types "update".
+    update_badge: gtk::Button,
     pre_show_reset: Rc<dyn Fn()>,
 }
 
@@ -192,7 +202,7 @@ impl SearchWindow {
     ) -> Self {
         let window = gtk::Window::builder()
             .application(app)
-            .title("Spotty")
+            .title(gettext("Spotty"))
             .default_width(750)
             .decorated(false)
             .resizable(false)
@@ -208,7 +218,7 @@ impl SearchWindow {
 
         // ── Search bar ──
         let entry = gtk::Entry::builder()
-            .placeholder_text("Search")
+            .placeholder_text(gettext("Search"))
             .hexpand(true)
             .has_frame(false)
             .css_classes(["spotty-entry", "title-3"])
@@ -263,12 +273,25 @@ impl SearchWindow {
             .reveal_child(false)
             .child(&busy_stack)
             .build();
-        bar.append(&busy_revealer);
+        // A fully-closed GtkRevealer still counts as a visible child, so its
+        // Box spacing kept the idle gear away from the bar's right edge.
+        // Keep closed revealers out of the layout entirely: the notify hook
+        // hides the widget once the transition has actually finished (and
+        // never when an interrupted hide is followed by a re-show).
+        busy_revealer.connect_child_revealed_notify(|r| {
+            if !r.is_child_revealed() && !r.reveals_child() {
+                r.set_visible(false);
+            }
+        });
+        busy_revealer.set_visible(false);
 
+        // Settings gear: sits LEFT of the orb slot and is purely
+        // hover-driven — it slides in when the pointer is over the search
+        // bar and out when it leaves, orb or no orb.
         let gear = gtk::Button::builder()
             .icon_name("emblem-system-symbolic")
             .css_classes(["flat", "circular", "spotty-gear"])
-            .tooltip_text("Settings")
+            .tooltip_text(gettext("Settings"))
             .build();
         let rev_gear = gtk::Revealer::builder()
             .transition_type(gtk::RevealerTransitionType::SlideLeft)
@@ -277,12 +300,67 @@ impl SearchWindow {
             .child(&gear)
             .build();
         bar.append(&rev_gear);
-        let mc = gtk::EventControllerMotion::new();
-        let rg1 = rev_gear.clone();
-        mc.connect_enter(move |_, _, _| rg1.set_reveal_child(true));
-        let rg2 = rev_gear.clone();
-        mc.connect_leave(move |_| rg2.set_reveal_child(false));
-        bar.add_controller(mc);
+
+        // Inline process pill: clicking the orb expands the running
+        // operation's title + live status to the ORB's left, so the orb
+        // stays the rightmost element of the bar in every state — the pill
+        // takes its width out of the expanding entry, not out of the orb's
+        // spot. SlideLeft makes it emerge from the orb's side.
+        let ops_pill_label = gtk::Label::builder()
+            .css_classes(["spotty-ops-pill", "caption"])
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .max_width_chars(44)
+            .single_line_mode(true)
+            .xalign(0.0)
+            .build();
+        let ops_pill_revealer = gtk::Revealer::builder()
+            .transition_type(gtk::RevealerTransitionType::SlideLeft)
+            .transition_duration(150)
+            .reveal_child(false)
+            .child(&ops_pill_label)
+            .build();
+        // Same closed-revealer spacing rule as the orb above.
+        ops_pill_revealer.connect_child_revealed_notify(|r| {
+            if !r.is_child_revealed() && !r.reveals_child() {
+                r.set_visible(false);
+            }
+        });
+        ops_pill_revealer.set_visible(false);
+        bar.append(&ops_pill_revealer);
+        bar.append(&busy_revealer);
+
+        let ops_pill_open = Rc::new(Cell::new(false));
+        {
+            let mc = gtk::EventControllerMotion::new();
+            {
+                let rg = rev_gear.clone();
+                mc.connect_enter(move |_, _, _| rg.set_reveal_child(true));
+            }
+            {
+                let rg = rev_gear.clone();
+                mc.connect_leave(move |_| rg.set_reveal_child(false));
+            }
+            bar.add_controller(mc);
+        }
+        // Clicking the orb toggles the inline process pill.
+        {
+            let open = ops_pill_open.clone();
+            let revealer = ops_pill_revealer.clone();
+            let label = ops_pill_label.clone();
+            let br = busy_revealer.clone();
+            let st = busy_stack.clone();
+            let area = ops_ring.area().clone();
+            let click = gtk::GestureClick::new();
+            {
+                let area_c = area.clone();
+                click.connect_pressed(move |_, _, _, _| {
+                    open.set(!open.get());
+                    sync_ops_pill(&open, &revealer, &label, &br, &st, &area_c);
+                });
+            }
+            area.add_controller(click);
+            area.set_cursor_from_name(Some("pointer"));
+        }
         let aw = app.downgrade();
         gear.connect_clicked(move |_| {
             if let Some(a) = aw.upgrade() {
@@ -414,7 +492,7 @@ impl SearchWindow {
             .css_classes(["heading"])
             .build();
         let progress_status_lbl = gtk::Label::builder()
-            .label("Running…")
+            .label(gettext("Running…"))
             .css_classes(["dim-label", "caption"])
             .valign(gtk::Align::Center)
             .build();
@@ -448,11 +526,11 @@ impl SearchWindow {
             .halign(gtk::Align::End)
             .build();
         let prog_cancel = gtk::Button::builder()
-            .label("Cancel")
+            .label(gettext("Cancel"))
             .css_classes(["destructive-action"])
             .build();
         let prog_done = gtk::Button::builder()
-            .label("Done")
+            .label(gettext("Done"))
             .visible(false)
             .css_classes(["suggested-action"])
             .build();
@@ -512,7 +590,7 @@ impl SearchWindow {
                     .width_request(360)
                     .build();
                 let header = gtk::Label::builder()
-                    .label("Operations")
+                    .label(gettext("Operations"))
                     .xalign(0.0)
                     .css_classes(["heading"])
                     .margin_bottom(4)
@@ -535,7 +613,7 @@ impl SearchWindow {
                 if items.is_empty() {
                     list.append(
                         &gtk::Label::builder()
-                            .label("No operations yet")
+                            .label(gettext("No operations yet"))
                             .xalign(0.0)
                             .css_classes(["dim-label"])
                             .build(),
@@ -673,7 +751,7 @@ impl SearchWindow {
                                 .icon_name("process-stop-symbolic")
                                 .css_classes(["flat", "circular"])
                                 .valign(gtk::Align::Center)
-                                .tooltip_text("Cancel")
+                                .tooltip_text(gettext("Cancel"))
                                 .build();
                             cancel_btn.connect_clicked(move |_| {
                                 if let Some(id) = op_id {
@@ -887,7 +965,7 @@ impl SearchWindow {
                 // so the user sees what they can type to switch modes, then fall
                 // through to the always-visible shortcut list below.
                 if mode_id.is_empty() && !has_results {
-                    content.append(&header("Type a keyword"));
+                    content.append(&header(&gettext("Type a keyword")));
                     let cfg = config.borrow();
                     for kw in &cfg.command_keywords {
                         let row = gtk::Box::builder()
@@ -926,7 +1004,7 @@ impl SearchWindow {
                     res_store.borrow().get(row.index() as usize).cloned()
                 });
                 let mode_is_none = active_mode.borrow().is_none();
-                let mut entries: Vec<(&str, String)> = Vec::new();
+                let mut entries: Vec<(String, String)> = Vec::new();
 
                 // Pin / Unpin — eligible if clip-mode + pinable action,
                 // or universal_pin_eligible.
@@ -944,7 +1022,7 @@ impl SearchWindow {
                             s
                         };
                         if !accel.is_empty() {
-                            entries.push(("Pin / Unpin selected", accel));
+                            entries.push((gettext("Pin / Unpin selected"), accel));
                         }
                     }
                 }
@@ -960,7 +1038,7 @@ impl SearchWindow {
                                     "<Control>u",
                                 );
                                 if !uaccel.is_empty() {
-                                    entries.push(("Uninstall app", uaccel));
+                                    entries.push((gettext("Uninstall app"), uaccel));
                                 }
                                 if crate::search::uninstall::is_app_running(path, &res.title) {
                                     let kaccel = accel_or(
@@ -969,7 +1047,7 @@ impl SearchWindow {
                                         "<Control>k",
                                     );
                                     if !kaccel.is_empty() {
-                                        entries.push(("Kill app", kaccel));
+                                        entries.push((gettext("Kill app"), kaccel));
                                     }
                                 }
                             }
@@ -1008,7 +1086,7 @@ impl SearchWindow {
                             "<Control><Shift>Return",
                         );
                         if !taccel.is_empty() {
-                            entries.insert(0, ("Open folder in terminal", taccel));
+                            entries.insert(0, (gettext("Open folder in terminal"), taccel));
                         }
                     }
                     if selected_target.is_some() {
@@ -1019,9 +1097,9 @@ impl SearchWindow {
                         );
                         if !daccel.is_empty() {
                             let label = if selected_is_folder {
-                                "Delete folder"
+                                gettext("Delete folder")
                             } else {
-                                "Delete file"
+                                gettext("Delete file")
                             };
                             entries.push((label, daccel));
                         }
@@ -1033,13 +1111,36 @@ impl SearchWindow {
                             "<Control>Return",
                         );
                         if !laccel.is_empty() {
-                            entries.push(("Open location in file manager", laccel));
+                            entries.push((gettext("Open location in file manager"), laccel));
                         }
                     }
                 }
 
+                // Update shortcuts — while an update query or update row
+                // is on screen (Ctrl+Enter also works from the badge).
+                if mode_is_none {
+                    let ctx = crate::search::cmd::in_update_context(&entry.text())
+                        || selected.as_ref().map(is_update_row).unwrap_or(false);
+                    if ctx {
+                        let cfg = config.borrow();
+                        entries.push((
+                            gettext("Update everything"),
+                            to_gtk_accel(&cfg.update_all_shortcut),
+                        ));
+                        entries.push((
+                            gettext("Update system packages only"),
+                            to_gtk_accel(&cfg.update_system_shortcut),
+                        ));
+                        entries.push((
+                            gettext("Update flatpak packages only"),
+                            to_gtk_accel(&cfg.update_flatpak_shortcut),
+                        ));
+                        drop(cfg);
+                    }
+                }
+
                 if !entries.is_empty() {
-                    content.append(&header("Keyboard Shortcuts"));
+                    content.append(&header(&gettext("Keyboard Shortcuts")));
                     for (label, accel) in &entries {
                         content.append(&hint_row(label, &to_gtk_accel(accel)));
                     }
@@ -1312,19 +1413,36 @@ impl SearchWindow {
         };
 
         revealer.set_child(Some(&results_inner));
+        // ── Update badge ───────────────────────────────────────────────
+        // A quiet indicator in the orb slot (idle only — it never replaces
+        // a running orb). Nothing expands on its own: clicking it types
+        // "update", and the options appear with the search results.
+        let update_badge = gtk::Button::builder()
+            .icon_name("software-update-available-symbolic")
+            .css_classes(["flat", "circular", "spotty-update-badge"])
+            .visible(false)
+            .build();
+        bar.append(&update_badge);
+        {
+            let entry_c = entry.clone();
+            update_badge.connect_clicked(move |_| {
+                entry_c.set_text("update ");
+                entry_c.set_position(entry_c.text().chars().count() as i32);
+            });
+        }
         outer.append(&revealer);
 
         // ── Undo bar: shown briefly after deleting a clipboard entry, like
         // Nautilus's "Moved to Trash" toast with an Undo button. Ctrl+Z within
         // the next 2 seconds also undoes the deletion.
         let undo_label = gtk::Label::builder()
-            .label("Item deleted")
+            .label(gettext("Item deleted"))
             .hexpand(true)
             .halign(gtk::Align::Start)
             .css_classes(["caption"])
             .build();
         let undo_button = gtk::Button::builder()
-            .label("Undo")
+            .label(gettext("Undo"))
             .css_classes(["flat"])
             .build();
         let undo_box = gtk::Box::builder()
@@ -1359,7 +1477,7 @@ impl SearchWindow {
 
         // Create a separate undo bar for unpins
         let unpin_undo_label = gtk::Label::builder()
-            .label("Item unpinned — Press Ctrl+Z to undo")
+            .label(gettext("Item unpinned — Press Ctrl+Z to undo"))
             .hexpand(true)
             .halign(gtk::Align::Start)
             .css_classes(["caption"])
@@ -1456,7 +1574,7 @@ impl SearchWindow {
                         2 => "...",
                         _ => "",
                     };
-                    let text = format!("Searching for Bluetooth device{dots}");
+                    let text = gettext("Searching for Bluetooth device{dots}").replace("{dots}", &dots);
                     entry2.set_placeholder_text(Some(text.as_str()));
                     step2.set(s + 1);
                     glib::ControlFlow::Continue
@@ -1539,12 +1657,19 @@ impl SearchWindow {
             let search_debounce_cb = search_debounce_id.clone();
             let rebuild_flag = rebuilding.clone();
             let last_q = last_rendered_query.clone();
+            let ops_ring_c = ops_ring.clone();
 
             entry.connect_changed(move |e| {
                 if suppress.get() {
                     return;
                 }
                 let full = e.text().to_string();
+                // The orb's colour follows the text it sits next to.
+                ops_ring_c.set_tone(if full.is_empty() {
+                    crate::ui::circular_progress::Tone::Accent
+                } else {
+                    crate::ui::circular_progress::Tone::Foreground
+                });
                 let typed_now = visible_typed_len(e, typed_len.get());
                 // Text undo/redo bookkeeping (word-step checkpoints).
                 if is_undo_redo_cb.get() {
@@ -2054,16 +2179,16 @@ impl SearchWindow {
                             args: args.clone(),
                         };
                         let question = match title.strip_prefix("Update: ") {
-                            Some(name) => format!("Do you want to update {}?", name),
+                            Some(name) => gettext("Do you want to update {name}?").replace("{name}", &name),
                             None if title.starts_with("Installing ") => {
                                 let name = title.strip_prefix("Installing ").unwrap();
-                                format!("Are you sure you want to install {}?", name)
+                                gettext("Are you sure you want to install {name}?").replace("{name}", &name)
                             }
                             None if title.starts_with("Uninstalling ") => {
                                 let name = title.strip_prefix("Uninstalling ").unwrap();
-                                format!("Are you sure you want to uninstall {}?", name)
+                                gettext("Are you sure you want to uninstall {name}?").replace("{name}", &name)
                             }
-                            None => format!("Do you want to {}?", title.to_lowercase()),
+                            None => gettext("Do you want to {action}?").replace("{action}", &title.to_lowercase()),
                         };
                         show_confirm_dialog(&w, &popover_open_click, &e, question, Some(plan), "", query.clone());
                         drop(rs);
@@ -2072,10 +2197,10 @@ impl SearchWindow {
                         popover_open_click.set(true);
                         let dialog = adw::MessageDialog::builder()
                             .transient_for(&w)
-                            .heading("Are you sure?")
+                            .heading(gettext("Are you sure?"))
                             .build();
-                        dialog.add_response("cancel", "Cancel");
-                        dialog.add_response("confirm", "Confirm");
+                        dialog.add_response("cancel", &gettext("Cancel"));
+                        dialog.add_response("confirm", &gettext("Confirm"));
                         dialog.set_default_response(Some("confirm"));
                         dialog.set_response_appearance("confirm", adw::ResponseAppearance::Destructive);
                         let w2 = w.clone();
@@ -2262,7 +2387,7 @@ impl SearchWindow {
                                     &w,
                                     &popover_open_kc,
                                     &e,
-                                    format!("Uninstall {name}?"),
+                                    gettext("Uninstall {name}?").replace("{name}", &name),
                                     plan,
                                     "Couldn't determine how this app was installed.",
                                     String::new(),
@@ -2291,7 +2416,7 @@ impl SearchWindow {
                                     &w,
                                     &popover_open_kc,
                                     &e,
-                                    format!("Kill {name}?"),
+                                    gettext("Kill {name}?").replace("{name}", &name),
                                     Some(plan),
                                     "",
                                     String::new(),
@@ -2447,6 +2572,43 @@ impl SearchWindow {
                                 }
                             }
                         }
+                    }
+                }
+
+                // ── Update shortcuts (universal mode): Ctrl+Enter = check
+                // for updates and upgrade everything, Ctrl+D = system
+                // packages only, Ctrl+F = flatpak only. They act while an
+                // update query or update row is on screen; Ctrl+Enter also
+                // works while the update badge is showing. Shortcuts run
+                // immediately — activating a row still asks first.
+                if mode_kc.borrow().is_none() {
+                    let typed_ctx = current_typed(&e, &typed_len_c);
+                    let ctx = crate::search::cmd::in_update_context(&typed_ctx)
+                        || l
+                            .selected_row()
+                            .and_then(|row| {
+                                r.borrow().get(row.index() as usize).map(is_update_row)
+                            })
+                            .unwrap_or(false);
+                    let badge = {
+                        let cfg = cfg_kc.borrow();
+                        crate::search::cmd::update_notice(&cfg).is_some()
+                    };
+                    let all_hit = hit(|c| c.update_all_shortcut.as_str(), key, state, false);
+                    let sys_hit = hit(|c| c.update_system_shortcut.as_str(), key, state, false);
+                    let fp_hit = hit(|c| c.update_flatpak_shortcut.as_str(), key, state, false);
+                    let run = if all_hit && (ctx || badge) {
+                        Some("all")
+                    } else if sys_hit && ctx {
+                        Some("distro")
+                    } else if fp_hit && ctx {
+                        Some("flatpak")
+                    } else {
+                        None
+                    };
+                    if let Some(scope) = run {
+                        run_update_scope(scope);
+                        return glib::Propagation::Stop;
                     }
                 }
 
@@ -3002,15 +3164,15 @@ impl SearchWindow {
                                     };
                                     let question = match title.strip_prefix("Update: ") {
                                         Some(name) => {
-                                            format!("Do you want to update {}?", name)
+                                            gettext("Do you want to update {name}?").replace("{name}", &name)
                                         }
                                         None if title.starts_with("Installing ") => {
                                             let name = title.strip_prefix("Installing ").unwrap();
-                                            format!("Are you sure you want to install {}?", name)
+                                            gettext("Are you sure you want to install {name}?").replace("{name}", &name)
                                         }
                                         None if title.starts_with("Uninstalling ") => {
                                             let name = title.strip_prefix("Uninstalling ").unwrap();
-                                            format!("Are you sure you want to uninstall {}?", name)
+                                            gettext("Are you sure you want to uninstall {name}?").replace("{name}", &name)
                                         }
                                         None => format!(
                                             "Do you want to {}?",
@@ -3050,10 +3212,10 @@ impl SearchWindow {
                                     popover_open_kc.set(true);
                                     let dialog = adw::MessageDialog::builder()
                                         .transient_for(&w)
-                                        .heading("Are you sure?")
+                                        .heading(gettext("Are you sure?"))
                                         .build();
-                                    dialog.add_response("cancel", "Cancel");
-                                    dialog.add_response("confirm", "Confirm");
+                                    dialog.add_response("cancel", &gettext("Cancel"));
+                                    dialog.add_response("confirm", &gettext("Confirm"));
                                     dialog.set_default_response(Some("confirm"));
                                     dialog.set_response_appearance("confirm", adw::ResponseAppearance::Destructive);
                                     let w2 = w.clone();
@@ -3126,7 +3288,12 @@ impl SearchWindow {
             busy_stack,
             busy_label,
             busy_revealer,
+            gear_revealer: rev_gear,
+            ops_pill_revealer,
+            ops_pill_label,
+            ops_pill_open,
             toast_gen: Rc::new(Cell::new(0)),
+            update_badge,
             pre_show_reset,
         }
     }
@@ -3161,6 +3328,10 @@ impl SearchWindow {
         // focused browser (toggling video play/pause).
         self.entry.grab_focus();
         self.window.present();
+        // The badge/banner must be right on the first open, before any
+        // refresh_search_window has ever run (the update check may still be
+        // in flight when the window first appears).
+        self.sync_update_notification();
         // ponytail: one-shot frame clock probe — measures present-to-paint
         // latency AND runs the deferred post-present work on the first frame.
         if let Some(clock) = self.window.frame_clock() {
@@ -3196,7 +3367,7 @@ impl SearchWindow {
                     suppress.set(false);
                     // Refresh ops indicator (updates ring state).
                     if !apply_ops_ring(&ops_ring, &busy_stack, &busy_revealer) {
-                        busy_revealer.set_reveal_child(false);
+                        set_revealed(&busy_revealer, false);
                     }
                     entry.emit_by_name::<()>("changed", &[]);
                 }
@@ -3217,7 +3388,7 @@ impl SearchWindow {
         self.present_keyword_mode(crate::config::CommandKeyword {
             id: "clipboard".into(),
             word: "clip".into(),
-            description: "Search clipboard history".into(),
+            description: gettext("Search clipboard history").into(),
             extensions: Vec::new(),
             icon: "edit-paste-symbolic".into(),
             all_files: false,
@@ -3262,7 +3433,7 @@ impl SearchWindow {
                 if !fired_c.get() {
                     fired_c.set(true);
                     if !apply_ops_ring(&ops_ring, &busy_stack, &busy_revealer) {
-                        busy_revealer.set_reveal_child(false);
+                        set_revealed(&busy_revealer, false);
                     }
                     entry.emit_by_name::<()>("changed", &[]);
                 }
@@ -3297,7 +3468,67 @@ impl SearchWindow {
         self.preview.refresh_if_stale();
     }
 
+    /// Keep the inline orb pill in sync with the orb state (text + collapse).
+    fn update_ops_pill(&self) {
+        sync_ops_pill(
+            &self.ops_pill_open,
+            &self.ops_pill_revealer,
+            &self.ops_pill_label,
+            &self.busy_revealer,
+            &self.busy_stack,
+            self.ops_ring.area(),
+        );
+    }
+
+    /// Recompute the busy indicator (ops ring / BT status / content search /
+    /// hidden), then re-sync the inline pill around it. The gear is purely
+    // hover-driven and doesn't depend on the orb.
     pub fn refresh_ops_indicator(&self) {
+        self.sync_orb_indicator();
+        self.update_ops_pill();
+        self.sync_update_notification();
+    }
+
+    /// Refresh the update badge (orb slot) and the notification banner.
+    /// Runs from `refresh_ops_indicator`, i.e. on every window refresh.
+    /// Refresh the update badge in the orb slot. Runs from
+    /// `refresh_ops_indicator` (every window refresh) and on first show.
+    /// No expansion under the search bar — typing "update" reveals the
+    /// options, per design.
+    fn sync_update_notification(&self) {
+        let notice =
+            crate::app::with_state(|st| crate::search::cmd::update_notice(&st.config.borrow()));
+        let reboot = crate::search::cmd::reboot_pending();
+
+        // The badge shares the orb slot — only when the orb itself is idle.
+        let orb_busy = self.busy_revealer.reveals_child();
+        self.update_badge
+            .set_visible(!orb_busy && (notice.is_some() || reboot));
+        if reboot {
+            self.update_badge.set_tooltip_text(Some(&gettext(
+                "Restart required to finish the update",
+            )));
+        } else if let Some((n, _)) = &notice {
+            let tip = if *n == 1 {
+                gettext("One update available")
+            } else {
+                gettext("{n} updates available").replace("{n}", &n.to_string())
+            };
+            self.update_badge.set_tooltip_text(Some(&tip));
+        } else {
+            self.update_badge.set_tooltip_text(None);
+        }
+    }
+
+    fn sync_orb_indicator(&self) {
+        // While the orb sits next to typed text it is drawn in the text
+        // colour (black on a light theme, white on a dark one); otherwise
+        // it keeps the accent palette.
+        self.ops_ring.set_tone(if self.entry.text().is_empty() {
+            crate::ui::circular_progress::Tone::Accent
+        } else {
+            crate::ui::circular_progress::Tone::Foreground
+        });
         // Priority: ops > finished-op flash > bt action > bt scan > find-mode > hidden.
         if apply_ops_ring(&self.ops_ring, &self.busy_stack, &self.busy_revealer) {
             return;
@@ -3353,13 +3584,16 @@ impl SearchWindow {
     /// Show the busy stack with the orb child and reveal it.
     fn reveal_orb(&self) {
         self.busy_stack.set_visible_child_name("orb");
-        self.busy_revealer.set_reveal_child(true);
+        set_revealed(&self.busy_revealer, true);
     }
 
     /// Hide the busy revealer (the stack reverts to "orb" state next time
-    /// it's revealed).
+    /// it's revealed). The process pill goes with it; the gear is hover-
+    /// driven and stays wherever the pointer left it.
     fn hide_orb(&self) {
-        self.busy_revealer.set_reveal_child(false);
+        set_revealed(&self.busy_revealer, false);
+        self.ops_pill_open.set(false);
+        set_revealed(&self.ops_pill_revealer, false);
     }
 
     /// If a Bluetooth action just completed, show its result as a toast
@@ -3370,6 +3604,10 @@ impl SearchWindow {
         };
         self.busy_label.set_text(&text);
         self.busy_stack.set_visible_child_name("status");
+        // The ring is gone for the toast — the pill (clicked open against
+        // the ring) collapses with it.
+        self.ops_pill_open.set(false);
+        set_revealed(&self.ops_pill_revealer, false);
         self.reveal_orb();
         let gen = self.toast_gen.get().wrapping_add(1);
         self.toast_gen.set(gen);
@@ -3377,13 +3615,60 @@ impl SearchWindow {
         let revealer = self.busy_revealer.clone();
         glib::timeout_add_local(Duration::from_millis(4000), move || {
             if gen_c.get() == gen {
-                revealer.set_reveal_child(false);
+                set_revealed(&revealer, false);
             }
             glib::ControlFlow::Break
         });
         // If the user types or interacts, the next refresh_ops_indicator will
         // hide the toast (gen check ensures stale timers don't clobber).
     }
+}
+
+/// Toggle a revealer while keeping a fully-closed one out of the layout: a
+/// closed GtkRevealer still counts as a visible child, so its Box spacing
+/// would push the idle gear away from the bar's right edge. Opening brings
+/// the widget back before the transition; closing hides it via the
+/// child-revealed notify hook once the transition has finished.
+fn set_revealed(revealer: &gtk::Revealer, on: bool) {
+    if on {
+        revealer.set_visible(true);
+    }
+    revealer.set_reveal_child(on);
+}
+
+/// Show/hide the inline process pill next to the orb. The open flag is a
+/// toggle from clicking the orb; the text is the running operation's title
+/// and live status, falling back to the orb's own state text (Bluetooth /
+/// content search). Collapses whenever the ring isn't the visible state.
+fn sync_ops_pill(
+    open: &Rc<Cell<bool>>,
+    revealer: &gtk::Revealer,
+    label: &gtk::Label,
+    busy_revealer: &gtk::Revealer,
+    busy_stack: &gtk::Stack,
+    ring_area: &gtk::DrawingArea,
+) {
+    if !open.get() {
+        set_revealed(revealer, false);
+        return;
+    }
+    let ring_visible = busy_revealer.reveals_child()
+        && busy_stack.visible_child_name().is_some_and(|n| n == "orb");
+    if !ring_visible {
+        open.set(false);
+        set_revealed(revealer, false);
+        return;
+    }
+    let text = match crate::operations::active_op_detail() {
+        Some((title, detail)) if detail.is_empty() => title,
+        Some((title, detail)) => gettext("{title} — {detail}").replace("{title}", &title).replace("{detail}", &detail),
+        None => ring_area
+            .tooltip_text()
+            .map(|t| t.to_string())
+            .unwrap_or_default(),
+    };
+    label.set_text(&text);
+    set_revealed(revealer, true);
 }
 
 /// Shared "operations → search-bar orb" update. Returns `true` when the orb
@@ -3424,7 +3709,7 @@ fn apply_ops_ring(
     ops_ring.set(fraction, state);
     ops_ring.area().set_tooltip_text(Some(&title));
     busy_stack.set_visible_child_name("orb");
-    busy_revealer.set_reveal_child(true);
+    set_revealed(busy_revealer, true);
     true
 }
 
@@ -3620,11 +3905,11 @@ fn show_confirm_dialog(
         .halign(gtk::Align::Center)
         .build();
     let no_btn = gtk::Button::builder()
-        .label("No")
+        .label(gettext("No"))
         .css_classes(["spotty-confirm-btn"])
         .build();
     let yes_btn = gtk::Button::builder()
-        .label("Yes")
+        .label(gettext("Yes"))
         .css_classes(["suggested-action", "spotty-confirm-btn"])
         .build();
     btn_row.append(&yes_btn);
@@ -3716,14 +4001,14 @@ fn confirm_delete_path(
         .build();
     content.append(
         &gtk::Label::builder()
-            .label(format!("Do you want to delete \"{name}\"?"))
+            .label(gettext("Do you want to delete \"{name}\"?").replace("{name}", &name))
             .css_classes(["title-3"])
             .halign(gtk::Align::Center)
             .build(),
     );
     content.append(
         &gtk::Label::builder()
-            .label("It will be moved to the Trash.")
+            .label(gettext("It will be moved to the Trash."))
             .css_classes(["dim-label", "caption"])
             .halign(gtk::Align::Center)
             .build(),
@@ -3735,11 +4020,11 @@ fn confirm_delete_path(
         .margin_top(8)
         .build();
     let delete_btn = gtk::Button::builder()
-        .label("Delete")
+        .label(gettext("Delete"))
         .css_classes(["destructive-action", "spotty-confirm-btn"])
         .build();
     let no_btn = gtk::Button::builder()
-        .label("No")
+        .label(gettext("No"))
         .css_classes(["spotty-confirm-btn"])
         .build();
     btn_row.append(&delete_btn);
@@ -3770,7 +4055,7 @@ fn confirm_delete_path(
                         log::warn!("fileops: trash failed for {}: {e}", path.display());
                         crate::app::send_desktop_notification(
                             "Spotty",
-                            &format!("Couldn't delete \"{name}\": {e}"),
+                            &gettext("Couldn't delete \"{name}\": {e}").replace("{name}", &name).replace("{e}", &e),
                         );
                     }
                 }
@@ -3852,6 +4137,11 @@ fn universal_pin_eligible(r: &SearchResult) -> bool {
             | Action::InsertCalculatorResult(_)
             | Action::Bluetooth { .. }
             | Action::ConfirmRunCommand(_)
+            | Action::ToggleUpdates
+            | Action::SnoozeUpdates
+            | Action::DismissUpdates(_)
+            | Action::CheckUpdates
+            | Action::Noop
     )
 }
 
@@ -3985,6 +4275,20 @@ fn candidate_for(res: &SearchResult, user_text: &str) -> Option<String> {
             _ => None,
         }
     } else if res.kind == crate::search::ResultKind::System {
+        // Update rows complete to the exact query they run ("update all",
+        // "update flatpak", "update firefox") so the ghost recommends the
+        // next token; while the verb itself is still incomplete ("updat")
+        // they complete it to "update " first.
+        let update_row = crate::search::cmd::query_for(&res.title).is_some()
+            || matches!(res.action, Action::CheckUpdates | Action::ToggleUpdates);
+        if update_row {
+            if let Some(v) = crate::search::cmd::verb_completion(user_text) {
+                return Some(v);
+            }
+            if let Some(q) = crate::search::cmd::query_for(&res.title) {
+                return Some(q);
+            }
+        }
         if let Some(word) = res.subtitle.as_deref().and_then(ghost_word_from_subtitle) {
             return Some(word);
         }
@@ -4458,7 +4762,7 @@ fn build_ops_pending_bar(it: &crate::operations::OpItem) -> gtk::Revealer {
                 .icon_name("process-stop-symbolic")
                 .css_classes(["flat", "circular"])
                 .valign(gtk::Align::Center)
-                .tooltip_text("Cancel")
+                .tooltip_text(gettext("Cancel"))
                 .build(),
         );
     }
@@ -4488,7 +4792,7 @@ fn build_ops_pending_bar(it: &crate::operations::OpItem) -> gtk::Revealer {
     let op_id = it.op_id;
     let hist_id = it.hist_id;
     let btn = gtk::Button::builder()
-        .label("Undo")
+        .label(gettext("Undo"))
         .css_classes(["flat"])
         .build();
     btn.connect_clicked(move |_| {
@@ -4527,10 +4831,86 @@ fn build_ops_pending_bar(it: &crate::operations::OpItem) -> gtk::Revealer {
 }
 
 
+/// True when a result belongs to the update feature — the context the
+/// update shortcuts (Ctrl+Enter / Ctrl+D / Ctrl+F) act in.
+fn is_update_row(r: &SearchResult) -> bool {
+    match &r.action {
+        Action::StartOperation { args, title, .. } => {
+            crate::search::cmd::is_update_run(title, args)
+        }
+        Action::CheckUpdates
+        | Action::ToggleUpdates
+        | Action::SnoozeUpdates
+        | Action::DismissUpdates(_) => true,
+        Action::ConfirmRunCommand(cmd) => *cmd == crate::search::system::reboot_command(),
+        _ => false,
+    }
+}
+
+/// Run a shortcut-driven update scope: force a fresh check first, then
+/// upgrade that scope when it has something pending — an empty scope never
+/// fires a pkexec prompt, it just re-checks and shows the result.
+fn run_update_scope(scope: &str) {
+    crate::search::cmd::check_updates_now();
+    if let Some(args) = crate::search::cmd::update_scope_args(scope) {
+        let title = match scope {
+            "all" => gettext("Update all packages"),
+            "flatpak" => gettext("Update flatpak packages"),
+            "snap" => gettext("Update snap packages"),
+            _ => gettext("Update system packages"),
+        };
+        crate::operations::start(
+            title,
+            gettext("{source} Update").replace("{source}", scope),
+            "software-update-available-symbolic".into(),
+            args,
+        );
+    }
+    crate::app::refresh_search_window();
+}
+
+/// The keyboard section of the update preview: what Enter runs plus the
+/// three scoped update shortcuts (configurable in Settings → Updates).
+fn update_shortcut_hints() -> Vec<(String, String)> {
+    let (all, sys, fp) = crate::app::with_state(|st| {
+        let c = st.config.borrow();
+        (
+            c.update_all_shortcut.clone(),
+            c.update_system_shortcut.clone(),
+            c.update_flatpak_shortcut.clone(),
+        )
+    });
+    vec![
+        (gettext("Update now"), "Return".to_string()),
+        (gettext("Update everything"), to_gtk_accel(&all)),
+        (gettext("Update system packages only"), to_gtk_accel(&sys)),
+        (gettext("Update flatpak packages only"), to_gtk_accel(&fp)),
+    ]
+}
+
+/// When a clipboard entry was captured (unix seconds), from the live history.
+fn clip_time(entry: &crate::clipboard::ClipboardEntry) -> Option<u64> {
+    crate::app::with_state(|st| st.clipboard.borrow().time_of(entry))
+}
+
 fn upd_preview(row: &gtk::ListBoxRow, rs: &[SearchResult], p: &PreviewPane) {
     let Some(r) = rs.get(row.index() as usize) else {
         return p.clear();
     };
+    // Clipboard entries show when they were captured, above the preview.
+    let clip_at = match &r.action {
+        Action::CopyToClipboard(t) => {
+            clip_time(&crate::clipboard::ClipboardEntry::Text(t.clone()))
+        }
+        Action::CopyImageToClipboard(pa) => {
+            clip_time(&crate::clipboard::ClipboardEntry::Image(pa.clone()))
+        }
+        Action::CopyFileToClipboard(pa) => {
+            clip_time(&crate::clipboard::ClipboardEntry::File(pa.clone()))
+        }
+        _ => None,
+    };
+    p.show_clip_stamp(clip_at);
     match &r.action {
         Action::OpenPath(pa) | Action::BrowseInto(pa) | Action::OpenInFileManager(pa) => {
             p.show_path(pa)
@@ -4540,6 +4920,24 @@ fn upd_preview(row: &gtk::ListBoxRow, rs: &[SearchResult], p: &PreviewPane) {
         Action::CopyFileToClipboard(pa) => p.show_path(pa),
         // Clipboard text entries: show the full text, scrollable.
         Action::CopyToClipboard(t) => p.show_text(t),
+        // Update rows: the package list this run will touch, plus the
+        // scoped keyboard shortcuts (libadwaita list, not a text blob).
+        Action::StartOperation { args, title, .. }
+            if crate::search::cmd::is_update_run(title, args) =>
+        {
+            let details = crate::search::cmd::details_for(title);
+            let sub = r.subtitle.clone().unwrap_or_default();
+            p.show_update(title, &sub, &details, &update_shortcut_hints());
+        }
+        // The restart row: say why it's there and what pressing Enter does.
+        Action::ConfirmRunCommand(cmd) if *cmd == crate::search::system::reboot_command() => {
+            p.show_update(
+                &gettext("Restart required to finish the update"),
+                &gettext("Press Enter to restart"),
+                &[],
+                &[],
+            );
+        }
         // Triggers: installed ones show usage instructions (+ screenshot once
         // its help_image is cached).
         Action::EnterMode(word) => {
@@ -4573,6 +4971,12 @@ fn trigger_help_image(
     if url.is_empty() {
         return None;
     }
+    // Only plain web URLs — a manifest must not make curl read local files
+    // (file://) or follow exotic schemes into the trigger cache.
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        log::warn!("triggers: ignoring help_image with unsupported scheme: {url}");
+        return None;
+    }
     let dir = crate::triggers::triggers_dir().join("cache");
     if std::fs::create_dir_all(&dir).is_err() {
         return None;
@@ -4585,8 +4989,20 @@ fn trigger_help_image(
     let cache2 = cache.clone();
     let url2 = url.to_string();
     std::thread::spawn(move || {
+        // -f: HTTP errors fail instead of caching an error page;
+        // redirects capped, 2 MiB ceiling — a hostile or broken URL can't
+        // flood the disk or hang past the time budget.
         let ok = std::process::Command::new("curl")
-            .args(["-sL", "--max-time", "8", "-o"])
+            .args([
+                "-fsSL",
+                "--max-time",
+                "8",
+                "--max-redirs",
+                "5",
+                "--max-filesize",
+                "2097152",
+                "-o",
+            ])
             .arg(&cache2)
             .arg(&url2)
             .status()
@@ -4657,6 +5073,11 @@ fn activate(
             // Clip entries: don't auto-paste — re-copying already moves the
             // entry to the front of the clipboard history (watcher's push_text).
             if result.kind == crate::search::ResultKind::Clipboard {
+                return;
+            }
+            // Translations are copy-only: Enter copies the translation and
+            // nothing is typed into the previously focused app.
+            if result.kind == crate::search::ResultKind::Translate {
                 return;
             }
             if result.kind == crate::search::ResultKind::Emoji {
@@ -4734,14 +5155,59 @@ fn activate(
         Action::EnterMode(_s) => {
             // Mode entry is handled in the key handler (which owns the chip + mode state).
         }
-        Action::ShowTriggersWindow => {
-            if let Some(app) = window
-                .application()
-                .and_then(|a| a.downcast::<adw::Application>().ok())
-            {
-                crate::app::open_triggers_window(&app);
+        // — Translate trigger: all three stay in-window (no dismiss), the
+        // window keeps composing the query while options change.
+        Action::SetTranslateTarget { code, strip } => {
+            crate::search::translate::set_target(code);
+            if !strip.is_empty() {
+                let cur = entry.text().to_string();
+                if let Some(head) = crate::search::translate::strip_tail_token(&cur, strip) {
+                    // Drop the language token that picked this target, keep a
+                    // trailing space so the next word types on.
+                    let new_text = format!("{head} ");
+                    entry.set_text(&new_text);
+                    entry.set_position(char_count(&new_text) as i32);
+                }
             }
-            dismiss(window, shown, false);
+            crate::app::refresh_search_window();
+        }
+        Action::TranslateExpand { source } => {
+            crate::search::translate::expand(*source);
+            crate::app::refresh_search_window();
+        }
+        Action::SetTranslateSource { code } => {
+            crate::search::translate::set_source(code);
+            crate::app::refresh_search_window();
+        }
+        Action::TranslateNow { text, target } => {
+            crate::search::translate::translate_now(text, target);
+            crate::app::refresh_search_window();
+        }
+        Action::ToggleUpdates => {
+            // Flip the feature from search itself (and from Settings).
+            crate::app::with_state(|st| {
+                let mut c = st.config.borrow_mut();
+                c.enable_updates = !c.enable_updates;
+                c.save();
+            });
+            crate::app::refresh_search_window();
+        }
+        Action::SnoozeUpdates => {
+            // Remind tomorrow — hides the badge/notice for 24 hours.
+            crate::search::cmd::snooze_update_notice();
+        }
+        Action::DismissUpdates(sig) => {
+            // Hide this update set until a *new* one appears.
+            crate::search::cmd::dismiss_update_notice(sig);
+        }
+        Action::CheckUpdates => {
+            // Enter on "No updates available" (or the checking row):
+            // re-run the check; the list updates when the result lands.
+            crate::search::cmd::check_updates_now();
+            crate::app::refresh_search_window();
+        }
+        Action::Noop => {
+            // Display-only row (e.g. "No matching updates").
         }
         Action::UninstallTrigger(id) => {
             let name = crate::triggers::by_id(id)
@@ -4749,11 +5215,11 @@ fn activate(
                 .unwrap_or_else(|| id.clone());
             let dialog = adw::MessageDialog::builder()
                 .transient_for(window)
-                .heading(format!("Uninstall {name}?"))
-                .body("The trigger word and its files will be removed.")
+                .heading(gettext("Uninstall {name}?").replace("{name}", &name))
+                .body(gettext("The trigger word and its files will be removed."))
                 .build();
-            dialog.add_response("cancel", "Cancel");
-            dialog.add_response("uninstall", "Uninstall");
+            dialog.add_response("cancel", &gettext("Cancel"));
+            dialog.add_response("uninstall", &gettext("Uninstall"));
             dialog.set_default_response(Some("cancel"));
             dialog.set_response_appearance("uninstall", adw::ResponseAppearance::Destructive);
             let entry = entry.clone();

@@ -13,6 +13,7 @@
 //! round per ~250ms) and re-run the search when they land via
 //! `app::refresh_search_window`.
 use crate::search::{Action, ResultKind, SearchResult};
+use crate::i18n::gettext;
 use gtk::glib;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -60,7 +61,7 @@ pub fn results(rest: &str) -> Vec<SearchResult> {
     if rest.trim().is_empty() {
         return vec![SearchResult {
             kind: ResultKind::System,
-            title: "Type a word to look up".into(),
+            title: gettext("Type a word to look up").into(),
             subtitle: Some(
                 "Start typing — the word autocompletes and its definition appears below.".into(),
             ),
@@ -93,14 +94,30 @@ pub fn results(rest: &str) -> Vec<SearchResult> {
             PENDING_WORD.with(|p| *p.borrow_mut() = Some(word.clone()));
             let w2 = word.clone();
             std::thread::spawn(move || {
-                let body =
-                    crate::triggers::fetch_text(&format!(
-                        "https://api.dictionaryapi.dev/api/v2/entries/en/{}",
-                        urlencoding::encode(&w2)
-                    ));
+                // Both sources in parallel — first success wins, so the
+                // definition lands as fast as the faster source answers and
+                // dictionaryapi.dev being down costs nothing extra.
+                let def = std::thread::scope(|s| {
+                    let a = s.spawn(|| {
+                        crate::triggers::fetch_text(&format!(
+                            "https://api.dictionaryapi.dev/api/v2/entries/en/{}",
+                            urlencoding::encode(&w2)
+                        ))
+                        .ok()
+                        .and_then(|t| parse_definition(&t))
+                    });
+                    let b = s.spawn(|| {
+                        crate::triggers::fetch_text(&format!(
+                            "https://en.wiktionary.org/api/rest_v1/page/definition/{}",
+                            urlencoding::encode(&w2)
+                        ))
+                        .ok()
+                        .and_then(|t| parse_wiktionary_definition(&t))
+                    });
+                    a.join().unwrap_or_default().or_else(|| b.join().unwrap_or_default())
+                });
                 glib::MainContext::default().invoke(move || {
                     PENDING_WORD.with(|p| *p.borrow_mut() = None);
-                    let def = body.ok().and_then(|t| parse_definition(&t));
                     cache_put(&DEF_CACHE, w2.clone(), def);
                     crate::app::refresh_search_window();
                 });
@@ -108,8 +125,8 @@ pub fn results(rest: &str) -> Vec<SearchResult> {
         }
         out.push(SearchResult {
             kind: ResultKind::System,
-            title: format!("Looking up \"{word}\"…"),
-            subtitle: Some("Fetching the definition".into()),
+            title: gettext("Looking up \"{word}\"…").replace("{word}", &word),
+            subtitle: Some(gettext("Fetching the definition").into()),
             icon: icon.clone(),
             action: Action::EnterMode("dict".into()),
             score: 85_000,
@@ -127,10 +144,12 @@ pub fn results(rest: &str) -> Vec<SearchResult> {
                         out.push(SearchResult {
                             kind: ResultKind::Web,
                             title: s.clone(),
-                            subtitle: Some(format!(
-                                "{} — complete the word with Tab",
-                                crate::search::capitalize(s)
-                            )),
+                            subtitle: Some(
+                                gettext("{word} — complete the word with Tab").replace(
+                                    "{word}",
+                                    &crate::search::capitalize(s),
+                                ),
+                            ),
                             icon: icon.clone(),
                             action: Action::OpenUrl(format!(
                                 "https://www.dictionary.com/browse/{s}"
@@ -166,10 +185,10 @@ pub fn results(rest: &str) -> Vec<SearchResult> {
     // Plain web-search row as the base entry (always available).
     out.push(SearchResult {
         kind: ResultKind::Web,
-        title: format!("Dictionary: {word}"),
-        subtitle: Some(format!(
-            "Open https://www.dictionary.com/browse/{word}"
-        )),
+        title: gettext("Dictionary: {query}").replace("{query}", &word),
+        subtitle: Some(
+            gettext("Open https://www.dictionary.com/browse/{query}").replace("{query}", &word),
+        ),
         icon,
         action: Action::OpenUrl(format!("https://www.dictionary.com/browse/{word}")),
         score: 80_000,
@@ -191,16 +210,16 @@ fn parse_definition(raw: &str) -> Option<String> {
                 continue;
             }
             let line = if pos.is_empty() {
-                format!("• {text}")
+                gettext("• {text}").replace("{text}", &text)
             } else {
-                format!("{pos} — {text}")
+                gettext("{pos} — {text}").replace("{pos}", pos).replace("{text}", &text)
             };
             if !lines.contains(&line) {
                 lines.push(line);
             }
             if let Some(ex) = d.get("example").and_then(|e| e.as_str()) {
                 if !ex.is_empty() {
-                    lines.push(format!("    “{ex}”"));
+                    lines.push(gettext("    “{ex}”").replace("{ex}", ex));
                 }
             }
         }
@@ -221,6 +240,66 @@ fn parse_suggestions(raw: &str) -> Option<Vec<String>> {
         .collect();
     out.truncate(5);
     Some(out)
+}
+
+/// Parse a Wiktionary REST definition
+/// (`https://en.wiktionary.org/api/rest_v1/page/definition/<word>`) into the
+/// same card format as `parse_definition`: up to four
+/// `partOfSpeech — definition` lines. This is the fallback when
+/// dictionaryapi.dev is unreachable or has no entry.
+fn parse_wiktionary_definition(raw: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let langs = v.as_object()?;
+    let entries = langs.get("en")?.as_array()?;
+    let mut lines: Vec<String> = Vec::new();
+    for entry in entries {
+        let pos = entry
+            .get("partOfSpeech")
+            .and_then(|p| p.as_str())
+            .unwrap_or("");
+        let Some(defs) = entry.get("definitions").and_then(|d| d.as_array()) else {
+            continue;
+        };
+        for d in defs {
+            let Some(text) = d.get("definition").and_then(|t| t.as_str()) else {
+                continue;
+            };
+            let text = strip_tags(text);
+            let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+            if text.is_empty() {
+                continue;
+            }
+            let line = if pos.is_empty() {
+                text
+            } else {
+                gettext("{pos} — {text}").replace("{pos}", pos).replace("{text}", &text)
+            };
+            lines.push(line);
+            if lines.len() >= 4 {
+                break;
+            }
+        }
+        if lines.len() >= 4 {
+            break;
+        }
+    }
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+/// Strip the `<a …>`-style markup Wiktionary definitions embed — tags are
+/// removed, their inner text kept.
+fn strip_tags(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_tag = false;
+    for c in s.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -263,5 +342,28 @@ mod tests {
         let s = parse_suggestions(r#"[{"word":"serenity","score":224065},{"word":"serene","score":206073}]"#)
             .expect("suggestions parse");
         assert_eq!(s, vec!["serenity", "serene"]);
+    }
+
+    #[test]
+    fn parses_wiktionary_fallback_definitions() {
+        let raw = r#"{"en":[
+            {"partOfSpeech":"Noun","language":"English","definitions":[
+                {"definition":"A <a href=\"/wiki/tool\">tool</a> used to tighten nuts."},
+                {"definition":"A unit of force."}
+            ]},
+            {"partOfSpeech":"Verb","language":"English","definitions":[
+                {"definition":"To <i>secure</i> with a nut."}
+            ]}
+        ]}"#;
+        let def = parse_wiktionary_definition(raw).expect("parses");
+        assert!(def.contains("Noun — A tool used to tighten nuts."), "{def}");
+        assert!(def.contains("Noun — A unit of force."), "{def}");
+        assert!(def.contains("Verb — To secure with a nut."), "{def}");
+        assert!(!def.contains('<'), "markup stripped: {def}");
+
+        // Nothing usable → None, so the caller caches the miss.
+        assert!(parse_wiktionary_definition("{}").is_none());
+        assert!(parse_wiktionary_definition("404: Not Found").is_none());
+        assert!(parse_wiktionary_definition(r#"{"en":[]}"#).is_none());
     }
 }

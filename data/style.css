@@ -91,6 +91,14 @@ window.spotty-window > * {
     color: @accent_color;
 }
 
+/* Inline process pill — expands right of the orb when it is clicked. */
+.spotty-ops-pill {
+    background-color: alpha(currentColor, 0.08);
+    border-radius: 999px;
+    padding: 3px 10px;
+    margin: 0 2px;
+}
+
 /* Pulsing highlight on rows tied to a running background operation. */
 @keyframes op-pulse-kf {
     0%   { background-color: alpha(@accent_color, 0.05); }
@@ -226,4 +234,9 @@ window.spotty-window > * {
 }
 .spotty-dict-row label {
     color: @window_fg_color;
+}
+
+/* Update badge in the orb slot (typing "update" reveals the options). */
+.spotty-update-badge {
+    color: @accent_color;
 }

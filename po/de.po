@@ -1,0 +1,1159 @@
+# de translation for Spotty.
+# Generated from po/spotty.pot + po/i18n/de.json by scripts/make_po.py.
+msgid ""
+msgstr ""
+"Project-Id-Version: spotty\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"PO-Revision-Date: 2026-09-26 00:00+0000\n"
+"Last-Translator: Spotty contributors\n"
+"Language-Team: de\n"
+
+
+#: src/search/dictionary.rs:222
+msgid "    “{ex}”"
+msgstr ""
+
+#: src/preview.rs:486
+msgid "1 / 1"
+msgstr ""
+
+#: src/ui/settings_window.rs:495
+msgid "About"
+msgstr "Über"
+
+#: src/ui/settings_window.rs:498
+msgid "About Spotty"
+msgstr "Über Spotty"
+
+#: src/ui/settings_window.rs:1216
+msgid "Add Trigger"
+msgstr "Trigger hinzufügen"
+
+#: src/ui/settings_window.rs:941
+msgid "Add Trigger Word"
+msgstr "Trigger-Wort hinzufügen"
+
+#: src/ui/settings_window.rs:1616
+msgid "Add a local trigger"
+msgstr "Lokalen Trigger hinzufügen"
+
+#: src/search/cmd.rs:2112
+msgid "All packages are up to date"
+msgstr "Alle Pakete sind aktuell"
+
+#: src/ui/settings_window.rs:2127
+msgid "Allow typing / or ~/ to browse the filesystem directly"
+msgstr "Erlaubt / oder ~/ zum direkten Durchsuchen des Dateisystems"
+
+#: src/search/translate.rs:569
+msgid "Already {language}"
+msgstr "Bereits {language}"
+
+#: src/ui/settings_window.rs:94
+msgid "Also suggest installable apps as you type"
+msgstr "Auch installierbare Apps beim Tippen vorschlagen"
+
+#: src/ui/settings_window.rs:137
+msgid "Always show web search row"
+msgstr "Web-Suchzeile immer anzeigen"
+
+#: src/ui/settings_window.rs:87
+msgid "Applications"
+msgstr "Anwendungen"
+
+#: src/ui/search_window.rs:2185
+#: src/ui/search_window.rs:3171
+msgid "Are you sure you want to install {name}?"
+msgstr "Möchtest du {name} wirklich installieren?"
+
+#: src/ui/search_window.rs:2189
+#: src/ui/search_window.rs:3175
+msgid "Are you sure you want to uninstall {name}?"
+msgstr "Möchtest du {name} wirklich deinstallieren?"
+
+#: src/ui/search_window.rs:2200
+#: src/ui/search_window.rs:3215
+#: src/ui/settings_window.rs:420
+msgid "Are you sure?"
+msgstr "Bist du sicher?"
+
+#: src/search/translate.rs:579
+#: src/search/translate.rs:665
+#: src/search/translate.rs:721
+#: src/search/translate.rs:772
+msgid "Auto"
+msgstr "Automatisch"
+
+#: src/search/translate.rs:718
+msgid "Back to Auto (system language)"
+msgstr "Zurück auf Auto (Systemsprache)"
+
+#: src/config.rs:204
+msgid "Bluetooth devices"
+msgstr "Bluetooth-Geräte"
+
+#: src/ui/settings_window.rs:706
+msgid "Browse and install triggers"
+msgstr "Trigger durchsuchen und installieren"
+
+#: src/ui/settings_window.rs:99
+msgid "Calculator"
+msgstr "Taschenrechner"
+
+#: src/ui/result_row.rs:301
+#: src/ui/search_window.rs:529
+#: src/ui/search_window.rs:754
+#: src/ui/search_window.rs:2202
+#: src/ui/search_window.rs:3217
+#: src/ui/search_window.rs:4765
+#: src/ui/search_window.rs:5221
+#: src/ui/settings_window.rs:422
+#: src/ui/settings_window.rs:1037
+#: src/ui/settings_window.rs:1799
+msgid "Cancel"
+msgstr "Abbrechen"
+
+#: src/ui/settings_window.rs:1572
+msgid "Cannot save the manifest: {e}"
+msgstr "Manifest kann nicht gespeichert werden: {e}"
+
+#: src/ui/settings_window.rs:1364
+msgid "Cannot save the trigger: {e}"
+msgstr "Trigger kann nicht gespeichert werden: {e}"
+
+#: src/ui/settings_window.rs:330
+msgid "Check every"
+msgstr "Prüffrequenz"
+
+#: src/ui/settings_window.rs:260
+msgid "Check for updates"
+msgstr "Nach Aktualisierungen suchen"
+
+#: src/ui/settings_window.rs:272
+msgid "Check now"
+msgstr "Jetzt suchen"
+
+#: src/search/cmd.rs:1854
+msgid "Check spelling or try a different name"
+msgstr "Prüfe die Schreibweise oder versuche einen anderen Namen"
+
+#: src/search/cmd.rs:2008
+msgid "Check spelling or try fewer characters"
+msgstr "Prüfe die Schreibweise oder versuche es mit weniger Zeichen"
+
+#: src/search/cmd.rs:2045
+#: src/search/cmd.rs:3485
+#: src/search/cmd.rs:3495
+msgid "Checking for updates…"
+msgstr "Suche nach Aktualisierungen…"
+
+#: src/ui/settings_window.rs:82
+msgid "Choose what types of results appear"
+msgstr "Wähle, welche Ergebnistypen angezeigt werden"
+
+#: src/ui/settings_window.rs:2026
+msgid "Clipboard"
+msgstr "Zwischenablage"
+
+#: src/preview.rs:619
+msgid "Clipped {time}"
+msgstr "Kopiert {time}"
+
+#: src/ui/settings_window.rs:1263
+msgid "Command"
+msgstr "Befehl"
+
+#: src/ui/settings_window.rs:1269
+msgid "Command line"
+msgstr "Kommandozeile"
+
+#: src/ui/search_window.rs:2203
+#: src/ui/search_window.rs:3218
+#: src/ui/settings_window.rs:423
+msgid "Confirm"
+msgstr "Bestätigen"
+
+#: src/ui/search_window.rs:4058
+msgid "Couldn't delete \"{name}\": {e}"
+msgstr "\\\"{name}\\\" konnte nicht gelöscht werden: {e}"
+
+#: src/ui/settings_window.rs:1390
+msgid "Couldn't install"
+msgstr "Installation fehlgeschlagen"
+
+#: src/ui/settings_window.rs:1679
+msgid "Couldn't load the trigger repository"
+msgstr "Trigger-Repository konnte nicht geladen werden"
+
+#: src/ui/settings_window.rs:1769
+msgid "Couldn't load {url}: {e}"
+msgstr "{url} konnte nicht geladen werden: {e}"
+
+#: src/ui/settings_window.rs:1514
+msgid "Couldn't uninstall: {e}"
+msgstr "Deinstallation fehlgeschlagen: {e}"
+
+#: src/ui/settings_window.rs:1201
+msgid "Create a Trigger"
+msgstr "Trigger erstellen"
+
+#: src/ui/settings_window.rs:122
+msgid "Custom Search URL"
+msgstr "Eigene Such-URL"
+
+#: src/ui/settings_window.rs:339
+msgid "Daily"
+msgstr "Täglich"
+
+#: src/ui/search_window.rs:4023
+msgid "Delete"
+msgstr "Löschen"
+
+#: src/ui/settings_window.rs:2076
+msgid "Delete clipboard entries older than this (pinned items are exempt)"
+msgstr "Löscht ältere Einträge aus der Zwischenablage (angepinnte sind ausgenommen)"
+
+#: src/ui/search_window.rs:1102
+msgid "Delete file"
+msgstr "Datei löschen"
+
+#: src/ui/search_window.rs:1100
+msgid "Delete folder"
+msgstr "Ordner löschen"
+
+#: src/ui/settings_window.rs:1251
+msgid "Description (optional)"
+msgstr "Beschreibung (optional)"
+
+#: src/search/translate.rs:666
+msgid "Detected automatically — press Enter to choose"
+msgstr "Automatisch erkannt — Enter drücken, um zu wählen"
+
+#: src/search/dictionary.rs:188
+msgid "Dictionary: {query}"
+msgstr "Wörterbuch: {query}"
+
+#: src/search/cmd.rs:2187
+msgid "Disable update checks"
+msgstr "Aktualisierungssuche deaktivieren"
+
+#: src/ui/settings_window.rs:538
+msgid "Disabled · {base}"
+msgstr "Deaktiviert · {base}"
+
+#: src/search/cmd.rs:2137
+#: src/ui/settings_window.rs:373
+msgid "Dismiss update notice"
+msgstr "Aktualisierungshinweis ausblenden"
+
+#: src/ui/settings_window.rs:2095
+msgid "Display a hint bar in the clipboard manager"
+msgstr "Zeigt eine Hinweisleiste im Zwischenablage-Manager"
+
+#: src/ui/search_window.rs:4004
+msgid "Do you want to delete \"{name}\"?"
+msgstr "Möchtest du \\\"{name}\\\" wirklich löschen?"
+
+#: src/ui/search_window.rs:2182
+#: src/ui/search_window.rs:3167
+msgid "Do you want to update {name}?"
+msgstr "Möchtest du {name} aktualisieren?"
+
+#: src/ui/search_window.rs:2191
+msgid "Do you want to {action}?"
+msgstr "Möchtest du {action}?"
+
+#: src/ui/search_window.rs:533
+msgid "Done"
+msgstr "Fertig"
+
+#: src/ui/settings_window.rs:1576
+msgid "Download failed: {e}"
+msgstr "Download fehlgeschlagen: {e}"
+
+#: src/ui/settings_window.rs:553
+msgid "Edit \"Open Spotty\" shortcut"
+msgstr "Tastenkürzel \\\"Spotty öffnen\\\" bearbeiten"
+
+#: src/ui/settings_window.rs:1880
+#: src/ui/settings_window.rs:1887
+msgid "Edit \"{name}\" trigger"
+msgstr "Trigger \\\"{name}\\\" bearbeiten"
+
+#: src/ui/settings_window.rs:677
+msgid "Edit trigger words, import a manifest with +, or delete installed triggers."
+msgstr "Trigger-Wörter bearbeiten, ein Manifest mit + importieren oder installierte Trigger löschen."
+
+#: src/search/cmd.rs:2189
+msgid "Enable update checks"
+msgstr "Aktualisierungssuche aktivieren"
+
+#: src/ui/settings_window.rs:1923
+msgid "Enabled"
+msgstr "Aktiviert"
+
+#: src/ui/settings_window.rs:338
+msgid "Every 12 hours"
+msgstr "Alle 12 Stunden"
+
+#: src/ui/settings_window.rs:337
+msgid "Every 6 hours"
+msgstr "Alle 6 Stunden"
+
+#: src/search/dictionary.rs:129
+msgid "Fetching the definition"
+msgstr "Definition wird geladen"
+
+#: src/ui/settings_window.rs:1669
+msgid "Fetching triggers…"
+msgstr "Trigger werden geladen…"
+
+#: src/ui/settings_window.rs:2122
+msgid "Find"
+msgstr "Finden"
+
+#: src/ui/settings_window.rs:256
+msgid "Find package updates in the background"
+msgstr "Sucht im Hintergrund nach Paketaktualisierungen"
+
+#: src/ui/settings_window.rs:74
+msgid "General"
+msgstr "Allgemein"
+
+#: src/search/cmd.rs:2138
+#: src/ui/settings_window.rs:374
+msgid "Hidden until a new update appears"
+msgstr "Ausgeblendet, bis eine neue Aktualisierung erscheint"
+
+#: src/search/cmd.rs:2130
+#: src/ui/settings_window.rs:365
+msgid "Hide the update notice for 24 hours"
+msgstr "Aktualisierungshinweis 24 Stunden ausblenden"
+
+#: src/preview.rs:212
+msgid "Highlight a result\nto preview"
+msgstr "Ergebnis hervorheben\\num eine Vorschau zu sehen"
+
+#: src/ui/settings_window.rs:2060
+msgid "History Limit"
+msgstr "Verlaufslimit"
+
+#: src/ui/settings_window.rs:336
+msgid "Hourly"
+msgstr "Stündlich"
+
+#: src/ui/settings_window.rs:1254
+msgid "Icon name (optional)"
+msgstr "Icon-Name (optional)"
+
+#: src/ui/settings_window.rs:100
+msgid "Inline arithmetic"
+msgstr "Direkte Berechnungen"
+
+#: src/search/cmd.rs:1552
+#: src/ui/settings_window.rs:1038
+#: src/ui/settings_window.rs:1520
+msgid "Install"
+msgstr "Installieren"
+
+#: src/ui/settings_window.rs:1123
+msgid "Install failed"
+msgstr "Installation fehlgeschlagen"
+
+#: src/search/cmd.rs:2159
+msgid "Install the updates, then restart"
+msgstr "Installiert die Aktualisierungen und startet dann neu"
+
+#: src/ui/settings_window.rs:1034
+msgid "Install {name}?"
+msgstr "{name} installieren?"
+
+#: src/config.rs:174
+msgid "Install, uninstall, and manage apps"
+msgstr "Apps installieren, deinstallieren und verwalten"
+
+#: src/search/cmd.rs:2532
+#: src/search/cmd.rs:2626
+#: src/search/cmd.rs:2645
+#: src/search/cmd.rs:2732
+msgid "Install: {name}"
+msgstr "Installieren: {name}"
+
+#: src/ui/settings_window.rs:1117
+msgid "Installed \"{name}\""
+msgstr "\\\"{name}\\\" installiert"
+
+#: src/search/cmd.rs:2538
+msgid "Installing {name}"
+msgstr "{name} wird installiert"
+
+#: src/ui/search_window.rs:4011
+msgid "It will be moved to the Trash."
+msgstr "Er wird in den Papierkorb gelegt."
+
+#: src/ui/search_window.rs:1439
+msgid "Item deleted"
+msgstr "Eintrag gelöscht"
+
+#: src/ui/search_window.rs:1480
+msgid "Item unpinned — Press Ctrl+Z to undo"
+msgstr "Eintrag losgelöst — Strg+Z zum Rückgängigmachen"
+
+#: src/ui/settings_window.rs:1797
+msgid "Its trigger word and shortcut will be removed."
+msgstr "Sein Trigger-Wort und sein Tastenkürzel werden entfernt."
+
+#: src/ui/settings_window.rs:2075
+msgid "Keep history"
+msgstr "Verlauf behalten"
+
+#: src/preview.rs:439
+#: src/ui/settings_window.rs:450
+msgid "Keyboard"
+msgstr "Tastatur"
+
+#: src/ui/settings_window.rs:581
+#: src/ui/settings_window.rs:1275
+#: src/ui/settings_window.rs:2006
+msgid "Keyboard Shortcut"
+msgstr "Tastenkürzel"
+
+#: src/ui/search_window.rs:1143
+msgid "Keyboard Shortcuts"
+msgstr "Tastenkürzel"
+
+#: src/ui/settings_window.rs:615
+msgid "Keyboard shortcuts used inside the search window"
+msgstr "Tastenkürzel im Suchfenster"
+
+#: src/ui/settings_window.rs:1249
+msgid "Keyword"
+msgstr "Schlüsselwort"
+
+#: src/ui/settings_window.rs:1331
+msgid "Keyword: letters, digits, -, _ and . only."
+msgstr "Schlüsselwort: nur Buchstaben, Ziffern, -, _ und ."
+
+#: src/search/cmd.rs:1544
+msgid "Kill"
+msgstr "Beenden"
+
+#: src/ui/search_window.rs:1050
+msgid "Kill app"
+msgstr "App beenden"
+
+#: src/ui/search_window.rs:2419
+msgid "Kill {name}?"
+msgstr "{name} beenden?"
+
+#: src/search/cmd.rs:2489
+msgid "Kill: {name}"
+msgstr "Beenden: {name}"
+
+#: src/search/translate.rs:790
+msgid "Local translation engine not reachable"
+msgstr "Lokale Übersetzungsmaschine nicht erreichbar"
+
+#: src/search/dictionary.rs:128
+msgid "Looking up \"{word}\"…"
+msgstr "Suche nach \\\"{word}\\\"…"
+
+#: src/ui/settings_window.rs:2061
+msgid "Maximum number of clipboard entries to keep"
+msgstr "Maximale Anzahl gespeicherter Zwischenablage-Einträge"
+
+#: src/ui/settings_window.rs:1248
+msgid "Name"
+msgstr "Name"
+
+#: src/ui/settings_window.rs:1323
+msgid "Name, keyword and command are required."
+msgstr "Name, Schlüsselwort und Befehl sind Pflichtfelder."
+
+#: src/ui/search_window.rs:3908
+#: src/ui/search_window.rs:4027
+msgid "No"
+msgstr "Nein"
+
+#: src/search/cmd.rs:1853
+msgid "No apps found for \"{query}\""
+msgstr "Keine Apps gefunden für \\\"{query}\\\""
+
+#: src/search/cmd.rs:2007
+msgid "No installed app matching \"{query}\""
+msgstr "Keine installierte App passt zu \\\"{query}\\\""
+
+#: src/search/cmd.rs:2097
+msgid "No matching updates"
+msgstr "Keine passenden Aktualisierungen"
+
+#: src/ui/search_window.rs:616
+msgid "No operations yet"
+msgstr "Noch keine Vorgänge"
+
+#: src/search/cmd.rs:1686
+msgid "No running app matching \"{query}\""
+msgstr "Keine laufende App passt zu \\\"{query}\\\""
+
+#: src/ui/settings_window.rs:1675
+msgid "No triggers found"
+msgstr "Keine Trigger gefunden"
+
+#: src/ui/settings_window.rs:1434
+msgid "No triggers match \"{q}\"."
+msgstr "Kein Trigger passt zu \\\"{q}\\\"."
+
+#: src/search/cmd.rs:2109
+#: src/search/cmd.rs:3140
+#: src/search/cmd.rs:3492
+msgid "No updates available"
+msgstr "Keine Aktualisierungen verfügbar"
+
+#: src/ui/settings_window.rs:1126
+#: src/ui/settings_window.rs:1393
+msgid "OK"
+msgstr ""
+
+#: src/search/cmd.rs:3126
+#: src/search/cmd.rs:3493
+#: src/ui/search_window.rs:3513
+msgid "One update available"
+msgstr "Eine Aktualisierung verfügbar"
+
+#: src/search/cmd.rs:1687
+msgid "Only running apps can be killed"
+msgstr "Nur laufende Apps können beendet werden"
+
+#: src/ui/settings_window.rs:684
+msgid "Open Spotty"
+msgstr "Spotty öffnen"
+
+#: src/ui/search_window.rs:1089
+msgid "Open folder in terminal"
+msgstr "Ordner im Terminal öffnen"
+
+#: src/search/dictionary.rs:190
+msgid "Open https://www.dictionary.com/browse/{query}"
+msgstr ""
+
+#: src/search/settings_panels.rs:210
+msgid "Open in GNOME Settings"
+msgstr "In den GNOME-Einstellungen öffnen"
+
+#: src/ui/search_window.rs:1114
+msgid "Open location in file manager"
+msgstr "Speicherort im Dateimanager öffnen"
+
+#: src/ui/search_window.rs:593
+msgid "Operations"
+msgstr "Vorgänge"
+
+#: src/ui/settings_window.rs:214
+#: src/ui/settings_window.rs:218
+msgid "Package Manager"
+msgstr "Paketmanager"
+
+#: src/ui/settings_window.rs:1924
+msgid "Pause this trigger without uninstalling it"
+msgstr "Diesen Trigger anhalten, ohne ihn zu deinstallieren"
+
+#: src/ui/search_window.rs:1025
+msgid "Pin / Unpin selected"
+msgstr "Auswahl anheften / lösen"
+
+#: src/search/cmd.rs:1582
+msgid "Please wait…"
+msgstr "Bitte warten…"
+
+#: src/search/cmd.rs:2046
+#: src/search/cmd.rs:2113
+msgid "Press Enter to check again"
+msgstr "Enter drücken, um erneut zu prüfen"
+
+#: src/search/translate.rs:736
+msgid "Press Enter to choose another language"
+msgstr "Enter drücken, um eine andere Sprache zu wählen"
+
+#: src/search/translate.rs:659
+msgid "Press Enter to detect automatically"
+msgstr "Enter drücken, um automatisch zu erkennen"
+
+#: src/ui/search_window.rs:4936
+msgid "Press Enter to restart"
+msgstr "Enter drücken, um neu zu starten"
+
+#: src/ui/settings_window.rs:2141
+msgid "Recent File/Folder Searches"
+msgstr "Letzte Datei-/Ordnersuchen"
+
+#: src/search/cmd.rs:2129
+#: src/ui/settings_window.rs:364
+msgid "Remind tomorrow"
+msgstr "Morgen erinnern"
+
+#: src/ui/result_row.rs:179
+msgid "Remove from history"
+msgstr "Aus dem Verlauf entfernen"
+
+#: src/ui/settings_window.rs:1510
+msgid "Removed \"{name}\""
+msgstr "\\\"{name}\\\" entfernt"
+
+#: src/ui/settings_window.rs:2178
+#: src/ui/settings_window.rs:2420
+msgid "Reset"
+msgstr "Zurücksetzen"
+
+#: src/ui/settings_window.rs:731
+msgid "Reset trigger words and shortcuts to defaults"
+msgstr "Trigger-Wörter und Tastenkürzel auf Standard zurücksetzen"
+
+#: src/ui/settings_window.rs:393
+msgid "Restart"
+msgstr "Neu starten"
+
+#: src/search/cmd.rs:2172
+#: src/ui/search_window.rs:4935
+#: src/ui/settings_window.rs:388
+msgid "Restart required to finish the update"
+msgstr "Neustart erforderlich, um die Aktualisierung abzuschließen"
+
+#: src/ui/settings_window.rs:81
+msgid "Results"
+msgstr "Ergebnisse"
+
+#: src/ui/result_row.rs:317
+msgid "Retry"
+msgstr "Erneut versuchen"
+
+#: src/ui/settings_window.rs:2126
+msgid "Root Path Browsing"
+msgstr "Durchsuchen absoluter Pfade"
+
+#: src/config.rs:184
+msgid "Run a command"
+msgstr "Befehl ausführen"
+
+#: src/search/mod.rs:428
+msgid "Run {name}"
+msgstr "{name} ausführen"
+
+#: src/operations.rs:126
+msgid "Run: {command}"
+msgstr "Ausführen: {command}"
+
+#: src/ui/search_window.rs:495
+msgid "Running…"
+msgstr "Läuft…"
+
+#: src/search/run.rs:78
+msgid "Runs through your shell, output shown here"
+msgstr "Läuft in deiner Shell, Ausgabe erscheint hier"
+
+#: src/search/cmd.rs:2001
+msgid "Scanning installed apps…"
+msgstr "Scanne installierte Apps…"
+
+#: src/search/cmd.rs:1663
+msgid "Scanning running processes…"
+msgstr "Scanne laufende Prozesse…"
+
+#: src/ui/search_window.rs:221
+msgid "Search"
+msgstr "Suchen"
+
+#: src/ui/settings_window.rs:149
+msgid "Search Engine"
+msgstr "Suchmaschine"
+
+#: src/ui/settings_window.rs:614
+msgid "Search Window"
+msgstr "Suchfenster"
+
+#: src/config.rs:154
+msgid "Search all files and folders"
+msgstr "Durchsucht alle Dateien und Ordner"
+
+#: src/config.rs:164
+#: src/ui/search_window.rs:3391
+msgid "Search clipboard history"
+msgstr "Durchsucht den Zwischenablage-Verlauf"
+
+#: src/config.rs:194
+msgid "Search emoji"
+msgstr "Emojis suchen"
+
+#: src/ui/settings_window.rs:93
+msgid "Search for new Apps"
+msgstr "Nach neuen Apps suchen"
+
+#: src/ui/settings_window.rs:1640
+msgid "Search triggers"
+msgstr "Trigger suchen"
+
+#: src/ui/search_window.rs:1577
+msgid "Searching for Bluetooth device{dots}"
+msgstr "Suche nach Bluetooth-Gerät{dots}"
+
+#: src/search/cmd.rs:1847
+msgid "Searching for \"{query}\"…"
+msgstr "Suche nach \\\"{query}\\\"…"
+
+#: src/ui/settings_window.rs:2441
+msgid "Set shortcut…"
+msgstr "Tastenkürzel festlegen…"
+
+#: src/ui/settings_window.rs:1736
+msgid "Set the trigger repository URL in the Trigger Repository row."
+msgstr "Setze die Trigger-Repository-URL in der Repository-Zeile."
+
+#: src/ui/search_window.rs:294
+msgid "Settings"
+msgstr "Einstellungen"
+
+#: src/search/settings_panels.rs:209
+msgid "Settings: {title}"
+msgstr "Einstellungen: {title}"
+
+#: src/ui/settings_window.rs:582
+msgid "Shortcut to focus the Spotty launcher"
+msgstr "Tastenkürzel zum Fokussieren des Spotty-Launchers"
+
+#: src/ui/settings_window.rs:2094
+msgid "Show Keyboard Shortcuts"
+msgstr "Tastenkürzel anzeigen"
+
+#: src/ui/settings_window.rs:316
+msgid "Show a badge and a desktop notification when updates exist"
+msgstr "Abzeichen und Desktop-Benachrichtigung anzeigen, wenn Aktualisierungen verfügbar sind"
+
+#: src/ui/settings_window.rs:2142
+msgid "Show recently opened files and folders"
+msgstr "Zeigt zuletzt geöffnete Dateien und Ordner"
+
+#: src/search/translate.rs:658
+#: src/search/translate.rs:665
+#: src/search/translate.rs:691
+msgid "Source: {name}"
+msgstr "Quelle: {name}"
+
+#: src/ui/search_window.rs:205
+msgid "Spotty"
+msgstr ""
+
+#: src/ui/settings_window.rs:17
+msgid "Spotty Settings"
+msgstr "Spotty-Einstellungen"
+
+#: src/preview.rs:2875
+#: src/preview.rs:4737
+msgid "Spreadsheet"
+msgstr "Tabellenkalkulation"
+
+#: src/ui/settings_window.rs:705
+msgid "Store"
+msgstr "Store"
+
+#: src/ui/settings_window.rs:88
+msgid "System, Flatpak and Snap apps"
+msgstr "System-, Flatpak- und Snap-Apps"
+
+#: src/search/translate.rs:735
+msgid "Target: {name}"
+msgstr "Ziel: {name}"
+
+#: src/search/files.rs:189
+msgid "Text match: {snippet}"
+msgstr "Textübereinstimmung: {snippet}"
+
+#: src/ui/settings_window.rs:1336
+msgid "The keyword \"{word}\" is already taken."
+msgstr "Das Schlüsselwort \\\"{word}\\\" ist bereits vergeben."
+
+#: src/ui/settings_window.rs:1432
+msgid "The repository has no triggers yet."
+msgstr "Das Repository enthält noch keine Trigger."
+
+#: src/ui/search_window.rs:5219
+msgid "The trigger word and its files will be removed."
+msgstr "Sein Trigger-Wort und seine Dateien werden entfernt."
+
+#: src/search/translate.rs:632
+msgid "Translate to {name}"
+msgstr "Nach {name} übersetzen"
+
+#: src/search/translate.rs:611
+msgid "Translating…"
+msgstr "Wird übersetzt…"
+
+#: src/search/translate.rs:599
+msgid "Translation unavailable"
+msgstr "Übersetzung nicht verfügbar"
+
+#: src/ui/settings_window.rs:1245
+msgid "Trigger"
+msgstr "Trigger"
+
+#: src/ui/settings_window.rs:1601
+msgid "Trigger Store"
+msgstr "Trigger-Store"
+
+#: src/ui/settings_window.rs:1929
+msgid "Trigger word"
+msgstr "Trigger-Wort"
+
+#: src/ui/settings_window.rs:2232
+msgid "Trigger word \"{word}\" is already in use"
+msgstr "Das Trigger-Wort \\\"{word}\\\" wird bereits verwendet"
+
+#: src/ui/settings_window.rs:2227
+msgid "Trigger word cannot be empty"
+msgstr "Das Trigger-Wort darf nicht leer sein"
+
+#: src/ui/settings_window.rs:671
+msgid "Triggers"
+msgstr "Trigger"
+
+#: src/search/run.rs:77
+msgid "Type a command to run"
+msgstr "Gib einen auszuführenden Befehl ein"
+
+#: src/search/mod.rs:416
+msgid "Type a command to run with {name}"
+msgstr "Gib einen Befehl zum Ausführen mit {name} ein"
+
+#: src/ui/search_window.rs:968
+msgid "Type a keyword"
+msgstr "Gib ein Schlüsselwort ein"
+
+#: src/search/dictionary.rs:64
+msgid "Type a word to look up"
+msgstr "Gib ein Wort zum Nachschlagen ein"
+
+#: src/search/cmd.rs:2099
+msgid "Type all, flatpak, distro or a package name"
+msgstr "all, flatpak, distro oder einen Paketnamen eingeben"
+
+#: src/search/mod.rs:394
+msgid "Type something to search with {name}"
+msgstr "Gib etwas zum Suchen mit {name} ein"
+
+#: src/search/translate.rs:769
+msgid "Type text to translate"
+msgstr "Gib den zu übersetzenden Text ein"
+
+#: src/ui/search_window.rs:1445
+#: src/ui/search_window.rs:4795
+msgid "Undo"
+msgstr "Rückgängig"
+
+#: src/search/cmd.rs:1560
+#: src/ui/search_window.rs:5222
+#: src/ui/settings_window.rs:1493
+#: src/ui/settings_window.rs:1800
+msgid "Uninstall"
+msgstr "Deinstallieren"
+
+#: src/ui/settings_window.rs:1796
+msgid "Uninstall \"{id}\"?"
+msgstr "\\\"{id}\\\" deinstallieren?"
+
+#: src/ui/search_window.rs:1041
+msgid "Uninstall app"
+msgstr "App deinstallieren"
+
+#: src/ui/settings_window.rs:860
+msgid "Uninstall trigger"
+msgstr "Trigger deinstallieren"
+
+#: src/ui/search_window.rs:2390
+#: src/ui/search_window.rs:5218
+msgid "Uninstall {name}?"
+msgstr "{name} deinstallieren?"
+
+#: src/search/cmd.rs:2555
+msgid "Uninstall: {name}"
+msgstr "Deinstallieren: {name}"
+
+#: src/search/cmd.rs:2559
+msgid "Uninstalling {name}"
+msgstr "{name} wird deinstalliert"
+
+#: src/search/cmd.rs:1568
+msgid "Update"
+msgstr "Aktualisieren"
+
+#: src/search/cmd.rs:2154
+#: src/ui/settings_window.rs:386
+#: src/ui/settings_window.rs:391
+#: src/ui/settings_window.rs:410
+msgid "Update & Restart"
+msgstr "Aktualisieren und neu starten"
+
+#: src/ui/search_window.rs:4857
+msgid "Update all packages"
+msgstr "Alle Pakete aktualisieren"
+
+#: src/ui/search_window.rs:1127
+#: src/ui/search_window.rs:4885
+#: src/ui/settings_window.rs:462
+msgid "Update everything"
+msgstr "Alles aktualisieren"
+
+#: src/ui/search_window.rs:4858
+msgid "Update flatpak packages"
+msgstr "Flatpak-Pakete aktualisieren"
+
+#: src/ui/search_window.rs:1135
+#: src/ui/search_window.rs:4887
+#: src/ui/settings_window.rs:469
+msgid "Update flatpak packages only"
+msgstr "Nur Flatpak-Pakete aktualisieren"
+
+#: src/ui/settings_window.rs:315
+msgid "Update notification"
+msgstr "Aktualisierungsbenachrichtigung"
+
+#: src/ui/search_window.rs:4884
+msgid "Update now"
+msgstr "Jetzt aktualisieren"
+
+#: src/ui/search_window.rs:4859
+msgid "Update snap packages"
+msgstr "Snap-Pakete aktualisieren"
+
+#: src/ui/search_window.rs:4860
+msgid "Update system packages"
+msgstr "Systempakete aktualisieren"
+
+#: src/ui/search_window.rs:1131
+#: src/ui/search_window.rs:4886
+#: src/ui/settings_window.rs:464
+msgid "Update system packages only"
+msgstr "Nur Systempakete aktualisieren"
+
+#: src/search/cmd.rs:2263
+#: src/search/cmd.rs:2308
+msgid "Update: {name}"
+msgstr "Aktualisieren: {name}"
+
+#: src/ui/settings_window.rs:255
+msgid "Updates"
+msgstr "Aktualisierungen"
+
+#: src/ui/settings_window.rs:219
+msgid "Used for app search, install, and uninstall via the cmd trigger"
+msgstr "Für App-Suche, Installation und Deinstallation über den cmd-Trigger"
+
+#: src/ui/settings_window.rs:150
+msgid "Used for web search results"
+msgstr "Für Websuchergebnisse verwendet"
+
+#: src/ui/settings_window.rs:167
+#: src/ui/settings_window.rs:192
+msgid "Uses {name} (detected from your default browser)"
+msgstr "Verwendet {name} (aus deinem Standardbrowser erkannt)"
+
+#: src/ui/settings_window.rs:130
+#: src/ui/settings_window.rs:136
+msgid "Web Search"
+msgstr "Websuche"
+
+#: src/ui/settings_window.rs:340
+msgid "Weekly"
+msgstr "Wöchentlich"
+
+#: src/ui/settings_window.rs:1246
+msgid "What you type to open it."
+msgstr "Was du tippst, um ihn zu öffnen."
+
+#: src/ui/settings_window.rs:531
+msgid "Word: {word} · No shortcut"
+msgstr "Wort: {word} · Kein Tastenkürzel"
+
+#: src/ui/settings_window.rs:533
+msgid "Word: {word} · {shortcut}"
+msgstr "Wort: {word} · {shortcut}"
+
+#: src/ui/search_window.rs:3912
+msgid "Yes"
+msgstr "Ja"
+
+#: src/search/cmd.rs:2367
+msgid "all packages ({sources})"
+msgstr "alle Pakete ({sources})"
+
+#: src/triggers.rs:346
+msgid "curl exited with {status}"
+msgstr "curl endete mit {status}"
+
+#: src/search/translate.rs:322
+#: src/search/translate.rs:329
+#: src/triggers.rs:350
+#: src/triggers.rs:377
+msgid "empty response"
+msgstr "leere Antwort"
+
+#: src/triggers.rs:312
+msgid "id '{id}' is a built-in trigger"
+msgstr "die id '{id}' ist ein integrierter Trigger"
+
+#: src/search/cmd.rs:1553
+msgid "install <app>  —  install from Flatpak, distro, or Snap"
+msgstr "install <app>  —  aus Flatpak, Distribution oder Snap installieren"
+
+#: src/triggers.rs:300
+msgid "invalid id '{id}': use only letters, digits, '_', '-' or '.'"
+msgstr "ungültige id '{id}': nur Buchstaben, Ziffern, '_', '-' und '.' zulässig"
+
+#: src/operations.rs:157
+msgid "just now"
+msgstr "gerade eben"
+
+#: src/search/cmd.rs:1545
+msgid "kill <app-name>  —  stop a running process"
+msgstr "kill <app-name>  —  stoppt einen laufenden Prozess"
+
+#: src/triggers.rs:306
+msgid "missing 'word' (the trigger text)"
+msgstr "'word' fehlt (der Text des Triggers)"
+
+#: src/triggers.rs:326
+msgid "shell action needs a 'command' template"
+msgstr "Shell-Aktion braucht eine 'command'-Vorlage"
+
+#: src/triggers.rs:316
+msgid "trigger '{id}' is already installed"
+msgstr "der Trigger '{id}' ist bereits installiert"
+
+#: src/triggers.rs:257
+msgid "trigger '{id}' is not installed"
+msgstr "der Trigger '{id}' ist nicht installiert"
+
+#: src/triggers.rs:319
+msgid "trigger word '{word}' is already in use"
+msgstr "das Trigger-Wort '{word}' wird bereits verwendet"
+
+#: src/search/cmd.rs:1561
+msgid "uninstall <app>  —  remove an installed app"
+msgstr "uninstall <app>  —  entfernt eine installierte App"
+
+#: src/search/cmd.rs:1569
+msgid "update  —  update installed packages"
+msgstr "update  —  aktualisiert installierte Pakete"
+
+#: src/search/cmd.rs:2521
+#: src/search/cmd.rs:2556
+msgid "via Flatpak ({app})"
+msgstr ""
+
+#: src/search/cmd.rs:2754
+msgid "via snap"
+msgstr ""
+
+#: src/triggers.rs:323
+msgid "web action needs a 'url' template"
+msgstr "Web-Aktion braucht eine 'url'-Vorlage"
+
+#: src/search/cmd.rs:2523
+msgid "{description} — via Flatpak ({app})"
+msgstr ""
+
+#: src/search/mod.rs:405
+#: src/search/mod.rs:432
+msgid "{name}: {query}"
+msgstr ""
+
+#: src/operations.rs:588
+msgid "{noun} {target} {suffix}"
+msgstr ""
+
+#: src/search/cmd.rs:2379
+msgid "{n} flatpak packages"
+msgstr "{n} flatpak Pakete"
+
+#: src/search/cmd.rs:2412
+msgid "{n} snap packages"
+msgstr "{n} Snap-Pakete"
+
+#: src/search/cmd.rs:2398
+msgid "{n} system packages ({pm})"
+msgstr "{n} Systempakete ({pm})"
+
+#: src/search/cmd.rs:3401
+#: src/search/cmd.rs:3494
+#: src/ui/search_window.rs:3515
+msgid "{n} updates available"
+msgstr "{n} Aktualisierungen verfügbar"
+
+#: src/operations.rs:163
+msgid "{n}d ago"
+msgstr "vor {n} T"
+
+#: src/operations.rs:161
+msgid "{n}h ago"
+msgstr "vor {n} Std"
+
+#: src/operations.rs:159
+msgid "{n}m ago"
+msgstr "vor {n} Min"
+
+#: src/search/dictionary.rs:215
+#: src/search/dictionary.rs:275
+msgid "{pos} — {text}"
+msgstr ""
+
+#: src/search/cmd.rs:2274
+#: src/search/cmd.rs:2320
+#: src/ui/search_window.rs:4864
+msgid "{source} Update"
+msgstr "{source}-Aktualisierung"
+
+#: src/operations.rs:175
+#: src/operations.rs:195
+#: src/operations.rs:846
+#: src/operations.rs:872
+#: src/operations.rs:897
+msgid "{source} · {status}"
+msgstr ""
+
+#: src/search/translate.rs:585
+#: src/search/translate.rs:720
+#: src/search/translate.rs:771
+msgid "{src} → {tgt}"
+msgstr "{src} → {tgt}"
+
+#: src/operations.rs:591
+msgid "{title} {suffix}"
+msgstr ""
+
+#: src/ui/search_window.rs:3664
+msgid "{title} — {detail}"
+msgstr ""
+
+#: src/search/dictionary.rs:148
+msgid "{word} — complete the word with Tab"
+msgstr "{word} — Wort mit Tab vervollständigen"
+
+#: src/ui/settings_window.rs:1480
+msgid "{word} — {description}"
+msgstr ""
+
+#: src/search/dictionary.rs:213
+msgid "• {text}"
+msgstr ""
+
+#: src/preview.rs:675
+msgid "…and {n} more"
+msgstr "…und {n} weitere"
+
+#: src/preview.rs:491
+msgid "▶"
+msgstr ""
+
+#: src/preview.rs:481
+msgid "◀"
+msgstr ""

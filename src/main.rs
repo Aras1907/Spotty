@@ -29,6 +29,7 @@ mod config;
 mod de;
 mod fileops;
 mod history;
+mod i18n;
 mod imageinfo;
 mod index;
 mod keysynth;
@@ -144,6 +145,9 @@ fn main() -> glib::ExitCode {
         std::env::set_var("GSK_RENDERER", "cairo");
     }
     adw::init().expect("adw init");
+    // i18n: GTK init has set the locale; point the gettext domain at the
+    // compiled translations (falls back to English when none are present).
+    i18n::bind_domain(&i18n::default_locale_dir());
     let app = adw::Application::builder()
         .application_id("com.spotty.Spotty")
         .flags(
@@ -239,3 +243,7 @@ fn write_instance_pid(pid: i32) -> std::io::Result<()> {
     std::fs::create_dir_all(path.parent().unwrap())?;
     std::fs::write(path, pid.to_string())
 }
+
+
+
+

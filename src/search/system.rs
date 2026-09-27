@@ -4,6 +4,7 @@ use crate::search::{Action, ResultKind, SearchResult};
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Matcher, Utf32String};
 use std::sync::OnceLock;
+use crate::i18n::gettext;
 
 struct Cmd {
     keywords: &'static [&'static str],
@@ -166,6 +167,12 @@ const BUILTIN: &[Cmd] = &[
     },
 ];
 
+/// Command that restarts the machine — used by the "restart required to
+/// finish the update" notice after a system update.
+pub fn reboot_command() -> String {
+    action_command("Restart", crate::de::detect())
+}
+
 pub fn search(query: &str, _cfg: &Config) -> Vec<SearchResult> {
     let ql = query.to_lowercase();
     if ql.is_empty() {
@@ -221,8 +228,8 @@ pub fn search(query: &str, _cfg: &Config) -> Vec<SearchResult> {
         let command_str = action_command(cmd.title, de);
         results.push(SearchResult {
             kind: ResultKind::System,
-            title: cmd.title.into(),
-            subtitle: Some(cmd.subtitle.into()),
+            title: gettext(cmd.title),
+            subtitle: Some(gettext(cmd.subtitle)),
             icon: Some(cmd.icon.into()),
             action: if cmd.confirm {
                 Action::ConfirmRunCommand(command_str)

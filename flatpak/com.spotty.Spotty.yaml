@@ -111,6 +111,12 @@ modules:
       - install -Dm644 data/applications/com.spotty.Spotty.desktop /app/share/applications/com.spotty.Spotty.desktop
       - install -Dm644 data/metainfo/com.spotty.Spotty.metainfo.xml /app/share/metainfo/com.spotty.Spotty.metainfo.xml
       - install -Dm644 data/icons/hicolor/512x512/apps/com.spotty.Spotty.png /app/share/icons/hicolor/512x512/apps/com.spotty.Spotty.png
+      - |
+        for po in po/*.po; do
+          lang=$(basename "$po" .po)
+          mkdir -p "/app/share/locale/$lang/LC_MESSAGES"
+          msgfmt --check -o "/app/share/locale/$lang/LC_MESSAGES/spotty.mo" "$po"
+        done
     sources:
       - type: dir
         path: ..

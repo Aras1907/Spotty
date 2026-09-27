@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
+use crate::i18n::gettext;
 
 const QUERY_RESULT_LIMIT: usize = 40;
 const QUERY_REFRESH_EVERY_HITS: usize = 4;
@@ -185,7 +186,7 @@ fn add_query_content_hits(query: &str, files: &[FileEntry], out: &mut Vec<Search
 
 fn push_content_hit(out: &mut Vec<SearchResult>, f: &FileEntry, score: i32, snippet: String) {
     let mut r = mk(f, score);
-    r.subtitle = Some(format!("Text match: {snippet}"));
+    r.subtitle = Some(gettext("Text match: {snippet}").replace("{snippet}", &snippet));
     out.push(r);
 }
 
@@ -2359,9 +2360,9 @@ fn icon_for(p: &std::path::Path, is_dir: bool) -> &'static str {
         return "folder-symbolic";
     }
     // NOTE: only the "*-generic-symbolic" icons and a few basics are guaranteed
-    // present across icon themes. MIME-specific icons like application-pdf-symbolic
-    // and x-office-*-symbolic are NOT shipped by modern Adwaita and render blank,
-    // so documents fall back to the always-present generic document icon.
+    // present across icon themes. Modern Adwaita ships no PDF icon at all and
+    // no script icon, so those fall back to the generic document/text icons;
+    // everything here picks symbolic variants so rows never render blank.
     match p
         .extension()
         .and_then(|s| s.to_str())
@@ -2381,21 +2382,21 @@ fn icon_for(p: &std::path::Path, is_dir: bool) -> &'static str {
         Some(
             "rs" | "py" | "js" | "ts" | "c" | "cpp" | "h" | "go" | "java" | "rb" | "sh" | "lua"
             | "sql" | "json" | "toml" | "yaml" | "yml",
-        ) => "text-x-script-symbolic",
+        ) => "text-x-generic-symbolic",
         Some("zip" | "tar" | "gz" | "xz" | "bz2" | "7z" | "rar" | "zst") => {
             "package-x-generic-symbolic"
         }
-        Some("pdf") => "application-pdf",
+        Some("pdf") => "x-office-document-symbolic",
         Some(
             "ppt" | "pptx" | "pptm" | "ppsm" | "potx" | "potm" | "pps" | "ppsx" | "odp" | "otp"
             | "fodp" | "key",
         ) => {
-            "x-office-presentation"
+            "x-office-presentation-symbolic"
         }
         Some("doc" | "docx" | "odt" | "rtf" | "ott" | "fodt" | "wps" | "pages") => {
-            "x-office-document"
+            "x-office-document-symbolic"
         }
-        Some("xls" | "xlsx" | "ods" | "ots" | "fods" | "csv" | "numbers") => "x-office-spreadsheet",
+        Some("xls" | "xlsx" | "ods" | "ots" | "fods" | "csv" | "numbers") => "x-office-spreadsheet-symbolic",
         _ => "text-x-generic-symbolic",
     }
 }

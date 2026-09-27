@@ -12,6 +12,7 @@ use std::io::Read;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
+use crate::i18n::gettext;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum State {
@@ -122,7 +123,7 @@ pub fn remove_history(id: u64) {
 /// in the Operations history so it shows up alongside installs/uninstalls.
 pub fn record_command(command: &str, ok: bool) {
     push_history(
-        format!("Run: {}", command),
+        gettext("Run: {command}").replace("{command}", command),
         "Command".into(),
         "utilities-terminal-symbolic".into(),
         if ok { State::Done } else { State::Failed },
@@ -153,13 +154,13 @@ pub struct OpItem {
 fn relative(at: Instant) -> String {
     let secs = at.elapsed().as_secs();
     if secs < 60 {
-        "just now".into()
+        gettext("just now")
     } else if secs < 3600 {
-        format!("{}m ago", secs / 60)
+        gettext("{n}m ago").replace("{n}", &(secs / 60).to_string())
     } else if secs < 86_400 {
-        format!("{}h ago", secs / 3600)
+        gettext("{n}h ago").replace("{n}", &(secs / 3600).to_string())
     } else {
-        format!("{}d ago", secs / 86_400)
+        gettext("{n}d ago").replace("{n}", &(secs / 86_400).to_string())
     }
 }
 
@@ -171,7 +172,7 @@ pub fn popover_items() -> Vec<OpItem> {
         for op in reg.iter().rev().filter(|o| o.state == State::Running) {
             out.push(OpItem {
                 title: op.title.clone(),
-                detail: format!("{} · {}", op.source, op.status),
+                detail: gettext("{source} · {status}").replace("{source}", &op.source).replace("{status}", &op.status),
                 state: "running",
                 icon: op.icon.clone(),
                 progress: op.progress,
@@ -191,7 +192,7 @@ pub fn popover_items() -> Vec<OpItem> {
         };
         out.push(OpItem {
             title: e.title.clone(),
-            detail: format!("{} · {}", e.source, relative(e.at)),
+            detail: gettext("{source} · {status}").replace("{source}", &e.source).replace("{status}", &relative(e.at)),
             state,
             icon: e.icon.clone(),
             progress: None,
@@ -584,10 +585,10 @@ fn notification_text(title: &str, state: State) -> String {
         ("Updating ", "Update of"),
     ] {
         if let Some(target) = title.strip_prefix(prefix) {
-            return format!("{} {} {}", noun, target, suffix);
+            return gettext("{noun} {target} {suffix}").replace("{noun}", &noun).replace("{target}", &target).replace("{suffix}", &suffix);
         }
     }
-    format!("{} {}", title, suffix)
+    gettext("{title} {suffix}").replace("{title}", &title).replace("{suffix}", &suffix)
 }
 
 fn is_cancelled(id: u64) -> bool {
@@ -770,6 +771,7 @@ pub fn cancel(id: u64) {
 fn finish(id: u64, state: State) {
     let mut notify_title: Option<String> = None;
     let mut hist: Option<(String, String, String, Option<f64>, Option<Instant>)> = None;
+    let mut was_update = false;
     {
         let mut reg = registry().lock().unwrap();
         if let Some(op) = reg.iter_mut().find(|o| o.id == id) {
@@ -777,6 +779,8 @@ fn finish(id: u64, state: State) {
                 return;
             }
             op.state = state;
+            was_update = matches!(state, State::Done)
+                && crate::search::cmd::is_update_op(&op.args);
             op.progress = Some(1.0);
             op.status = match state {
                 State::Done => "Completed".into(),
@@ -806,6 +810,11 @@ fn finish(id: u64, state: State) {
             }
         });
     }
+    // After a system update, re-evaluate whether a reboot is pending
+    // (off-thread; the live state clears itself after the user reboots).
+    if was_update {
+        crate::search::cmd::refresh_reboot_state();
+    }
     nudge_ui();
     post_op_refresh();
     // Linger briefly so the completed/failed state is visible, then drop it.
@@ -825,6 +834,24 @@ pub fn active_op_progress() -> Option<(String, Option<f64>)> {
         .map(|o| (o.title.clone(), o.progress))
 }
 
+/// Newest running operation's (title, "source · status") — the inline orb
+/// pill in the search bar shows this when clicked open.
+pub fn active_op_detail() -> Option<(String, String)> {
+    let reg = registry().lock().unwrap();
+    reg.iter()
+        .rev()
+        .find(|o| o.state == State::Running)
+        .map(|o| {
+            let detail = match (o.source.is_empty(), o.status.is_empty()) {
+                (false, false) => gettext("{source} · {status}").replace("{source}", &o.source).replace("{status}", &o.status),
+                (true, false) => o.status.clone(),
+                (false, true) => o.source.clone(),
+                (true, true) => String::new(),
+            };
+            (o.title.clone(), detail)
+        })
+}
+
 /// Newest operation still inside its completion linger (finished, not
 /// cancelled — `finish()` drops it after `DONE_GRACE`), as `(title, failed)`.
 /// Lets the search-bar orb flash a full completed ring in the same window the
@@ -842,7 +869,7 @@ pub fn just_finished_op() -> Option<(String, bool)> {
 pub fn op_row_update(id: u64) -> Option<(String, bool)> {
     let reg = registry().lock().unwrap();
     let op = reg.iter().find(|o| o.id == id && o.state == State::Running)?;
-    Some((format!("{} · {}", op.source, op.status), op.progress.is_none()))
+    Some((gettext("{source} · {status}").replace("{source}", &op.source).replace("{status}", &op.status), op.progress.is_none()))
 }
 
 /// One live progress result row per operation, newest first. Empty when nothing
@@ -867,7 +894,7 @@ pub fn running_result_rows() -> Vec<SearchResult> {
                 State::Done => format!("{} · Completed ✓", op.source),
                 State::Failed => format!("{} · Failed", op.source),
                 State::Cancelled => format!("{} · Cancelled", op.source),
-                State::Running => format!("{} · {}", op.source, op.status),
+                State::Running => gettext("{source} · {status}").replace("{source}", &op.source).replace("{status}", &op.status),
             };
             // The action string is a sentinel carrying render hints:
             //   "__op__\x1f<fraction>\x1f<state>\x1f<icon>\x1f<id>"

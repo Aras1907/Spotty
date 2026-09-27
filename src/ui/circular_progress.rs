@@ -29,6 +29,17 @@ pub(crate) fn arc_fraction(displayed: f64) -> f64 {
     displayed.clamp(0.0, 1.0)
 }
 
+/// What colour family the orb is drawn in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tone {
+    /// The semantic palette: accent while running, green/red for
+    /// done/failed (default).
+    Accent,
+    /// The theme's foreground colour — the orb matches the text it sits
+    /// next to (black on a light theme, white on a dark one).
+    Foreground,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RingState {
     Running,
@@ -52,12 +63,14 @@ pub struct Ring {
     target: Rc<Cell<Option<f64>>>,
     state: Rc<Cell<RingState>>,
     anim: Rc<Anim>,
+    tone: Rc<Cell<Tone>>,
 }
 
 impl Ring {
     pub fn new(size: i32) -> Self {
         let target = Rc::new(Cell::new(None::<f64>));
         let state = Rc::new(Cell::new(RingState::Running));
+        let tone = Rc::new(Cell::new(Tone::Accent));
         let anim = Rc::new(Anim {
             displayed: Cell::new(0.0),
             last_frame: Cell::new(0),
@@ -74,6 +87,7 @@ impl Ring {
         let tc = target.clone();
         let sc = state.clone();
         let ac = anim.clone();
+        let tn = tone.clone();
         area.set_draw_func(move |widget, cr, w, h| {
             let s = (w as f64).min(h as f64);
             let lw = (s / 5.5).clamp(3.0, 4.0);
@@ -87,19 +101,33 @@ impl Ring {
             let (bg_r, bg_g, bg_b, _) = themed(widget, "window_bg_color", (0.18, 0.18, 0.18, 1.0));
             let lum = 0.299 * bg_r + 0.587 * bg_g + 0.114 * bg_b;
             let is_dark = lum < 0.5;
+            let tone = tn.get();
+            // Foreground tone = the text colour of the current theme, so the
+            // orb matches what sits in the entry (black on light, white on
+            // dark). The luminance-derived default is only the fallback.
+            let fg = themed(
+                widget,
+                "window_fg_color",
+                if is_dark { (1.0, 1.0, 1.0, 1.0) } else { (0.0, 0.0, 0.0, 1.0) },
+            );
 
             // Stroke the track ring on top.
             cr.arc(cx, cy, r, 0.0, 2.0 * PI);
-            if is_dark {
+            if tone == Tone::Foreground {
+                cr.set_source_rgba(fg.0, fg.1, fg.2, 0.30);
+            } else if is_dark {
                 cr.set_source_rgba(1.0, 1.0, 1.0, 0.35);
             } else {
                 cr.set_source_rgba(0.0, 0.0, 0.0, 0.35);
             }
             let _ = cr.stroke();
 
-            // Accent colour (shared by both modes).
+            // Accent colour (shared by both modes). In the foreground tone
+            // the *running* indication follows the text colour instead —
+            // done/failed keep their semantic colours.
             let state = sc.get();
             let (red, green, blue, _) = match state {
+                RingState::Running if tone == Tone::Foreground => (fg.0, fg.1, fg.2, 1.0),
                 RingState::Running => themed(widget, "accent_color", (0.21, 0.52, 0.89, 1.0)),
                 RingState::Done => themed(widget, "success_color", (0.18, 0.76, 0.49, 1.0)),
                 RingState::Failed => themed(widget, "error_color", (0.88, 0.10, 0.14, 1.0)),
@@ -173,6 +201,16 @@ impl Ring {
             target,
             state,
             anim,
+            tone,
+        }
+    }
+
+    /// Change the colour family: the default semantic palette, or the
+    /// theme's foreground colour (the orb matches the text it sits next to).
+    pub fn set_tone(&self, tone: Tone) {
+        if self.tone.get() != tone {
+            self.tone.set(tone);
+            self.area.queue_draw();
         }
     }
 

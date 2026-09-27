@@ -4,6 +4,7 @@ use crate::index::Indexer;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
+use crate::i18n::gettext;
 
 pub mod apps;
 pub mod bluetooth;
@@ -19,6 +20,7 @@ pub mod jobs;
 pub mod run;
 pub mod settings_panels;
 pub mod system;
+pub mod translate;
 pub mod typo;
 pub mod uninstall;
 pub mod web;
@@ -43,6 +45,8 @@ pub enum ResultKind {
     /// An emoji result: `icon` carries the literal emoji glyph, rendered as
     /// large text instead of an icon.
     Emoji,
+    /// A translation row: Enter copies the text (never auto-pastes).
+    Translate,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -81,8 +85,6 @@ pub enum Action {
     },
     /// Enter a trigger mode (carries the trigger word, e.g. "files", "pdf").
     EnterMode(String),
-    /// Open the triggers window (installed triggers + file import).
-    ShowTriggersWindow,
     /// Remove an installed trigger by id.
     UninstallTrigger(String),
     /// Start a long-running package operation in the background. It keeps
@@ -100,6 +102,44 @@ pub enum Action {
         op: String,
         mac: String,
     },
+    /// Pick a target language for the translate trigger; `strip` is the
+    /// trailing token of the query that named it ("hello po" → "po") and is
+    /// removed from the entry when set.
+    SetTranslateTarget {
+        code: String,
+        strip: String,
+    },
+    /// Expand a language list next to the typed text: the target picker
+    /// (`source == false`) or the source picker (manual override of
+    /// auto-detection).
+    TranslateExpand {
+        source: bool,
+    },
+    /// Pick the source language for this session; empty = auto-detect.
+    SetTranslateSource {
+        code: String,
+    },
+    /// Translate right now, skipping the 3 s auto-translate delay (also the
+    /// retry for a failed attempt).
+    TranslateNow {
+        text: String,
+        target: String,
+    },
+    /// Switch the background update feature on/off (from search or the
+    /// Settings row).
+    ToggleUpdates,
+    /// "Remind tomorrow": snooze the update notice for 24 hours.
+    SnoozeUpdates,
+    /// "Dismiss update notice": hide this update set until a new one
+    /// appears (carries its signature).
+    DismissUpdates(String),
+    /// Re-run the update check right now. Enter on "No updates available"
+    /// (or on the "Checking for updates" row) checks again instead of
+    /// doing nothing.
+    CheckUpdates,
+    /// A row that only exists to be displayed (e.g. "No updates
+    /// available") — Enter does nothing.
+    Noop,
 }
 
 /// Universally pinned results (any kind) whose title/subtitle matches `query_lower`.
@@ -151,7 +191,11 @@ fn inline_file_mode(query: &str, config: &Config) -> Option<(String, String)> {
         return None;
     }
     let kw = config.keyword_for_word(word)?;
-    kw.all_files.then(|| (kw.word.clone(), rest.to_string()))
+    // All-files keywords inline-route ("find foo"); the dictionary and the
+    // translate trigger route the same way so `dict word` / `translate text`
+    // work in one go, without a separate mode-entry step first.
+    (kw.all_files || matches!(kw.id.as_str(), "dictionary" | "translate"))
+        .then(|| (kw.word.clone(), rest.to_string()))
 }
 
 pub fn search(
@@ -218,22 +262,10 @@ pub fn search(
         }
     }
 
-    // Update action in universal search — type "update" or "upgrade" to see
-    // and install available package updates. Not a keyword mode, just a direct
-    // action result so it works from the main bar.
-    if ql == "update" || ql == "upgrade" || ql.starts_with("upd") || ql.starts_with("upg") {
-        let mut update_results = cmd::update_all_result();
-        let score = if ql == "update" || ql == "upgrade" {
-            100_000
-        } else if ql.starts_with("upd") || ql.starts_with("upg") {
-            50_000
-        } else {
-            30_000
-        };
-        for r in &mut update_results {
-            r.score = r.score.max(score);
-        }
-        r.extend(update_results);
+    // Updates are a General-section feature now (no trigger): the
+    // update/updates/upd/upgrade/upg verbs show the inline update list.
+    if let Some(update_rows) = cmd::update_verb_rows(query, config) {
+        r.extend(update_rows);
     }
 
     r.extend(system::search(query, config));
@@ -297,10 +329,15 @@ pub fn search_mode(
     if kw.id == "cmd" {
         let snap_guard = snap_lock.read().unwrap();
         return merge_pinned(
-            cmd::search(rest, config.package_manager, &snap_guard.apps),
+            cmd::search(rest, config, &snap_guard.apps),
             &rl,
             pinned,
         );
+    }
+    if kw.id == "translate" {
+        // The translate trigger: live, local translation — target follows
+        // the system language unless a language was picked.
+        return translate::results(rest, config);
     }
     if kw.all_files {
         // The dedicated "Find" trigger always supports path browsing,
@@ -354,7 +391,7 @@ pub fn search_mode(
                 if rest.is_empty() {
                     return vec![SearchResult {
                         kind: ResultKind::System,
-                        title: format!("Type something to search with {}", trigger.name),
+                        title: gettext("Type something to search with {name}").replace("{name}", &trigger.name),
                         subtitle: Some(trigger.description.clone()),
                         icon,
                         action: Action::EnterMode(kw.word.clone()),
@@ -365,7 +402,7 @@ pub fn search_mode(
                 let url = url.replace("{query}", &encoded);
                 vec![SearchResult {
                     kind: ResultKind::Web,
-                    title: format!("{}: {}", trigger.name, rest),
+                    title: gettext("{name}: {query}").replace("{name}", &trigger.name).replace("{query}", rest),
                     subtitle: Some(url.clone()),
                     icon,
                     action: Action::OpenUrl(url),
@@ -376,7 +413,7 @@ pub fn search_mode(
                 if rest.is_empty() {
                     return vec![SearchResult {
                         kind: ResultKind::System,
-                        title: format!("Type a command to run with {}", trigger.name),
+                        title: gettext("Type a command to run with {name}").replace("{name}", &trigger.name),
                         subtitle: Some(trigger.description.clone()),
                         icon,
                         action: Action::EnterMode(kw.word.clone()),
@@ -388,11 +425,11 @@ pub fn search_mode(
                 let rendered = command.replace("{query}", &crate::triggers::shell_escape(rest));
                 vec![SearchResult {
                     kind: ResultKind::System,
-                    title: format!("Run {}", trigger.name),
+                    title: gettext("Run {name}").replace("{name}", &trigger.name),
                     subtitle: Some(rendered.clone()),
                     icon,
                     action: Action::RunWithProgress {
-                        title: format!("{}: {}", trigger.name, rest),
+                        title: gettext("{name}: {query}").replace("{name}", &trigger.name).replace("{query}", rest),
                         args: run::command_argv(&rendered),
                     },
                     score: 100_000,
@@ -402,4 +439,52 @@ pub fn search_mode(
         };
     }
     vec![]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A config carrying the dictionary keyword (store-installed trigger).
+    fn config_with_dictionary() -> Config {
+        let mut cfg = Config::default();
+        cfg.command_keywords.push(crate::config::CommandKeyword {
+            id: "dictionary".into(),
+            word: "dict".into(),
+            description: String::new(),
+            extensions: vec![],
+            icon: String::new(),
+            all_files: false,
+            shortcut: String::new(),
+            enabled: true,
+        });
+        cfg
+    }
+
+    #[test]
+    fn dict_word_inline_routes_to_the_dictionary() {
+        let cfg = config_with_dictionary();
+        // The whole point: `dict <word>` shows the meaning directly, without
+        // a separate mode-entry step first.
+        assert_eq!(
+            inline_file_mode("dict serendipity", &cfg),
+            Some(("dict".to_string(), "serendipity".to_string()))
+        );
+        assert_eq!(
+            inline_file_mode("dict  spaced rest", &cfg),
+            Some(("dict".to_string(), "spaced rest".to_string()))
+        );
+        // A lone keyword (no rest) is not an inline route — it stays the
+        // mode suggestion the user enters with.
+        assert_eq!(inline_file_mode("dict", &cfg), None);
+        // Unknown words never route.
+        assert_eq!(inline_file_mode("nope x", &cfg), None);
+
+        // Regression guard: the all-files keyword still routes inline.
+        let files = Config::default();
+        assert_eq!(
+            inline_file_mode("find notes.txt", &files),
+            Some(("find".to_string(), "notes.txt".to_string()))
+        );
+    }
 }

@@ -1,3 +1,5 @@
+use crate::i18n::gettext;
+
 // "cmd" trigger mode: run an arbitrary shell command live inside Spotty.
 //
 // The typed text is treated as a shell command line. Pressing Enter runs it
@@ -72,8 +74,8 @@ pub fn search(query: &str) -> Vec<SearchResult> {
         if r.is_empty() {
             return vec![SearchResult {
                 kind: ResultKind::System,
-                title: "Type a command to run".into(),
-                subtitle: Some("Runs through your shell, output shown here".into()),
+                title: gettext("Type a command to run").into(),
+                subtitle: Some(gettext("Runs through your shell, output shown here").into()),
                 icon: Some("utilities-terminal-symbolic".into()),
                 action: Action::EnterMode("cmd".into()),
                 score: 1000,

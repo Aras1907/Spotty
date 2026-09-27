@@ -121,6 +121,8 @@ pub fn register_all() {
             "run" => "Spotty: Run",
             "emoji" => "Spotty: Emoji",
             "music" => "Spotty: Music",
+            "updates" => "Spotty: Updates",
+            "translate" => "Spotty: Translate",
             _ => "Spotty",
         };
         shortcuts.push((kw.id.clone(), name.into(), kw.shortcut.clone()));

@@ -144,19 +144,10 @@ fn compute(
             }
         }
     }
-    if ql == "update" || ql == "upgrade" || ql.starts_with("upd") || ql.starts_with("upg") {
-        let mut update_results = crate::search::cmd::update_all_result();
-        let score = if ql == "update" || ql == "upgrade" {
-            100_000
-        } else if ql.starts_with("upd") || ql.starts_with("upg") {
-            50_000
-        } else {
-            30_000
-        };
-        for r in &mut update_results {
-            r.score = r.score.max(score);
-        }
-        r.extend(update_results);
+    // Updates are a General-section feature now (no trigger): the
+    // update/updates/upd/upgrade/upg verbs show the inline update list.
+    if let Some(update_rows) = crate::search::cmd::update_verb_rows(query, config) {
+        r.extend(update_rows);
     }
     r.extend(crate::search::system::search(query, config));
     r.extend(crate::search::settings_panels::search(query));

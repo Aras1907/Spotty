@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use crate::i18n::gettext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -139,6 +140,7 @@ impl CommandKeyword {
             "run" => "Cmd",
             "emoji" => "Emoji",
             "music" => "Music",
+            "translate" => "Translate",
             _ => "Trigger",
         }
     }
@@ -149,7 +151,7 @@ fn default_command_keywords() -> Vec<CommandKeyword> {
         CommandKeyword {
             id: "files".into(),
             word: "find".into(),
-            description: "Search all files and folders".into(),
+            description: gettext("Search all files and folders").into(),
             extensions: vec![],
             icon: "system-search-symbolic".into(),
             all_files: true,
@@ -159,7 +161,7 @@ fn default_command_keywords() -> Vec<CommandKeyword> {
         CommandKeyword {
             id: "clipboard".into(),
             word: "clip".into(),
-            description: "Search clipboard history".into(),
+            description: gettext("Search clipboard history").into(),
             extensions: vec![],
             icon: "edit-paste-symbolic".into(),
             all_files: false,
@@ -169,7 +171,7 @@ fn default_command_keywords() -> Vec<CommandKeyword> {
         CommandKeyword {
             id: "cmd".into(),
             word: "app".into(),
-            description: "Install, uninstall, and manage apps".into(),
+            description: gettext("Install, uninstall, and manage apps").into(),
             extensions: vec![],
             icon: "application-x-executable-symbolic".into(),
             all_files: false,
@@ -179,7 +181,7 @@ fn default_command_keywords() -> Vec<CommandKeyword> {
         CommandKeyword {
             id: "run".into(),
             word: "cmd".into(),
-            description: "Run a command".into(),
+            description: gettext("Run a command").into(),
             extensions: vec![],
             icon: "utilities-terminal-symbolic".into(),
             all_files: false,
@@ -189,7 +191,7 @@ fn default_command_keywords() -> Vec<CommandKeyword> {
         CommandKeyword {
             id: "emoji".into(),
             word: "emoji".into(),
-            description: "Search emoji".into(),
+            description: gettext("Search emoji").into(),
             extensions: vec![],
             icon: "face-smile-symbolic".into(),
             all_files: false,
@@ -199,7 +201,7 @@ fn default_command_keywords() -> Vec<CommandKeyword> {
         CommandKeyword {
             id: "bluetooth".into(),
             word: "bt".into(),
-            description: "Bluetooth devices".into(),
+            description: gettext("Bluetooth devices").into(),
             extensions: vec![],
             icon: "bluetooth-active-symbolic".into(),
             all_files: false,
@@ -291,6 +293,14 @@ pub struct Config {
     pub redo_shortcut: String,
     #[serde(default = "default_delete_word_shortcut")]
     pub delete_word_shortcut: String,
+    /// Update shortcuts (search window, update context): check + upgrade
+    /// everything, system packages only, flatpak only.
+    #[serde(default = "default_update_all_shortcut")]
+    pub update_all_shortcut: String,
+    #[serde(default = "default_update_system_shortcut")]
+    pub update_system_shortcut: String,
+    #[serde(default = "default_update_flatpak_shortcut")]
+    pub update_flatpak_shortcut: String,
     /// Universally pinned search results (apps, files, web searches, etc.) —
     /// always shown first when the query matches, in any search mode.
     #[serde(default)]
@@ -313,6 +323,58 @@ pub struct Config {
     /// so the user finds apps to install without typing the "install" verb.
     #[serde(default = "dt")]
     pub enable_new_apps: bool,
+    /// Base URL of the trigger repository Spotty browses for installable
+    /// triggers (`index.json` + `triggers/<id>.json`). Only contacted when
+    /// the user opens Settings → Trigger → Store.
+    #[serde(default = "default_trigger_repo_url")]
+    pub trigger_repo_url: String,
+    /// Target-language override for the translate trigger (e.g. "de");
+    /// empty = follow the system language.
+    #[serde(default)]
+    pub translate_target: String,
+    /// Local LibreTranslate endpoint for the translate trigger. The query
+    /// text is only ever POSTed here — by default that is your own machine,
+    /// so translations are 100% private.
+    #[serde(default = "default_translate_endpoint")]
+    pub translate_endpoint: String,
+    /// Optional API key for that endpoint (self-hosted instances normally
+    /// don't need one).
+    #[serde(default)]
+    pub translate_api_key: String,
+    /// Background update checking + the search "update" verb (updates are a
+    /// General-section feature, not a trigger).
+    #[serde(default = "dt")]
+    pub enable_updates: bool,
+    /// Badge + banner near the orb when updates are available.
+    #[serde(default = "dt")]
+    pub update_notification: bool,
+    /// How often the background update check runs, in hours.
+    #[serde(default = "default_update_check_hours")]
+    pub update_check_interval_hours: u32,
+    /// Epoch seconds until which the update notice is snoozed
+    /// ("Remind tomorrow"); 0 = not snoozed.
+    #[serde(default)]
+    pub update_snooze_until: i64,
+    /// Signature of an update set the user already dismissed — the notice
+    /// stays hidden until a *different* (new) update shows up.
+    #[serde(default)]
+    pub update_dismissed_sig: String,
+}
+
+/// The default trigger repository: the official spotty-triggers repository
+/// read straight from raw GitHub — no server involved.
+pub fn default_trigger_repo_url() -> String {
+    "https://raw.githubusercontent.com/Aras1907/spotty-triggers/main".into()
+}
+
+/// LibreTranslate's own default: a local-only instance on 127.0.0.1:5000.
+pub fn default_translate_endpoint() -> String {
+    "http://localhost:5000".into()
+}
+
+/// Background update check cadence: once a day.
+pub fn default_update_check_hours() -> u32 {
+    24
 }
 
 fn de() -> SearchEngine {
@@ -381,6 +443,18 @@ fn default_redo_shortcut() -> String {
 fn default_delete_word_shortcut() -> String {
     "<Control>space".into()
 }
+fn default_update_all_shortcut() -> String {
+    // Ctrl+Enter only means "open location" inside Find mode; in the
+    // update context it checks for updates and upgrades everything.
+    "<Control>Return".into()
+}
+fn default_update_system_shortcut() -> String {
+    // Ctrl+D is "delete file" only inside Find mode.
+    "<Control>d".into()
+}
+fn default_update_flatpak_shortcut() -> String {
+    "<Control>f".into()
+}
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -415,6 +489,9 @@ impl Default for Config {
             undo_shortcut: default_undo_shortcut(),
             redo_shortcut: default_redo_shortcut(),
             delete_word_shortcut: default_delete_word_shortcut(),
+            update_all_shortcut: default_update_all_shortcut(),
+            update_system_shortcut: default_update_system_shortcut(),
+            update_flatpak_shortcut: default_update_flatpak_shortcut(),
             pinned_results: Vec::new(),
             show_shortcut_hints: true,
             max_index_entries: dm(),
@@ -422,6 +499,15 @@ impl Default for Config {
             clipboard_shortcut: String::new(),
             package_manager: PackageManager::default(),
             enable_new_apps: true,
+            trigger_repo_url: default_trigger_repo_url(),
+            translate_target: String::new(),
+            translate_endpoint: default_translate_endpoint(),
+            translate_api_key: String::new(),
+            enable_updates: true,
+            update_notification: true,
+            update_check_interval_hours: default_update_check_hours(),
+            update_snooze_until: 0,
+            update_dismissed_sig: String::new(),
         }
     }
 }
@@ -479,6 +565,9 @@ impl Config {
                                 | "x-office-spreadsheet-symbolic"
                                 | "utilities-terminal-symbolic"
                                 | "folder-symbolic"
+                                // Removed from modern Adwaita — refresh to
+                                // the keyword's current default icon.
+                                | "system-software-update-symbolic"
                         )
                     {
                         existing.icon = def.icon.clone();
@@ -636,5 +725,34 @@ mod tests {
         assert_eq!(cfg.open_location_shortcut, "<Control>Return");
         assert_eq!(cfg.delete_file_shortcut, "<Control>d");
         assert_eq!(cfg.terminal_shortcut, "<Control><Shift>Return");
+        assert_eq!(
+            cfg.trigger_repo_url,
+            "https://raw.githubusercontent.com/Aras1907/spotty-triggers/main"
+        );
+    }
+}
+
+#[cfg(test)]
+mod update_flag_tests {
+    #[test]
+    fn serde_defaults_for_update_flags() {
+        let c: super::Config = serde_json::from_str("{}").expect("empty config");
+        assert!(c.enable_updates, "enable_updates must default to true");
+        assert!(c.update_notification, "update_notification must default to true");
+        assert_eq!(c.update_check_interval_hours, 24);
+        assert_eq!(c.update_snooze_until, 0);
+    }
+
+    #[test]
+    fn serde_defaults_for_update_shortcuts() {
+        let c = crate::config::Config::default();
+        assert_eq!(c.update_all_shortcut, "<Control>Return");
+        assert_eq!(c.update_system_shortcut, "<Control>d");
+        assert_eq!(c.update_flatpak_shortcut, "<Control>f");
+        // Config files written before these keys existed still get them.
+        let c: super::Config = serde_json::from_str("{}").expect("empty config");
+        assert_eq!(c.update_all_shortcut, "<Control>Return");
+        assert_eq!(c.update_system_shortcut, "<Control>d");
+        assert_eq!(c.update_flatpak_shortcut, "<Control>f");
     }
 }

@@ -5,7 +5,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "lowercase")]
 pub enum ClipboardEntry {
     Text(String),
@@ -170,6 +170,15 @@ impl ClipboardHistory {
 
     pub fn entries(&self) -> &[ClipboardEntry] {
         &self.entries
+    }
+
+    /// When the given entry was captured (unix seconds) — as long as it is
+    /// still in the history. Used for the "Clipped …" preview caption.
+    pub fn time_of(&self, entry: &ClipboardEntry) -> Option<u64> {
+        self.entries
+            .iter()
+            .position(|e| e == entry)
+            .and_then(|i| self.times.get(i).copied())
     }
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
@@ -778,6 +787,28 @@ mod tests {
             std::process::id(),
             std::thread::current().id()
         ))
+    }
+
+    #[test]
+    fn time_of_reports_when_an_entry_was_clipped() {
+        let mut h = ClipboardHistory::new(10);
+        h.entries.push(ClipboardEntry::Text("hello".into()));
+        h.entries.push(ClipboardEntry::Text("second".into()));
+        h.times = vec![1_000, 2_000];
+
+        assert_eq!(
+            h.time_of(&ClipboardEntry::Text("hello".into())),
+            Some(1_000)
+        );
+        assert_eq!(
+            h.time_of(&ClipboardEntry::Text("second".into())),
+            Some(2_000)
+        );
+        assert_eq!(h.time_of(&ClipboardEntry::Text("gone".into())), None);
+        assert_eq!(
+            h.time_of(&ClipboardEntry::File(PathBuf::from("/tmp/x"))),
+            None
+        );
     }
 
     #[test]
