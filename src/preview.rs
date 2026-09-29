@@ -136,13 +136,10 @@ pub struct PreviewPane {
     // Clip timestamp: shown above the preview while a clipboard entry is
     // selected ("Clipped 27.09.2026 14:32").
     clip_caption: gtk::Label,
-    // Update page widgets: libadwaita boxed list of pending packages plus
-    // the keyboard shortcuts that run each update scope.
+    // Update page widgets: libadwaita boxed list of pending packages.
     u_title: gtk::Label,
     u_sub: gtk::Label,
     u_list: gtk::ListBox,
-    u_kb_head: gtk::Label,
-    u_kb: gtk::Box,
     // Identity of the track currently shown in the music page, so late async
     // cover/stats updates can verify they're still relevant.
     msel: std::rc::Rc<std::cell::RefCell<String>>,
@@ -419,7 +416,7 @@ impl PreviewPane {
         stack.add_named(&hb, Some("help"));
 
         // Update page: title + count, a libadwaita boxed list of what wants
-        // updating, and the keyboard shortcuts for the scoped runs.
+        // updating.
         let u_title = gtk::Label::builder()
             .xalign(0.0)
             .wrap(true)
@@ -435,16 +432,6 @@ impl PreviewPane {
             .css_classes(["boxed-list"])
             .hexpand(true)
             .build();
-        let u_kb_head = gtk::Label::builder()
-            .label(gettext("Keyboard"))
-            .xalign(0.0)
-            .css_classes(["heading"])
-            .margin_top(8)
-            .build();
-        let u_kb = gtk::Box::builder()
-            .orientation(gtk::Orientation::Vertical)
-            .spacing(4)
-            .build();
         let ub = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .spacing(8)
@@ -453,8 +440,6 @@ impl PreviewPane {
         ub.append(&u_title);
         ub.append(&u_sub);
         ub.append(&u_list);
-        ub.append(&u_kb_head);
-        ub.append(&u_kb);
         let u_scroll = gtk::ScrolledWindow::builder()
             .child(&ub)
             .hscrollbar_policy(gtk::PolicyType::Never)
@@ -525,8 +510,6 @@ impl PreviewPane {
             u_title,
             u_sub,
             u_list,
-            u_kb_head,
-            u_kb,
             msel: std::rc::Rc::new(std::cell::RefCell::new(String::new())),
             current: std::rc::Rc::new(std::cell::RefCell::new(std::path::PathBuf::new())),
             preview_debounce_id: std::rc::Rc::new(std::cell::Cell::new(None)),
@@ -643,15 +626,8 @@ impl PreviewPane {
     }
 
     /// Show what an update run will do: the package list as a libadwaita
-    /// boxed list, plus the keyboard shortcuts for the scoped runs.
-    /// An empty `shortcuts` hides the keyboard section (restart row).
-    pub fn show_update(
-        &self,
-        title: &str,
-        subtitle: &str,
-        packages: &[String],
-        shortcuts: &[(String, String)],
-    ) {
+    /// boxed list.
+    pub fn show_update(&self, title: &str, subtitle: &str, packages: &[String]) {
         self.stop_video();
         self.current_stamp.set((0, 0));
         *self.current.borrow_mut() = std::path::PathBuf::new();
@@ -682,26 +658,6 @@ impl PreviewPane {
         }
         self.u_list.set_visible(!packages.is_empty());
 
-        // Keyboard section: label + accel per shortcut.
-        while let Some(child) = self.u_kb.first_child() {
-            self.u_kb.remove(&child);
-        }
-        self.u_kb_head.set_visible(!shortcuts.is_empty());
-        for (label, accel) in shortcuts {
-            let row = gtk::Box::builder()
-                .orientation(gtk::Orientation::Horizontal)
-                .spacing(12)
-                .build();
-            row.append(
-                &gtk::Label::builder()
-                    .label(label)
-                    .xalign(0.0)
-                    .hexpand(true)
-                    .build(),
-            );
-            row.append(&gtk::ShortcutLabel::new(accel));
-            self.u_kb.append(&row);
-        }
         self.stack.set_visible_child_name("update");
     }
 

@@ -167,7 +167,7 @@ fn entry_to_result(
                     let snippet: String = t.chars().take(300).collect();
                     let fs = pattern.score(Utf32String::from(snippet.as_str()).slice(..), matcher);
                     if fs
-                        .map(|s| s < (query_lower.len() as u32) * 25)
+                        .map(|s| s < (query_lower.len() as u32) * 20)
                         .unwrap_or(true)
                     {
                         return None;
@@ -217,7 +217,7 @@ fn entry_to_result(
                 if !fname_lower.contains(query_lower) {
                     let fs = pattern.score(Utf32String::from(fname).slice(..), matcher);
                     if fs
-                        .map(|s| s < (query_lower.len() as u32) * 25)
+                        .map(|s| s < (query_lower.len() as u32) * 20)
                         .unwrap_or(true)
                     {
                         return None;

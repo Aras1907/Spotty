@@ -1,4 +1,6 @@
 use crate::clipboard::ClipboardHistory;
+use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
+use nucleo_matcher::{Matcher, Utf32String};
 use crate::config::Config;
 use crate::index::Indexer;
 use std::cell::RefCell;
@@ -13,6 +15,8 @@ pub mod browser_engine;
 pub mod calculator;
 pub mod clipboard;
 pub mod cmd;
+pub mod convert;
+pub mod currency;
 pub mod dictionary;
 pub mod emoji;
 pub mod files;
@@ -142,6 +146,56 @@ pub enum Action {
     Noop,
 }
 
+/// Fuzzy match for typed keywords: nucleo scores `text` against `query`
+/// above a length-scaled threshold — that catches dropped letters ("sytem"
+/// → system, "fltak" → flatpak). nucleo only accepts subsequences, so a
+/// second check covers what subsequence scoring rejects: swapped,
+/// substituted or doubled letters ("udpat", "sistem", "aall") within two
+/// edits of a short candidate. Unrelated words never hit: "upload" is four
+/// edits away from "update". Queries shorter than two characters stay with
+/// the explicit prefix logic.
+pub fn fuzzy_match(query: &str, text: &str) -> bool {
+    let len = query.chars().count();
+    if len < 2 {
+        return false;
+    }
+    let mut matcher = Matcher::default();
+    let pattern = Pattern::parse(query, CaseMatching::Ignore, Normalization::Smart);
+    if pattern
+        .score(Utf32String::from(text).slice(..), &mut matcher)
+        .map(|s| s >= (len as u32) * 20)
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    len >= 3
+        && edit_distance(&query.to_lowercase(), &text.to_lowercase()) <= 2
+}
+
+/// Classic Levenshtein distance over chars — the words compared here are
+/// short keywords, candidates and verbs.
+pub fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.is_empty() {
+        return b.len();
+    }
+    if b.is_empty() {
+        return a.len();
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut cur = vec![0usize; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        cur[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let sub = prev[j] + usize::from(ca != cb);
+            cur[j + 1] = sub.min(prev[j + 1] + 1).min(cur[j] + 1);
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[b.len()]
+}
+
 /// Universally pinned results (any kind) whose title/subtitle matches `query_lower`.
 /// Matches always score above normal results so they sort to the top.
 pub fn pinned_matches(query_lower: &str, pinned: &[SearchResult]) -> Vec<SearchResult> {
@@ -237,14 +291,22 @@ pub fn search(
             let dn = kw.display_name().to_lowercase();
             let word_match = kw.word.starts_with(&ql);
             let name_match = dn.starts_with(&ql);
-            if word_match || name_match {
-                // Exact match scores highest; display-name prefix a bit lower than word prefix.
+            // Fuzzy last: a typo'd trigger word ("fils" → find) still
+            // suggests its mode, ranked below every real prefix hit.
+            let fuzzy = !word_match
+                && !name_match
+                && (fuzzy_match(&ql, &kw.word) || fuzzy_match(&ql, &dn));
+            if word_match || name_match || fuzzy {
+                // Exact match scores highest; display-name prefix a bit
+                // lower than word prefix; fuzzy below both.
                 let score = if kw.word == ql || dn == ql {
                     100_000
                 } else if word_match {
                     50_000
-                } else {
+                } else if name_match {
                     45_000
+                } else {
+                    40_000
                 };
                 r.push(SearchResult {
                     kind: ResultKind::System,
@@ -271,8 +333,11 @@ pub fn search(
     r.extend(system::search(query, config));
     r.extend(settings_panels::search(query));
     if config.enable_calculator {
-        if let Some(calc) = calculator::evaluate(query) {
+        if let Some(calc) = calculator::evaluate(query, config) {
             r.push(calc);
+        }
+        if let Some(conv) = convert::convert(query, config) {
+            r.push(conv);
         }
     }
     if config.enable_apps {
@@ -462,6 +527,55 @@ mod tests {
     }
 
     #[test]
+    fn fuzzy_match_catches_typos_but_not_unrelated_words() {
+        // Mid-word typos hit their target…
+        assert!(fuzzy_match("sytem", "system"));
+        assert!(fuzzy_match("fltak", "flatpak"));
+        assert!(fuzzy_match("updte", "update"));
+        assert!(fuzzy_match("shutdn", "Shutdown"));
+        // …including classes nucleo's subsequence scoring rejects:
+        assert!(fuzzy_match("sistem", "system"), "substituted letter");
+        assert!(fuzzy_match("updaet", "update"), "swapped letters");
+        assert!(fuzzy_match("aall", "all"), "doubled letter");
+        // …short queries stay with the explicit prefix logic…
+        assert!(!fuzzy_match("a", "anything"));
+        // …and words that merely share letters never match.
+        assert!(!fuzzy_match("upload", "update"));
+        assert!(!fuzzy_match("zyx", "system"));
+    }
+
+    #[test]
+    fn typoed_trigger_word_still_suggests_its_mode() {
+        let snap = crate::index::Snapshot {
+            apps: Vec::new(),
+            files: Vec::new(),
+        };
+        let lock = std::sync::Arc::new(std::sync::RwLock::new(snap));
+        let cfg = Config::default();
+
+        // "find" with a dropped letter still suggests entering Find mode…
+        let rows = super::search("fnd", &cfg, &lock);
+        assert!(
+            rows.iter()
+                .any(|r| matches!(&r.action, Action::EnterMode(w) if w == "find")),
+            "fnd: {:?}",
+            rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>()
+        );
+        // …an unrelated word never suggests a mode. (Operation rows encode
+        // their state in EnterMode too, so only real keyword suggestions
+        // count here.)
+        let rows = super::search("xyzzy", &cfg, &lock);
+        assert!(
+            !rows.iter().any(|r| match &r.action {
+                Action::EnterMode(w) => cfg.keyword_for_word(w).is_some(),
+                _ => false,
+            }),
+            "xyzzy: {:?}",
+            rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn dict_word_inline_routes_to_the_dictionary() {
         let cfg = config_with_dictionary();
         // The whole point: `dict <word>` shows the meaning directly, without
@@ -488,3 +602,6 @@ mod tests {
         );
     }
 }
+
+
+

@@ -16,35 +16,31 @@ msgstr ""
 msgid "    “{ex}”"
 msgstr ""
 
-#: src/preview.rs:486
+#: src/preview.rs:471
 msgid "1 / 1"
 msgstr ""
 
-#: src/ui/settings_window.rs:495
+#: src/ui/settings_window.rs:320
 msgid "About"
 msgstr "このアプリについて"
 
-#: src/ui/settings_window.rs:498
+#: src/ui/settings_window.rs:323
 msgid "About Spotty"
 msgstr "Spotty について"
 
-#: src/ui/settings_window.rs:1216
+#: src/ui/settings_window.rs:1577
 msgid "Add Trigger"
 msgstr "トリガーを追加"
 
-#: src/ui/settings_window.rs:941
+#: src/ui/settings_window.rs:1302
 msgid "Add Trigger Word"
 msgstr "トリガーワードを追加"
 
-#: src/ui/settings_window.rs:1616
+#: src/ui/settings_window.rs:1977
 msgid "Add a local trigger"
 msgstr "ローカルのトリガーを追加"
 
-#: src/search/cmd.rs:2112
-msgid "All packages are up to date"
-msgstr "すべてのパッケージは最新です"
-
-#: src/ui/settings_window.rs:2127
+#: src/ui/settings_window.rs:2488
 msgid "Allow typing / or ~/ to browse the filesystem directly"
 msgstr "/ または ~/ を入力してファイルシステムを直接閲覧できます"
 
@@ -52,33 +48,38 @@ msgstr "/ または ~/ を入力してファイルシステムを直接閲覧で
 msgid "Already {language}"
 msgstr "すでに{language}"
 
-#: src/ui/settings_window.rs:94
+#: src/ui/settings_window.rs:121
 msgid "Also suggest installable apps as you type"
 msgstr "入力中にインストール可能なアプリも提案する"
 
-#: src/ui/settings_window.rs:137
+#: src/ui/settings_window.rs:175
 msgid "Always show web search row"
 msgstr "Web 検索行を常に表示"
 
-#: src/ui/settings_window.rs:87
+#: src/ui/settings_window.rs:99
+#: src/ui/settings_window.rs:416
 msgid "Applications"
 msgstr "アプリケーション"
 
-#: src/ui/search_window.rs:2185
-#: src/ui/search_window.rs:3171
+#: src/ui/search_window.rs:2151
+#: src/ui/search_window.rs:3100
 msgid "Are you sure you want to install {name}?"
 msgstr "{name} を本当にインストールしますか？"
 
-#: src/ui/search_window.rs:2189
-#: src/ui/search_window.rs:3175
+#: src/ui/search_window.rs:2155
+#: src/ui/search_window.rs:3104
 msgid "Are you sure you want to uninstall {name}?"
 msgstr "{name} を本当にアンインストールしますか？"
 
-#: src/ui/search_window.rs:2200
-#: src/ui/search_window.rs:3215
-#: src/ui/settings_window.rs:420
+#: src/ui/search_window.rs:2166
+#: src/ui/search_window.rs:3144
+#: src/ui/settings_window.rs:826
 msgid "Are you sure?"
 msgstr "よろしいですか？"
+
+#: src/ui/settings_window.rs:142
+msgid "Arithmetic, units, currency and number bases"
+msgstr "計算、単位、通貨、基数"
 
 #: src/search/translate.rs:579
 #: src/search/translate.rs:665
@@ -95,124 +96,142 @@ msgstr "自動に戻す（システム言語）"
 msgid "Bluetooth devices"
 msgstr "Bluetooth デバイス"
 
-#: src/ui/settings_window.rs:706
+#: src/ui/settings_window.rs:1067
 msgid "Browse and install triggers"
 msgstr "トリガーを閲覧してインストール"
 
-#: src/ui/settings_window.rs:99
-msgid "Calculator"
-msgstr "電卓"
+#: src/ui/settings_window.rs:141
+#: src/ui/settings_window.rs:456
+msgid "Calculator & Conversions"
+msgstr "電卓と変換"
 
 #: src/ui/result_row.rs:301
 #: src/ui/search_window.rs:529
 #: src/ui/search_window.rs:754
-#: src/ui/search_window.rs:2202
-#: src/ui/search_window.rs:3217
-#: src/ui/search_window.rs:4765
-#: src/ui/search_window.rs:5221
-#: src/ui/settings_window.rs:422
-#: src/ui/settings_window.rs:1037
-#: src/ui/settings_window.rs:1799
+#: src/ui/search_window.rs:2168
+#: src/ui/search_window.rs:3146
+#: src/ui/search_window.rs:4720
+#: src/ui/search_window.rs:5152
+#: src/ui/settings_window.rs:828
+#: src/ui/settings_window.rs:1398
+#: src/ui/settings_window.rs:2160
 msgid "Cancel"
 msgstr "キャンセル"
 
-#: src/ui/settings_window.rs:1572
+#: src/ui/settings_window.rs:1933
 msgid "Cannot save the manifest: {e}"
 msgstr "マニフェストを保存できません: {e}"
 
-#: src/ui/settings_window.rs:1364
+#: src/ui/settings_window.rs:1725
 msgid "Cannot save the trigger: {e}"
 msgstr "トリガーを保存できません: {e}"
 
-#: src/ui/settings_window.rs:330
+#: src/ui/settings_window.rs:731
 msgid "Check every"
 msgstr "確認間隔"
 
-#: src/ui/settings_window.rs:260
-msgid "Check for updates"
-msgstr "更新を確認"
-
-#: src/ui/settings_window.rs:272
+#: src/ui/settings_window.rs:683
+#: src/ui/settings_window.rs:691
 msgid "Check now"
 msgstr "今すぐ確認"
 
-#: src/search/cmd.rs:1854
+#: src/search/cmd.rs:1853
 msgid "Check spelling or try a different name"
 msgstr "スペルを確認するか、別の名前を試してください"
 
-#: src/search/cmd.rs:2008
+#: src/search/cmd.rs:2007
 msgid "Check spelling or try fewer characters"
 msgstr "スペルを確認するか、文字数を減らして試してください"
 
-#: src/search/cmd.rs:2045
-#: src/search/cmd.rs:3485
-#: src/search/cmd.rs:3495
+#: src/search/cmd.rs:2049
+#: src/search/cmd.rs:3691
+#: src/search/cmd.rs:3701
 msgid "Checking for updates…"
 msgstr "更新を確認しています…"
 
-#: src/ui/settings_window.rs:82
+#: src/ui/settings_window.rs:92
 msgid "Choose what types of results appear"
 msgstr "表示する結果の種類を選択"
 
-#: src/ui/settings_window.rs:2026
+#: src/ui/settings_window.rs:2387
 msgid "Clipboard"
 msgstr "クリップボード"
 
-#: src/preview.rs:619
+#: src/preview.rs:602
 msgid "Clipped {time}"
 msgstr "コピー済み {time}"
 
-#: src/ui/settings_window.rs:1263
+#: src/ui/settings_window.rs:1624
 msgid "Command"
 msgstr "コマンド"
 
-#: src/ui/settings_window.rs:1269
+#: src/ui/settings_window.rs:1630
 msgid "Command line"
 msgstr "コマンドライン"
 
-#: src/ui/search_window.rs:2203
-#: src/ui/search_window.rs:3218
-#: src/ui/settings_window.rs:423
+#: src/ui/search_window.rs:2169
+#: src/ui/search_window.rs:3147
+#: src/ui/settings_window.rs:829
 msgid "Confirm"
 msgstr "確認"
 
-#: src/ui/search_window.rs:4058
+#: src/ui/settings_window.rs:525
+msgid "Conversions"
+msgstr "変換"
+
+#: src/ui/settings_window.rs:599
+msgid "Copy"
+msgstr "コピー"
+
+#: src/ui/search_window.rs:4013
 msgid "Couldn't delete \"{name}\": {e}"
 msgstr "\\\"{name}\\\" を削除できませんでした: {e}"
 
-#: src/ui/settings_window.rs:1390
+#: src/ui/settings_window.rs:1751
 msgid "Couldn't install"
 msgstr "インストールできません"
 
-#: src/ui/settings_window.rs:1679
+#: src/ui/settings_window.rs:2040
 msgid "Couldn't load the trigger repository"
 msgstr "トリガーリポジトリを読み込めません"
 
-#: src/ui/settings_window.rs:1769
+#: src/ui/settings_window.rs:2130
 msgid "Couldn't load {url}: {e}"
 msgstr "{url} を読み込めませんでした: {e}"
 
-#: src/ui/settings_window.rs:1514
+#: src/ui/settings_window.rs:1875
 msgid "Couldn't uninstall: {e}"
 msgstr "アンインストールできません: {e}"
 
-#: src/ui/settings_window.rs:1201
+#: src/ui/settings_window.rs:1562
 msgid "Create a Trigger"
 msgstr "トリガーを作成"
 
-#: src/ui/settings_window.rs:122
+#: src/ui/settings_window.rs:545
+msgid "Currency conversion"
+msgstr "通貨の変換"
+
+#: src/ui/settings_window.rs:160
 msgid "Custom Search URL"
 msgstr "カスタム検索 URL"
 
-#: src/ui/settings_window.rs:339
+#: src/ui/settings_window.rs:600
+msgid "Cut"
+msgstr "切り取り"
+
+#: src/ui/settings_window.rs:740
 msgid "Daily"
 msgstr "毎日"
 
-#: src/ui/search_window.rs:4023
+#: src/ui/settings_window.rs:468
+msgid "Decimal places"
+msgstr "小数点以下の桁数"
+
+#: src/ui/search_window.rs:3967
 msgid "Delete"
 msgstr "削除"
 
-#: src/ui/settings_window.rs:2076
+#: src/ui/settings_window.rs:2437
 msgid "Delete clipboard entries older than this (pinned items are exempt)"
 msgstr "古いクリップボードの項目を削除します（固定された項目は除外）"
 
@@ -220,11 +239,19 @@ msgstr "古いクリップボードの項目を削除します（固定された
 msgid "Delete file"
 msgstr "ファイルを削除"
 
+#: src/ui/settings_window.rs:610
+msgid "Delete file / folder"
+msgstr "ファイル / フォルダーを削除"
+
 #: src/ui/search_window.rs:1100
 msgid "Delete folder"
 msgstr "フォルダーを削除"
 
-#: src/ui/settings_window.rs:1251
+#: src/ui/settings_window.rs:605
+msgid "Delete word"
+msgstr "単語を削除"
+
+#: src/ui/settings_window.rs:1612
 msgid "Description (optional)"
 msgstr "説明（任意）"
 
@@ -236,33 +263,33 @@ msgstr "自動検出 — Enter で選択"
 msgid "Dictionary: {query}"
 msgstr "辞書: {query}"
 
-#: src/search/cmd.rs:2187
+#: src/search/cmd.rs:2183
 msgid "Disable update checks"
 msgstr "更新の確認をオフにする"
 
-#: src/ui/settings_window.rs:538
+#: src/ui/settings_window.rs:899
 msgid "Disabled · {base}"
 msgstr "無効 · {base}"
 
-#: src/search/cmd.rs:2137
-#: src/ui/settings_window.rs:373
+#: src/search/cmd.rs:2133
+#: src/ui/settings_window.rs:778
 msgid "Dismiss update notice"
 msgstr "更新のお知らせを閉じる"
 
-#: src/ui/settings_window.rs:2095
+#: src/ui/settings_window.rs:2456
 msgid "Display a hint bar in the clipboard manager"
 msgstr "クリップボードマネージャーにヒントバーを表示します"
 
-#: src/ui/search_window.rs:4004
+#: src/ui/search_window.rs:3948
 msgid "Do you want to delete \"{name}\"?"
 msgstr "\\\"{name}\\\" を削除しますか？"
 
-#: src/ui/search_window.rs:2182
-#: src/ui/search_window.rs:3167
+#: src/ui/search_window.rs:2148
+#: src/ui/search_window.rs:3096
 msgid "Do you want to update {name}?"
 msgstr "{name} を更新しますか？"
 
-#: src/ui/search_window.rs:2191
+#: src/ui/search_window.rs:2157
 msgid "Do you want to {action}?"
 msgstr "{action} を実行しますか？"
 
@@ -270,36 +297,37 @@ msgstr "{action} を実行しますか？"
 msgid "Done"
 msgstr "完了"
 
-#: src/ui/settings_window.rs:1576
+#: src/ui/settings_window.rs:1937
 msgid "Download failed: {e}"
 msgstr "ダウンロードに失敗しました: {e}"
 
-#: src/ui/settings_window.rs:553
+#: src/ui/settings_window.rs:914
 msgid "Edit \"Open Spotty\" shortcut"
 msgstr "\\\"Spotty を開く\\\" ショートカットを編集"
 
-#: src/ui/settings_window.rs:1880
-#: src/ui/settings_window.rs:1887
+#: src/ui/settings_window.rs:2241
+#: src/ui/settings_window.rs:2248
 msgid "Edit \"{name}\" trigger"
 msgstr "トリガー \\\"{name}\\\" を編集"
 
-#: src/ui/settings_window.rs:677
+#: src/ui/settings_window.rs:1038
 msgid "Edit trigger words, import a manifest with +, or delete installed triggers."
 msgstr "トリガーワードを編集、+ でマニフェストをインポート、インストール済みトリガーを削除できます。"
 
-#: src/search/cmd.rs:2189
+#: src/search/cmd.rs:2185
+#: src/search/cmd.rs:3308
 msgid "Enable update checks"
 msgstr "更新の確認をオンにする"
 
-#: src/ui/settings_window.rs:1923
+#: src/ui/settings_window.rs:2284
 msgid "Enabled"
 msgstr "有効"
 
-#: src/ui/settings_window.rs:338
+#: src/ui/settings_window.rs:739
 msgid "Every 12 hours"
 msgstr "12 時間ごと"
 
-#: src/ui/settings_window.rs:337
+#: src/ui/settings_window.rs:738
 msgid "Every 6 hours"
 msgstr "6 時間ごと"
 
@@ -307,67 +335,59 @@ msgstr "6 時間ごと"
 msgid "Fetching the definition"
 msgstr "定義を取得中"
 
-#: src/ui/settings_window.rs:1669
+#: src/ui/settings_window.rs:2030
 msgid "Fetching triggers…"
 msgstr "トリガーを取得中…"
 
-#: src/ui/settings_window.rs:2122
+#: src/ui/settings_window.rs:2483
 msgid "Find"
 msgstr "検索"
 
-#: src/ui/settings_window.rs:256
-msgid "Find package updates in the background"
-msgstr "バックグラウンドでパッケージの更新を確認します"
-
-#: src/ui/settings_window.rs:74
+#: src/ui/settings_window.rs:84
 msgid "General"
 msgstr "全般"
 
-#: src/search/cmd.rs:2138
-#: src/ui/settings_window.rs:374
+#: src/search/cmd.rs:2134
+#: src/ui/settings_window.rs:779
 msgid "Hidden until a new update appears"
 msgstr "新しい更新が出るまで非表示"
 
-#: src/search/cmd.rs:2130
-#: src/ui/settings_window.rs:365
+#: src/search/cmd.rs:2126
+#: src/ui/settings_window.rs:770
 msgid "Hide the update notice for 24 hours"
 msgstr "更新のお知らせを 24 時間非表示"
 
-#: src/preview.rs:212
+#: src/preview.rs:209
 msgid "Highlight a result\nto preview"
 msgstr "結果をハイライト\\nしてプレビュー"
 
-#: src/ui/settings_window.rs:2060
+#: src/ui/settings_window.rs:2421
 msgid "History Limit"
 msgstr "履歴の上限"
 
-#: src/ui/settings_window.rs:336
+#: src/ui/settings_window.rs:737
 msgid "Hourly"
 msgstr "1 時間ごと"
 
-#: src/ui/settings_window.rs:1254
+#: src/ui/settings_window.rs:1615
 msgid "Icon name (optional)"
 msgstr "アイコン名（任意）"
 
-#: src/ui/settings_window.rs:100
-msgid "Inline arithmetic"
-msgstr "その場での計算"
-
-#: src/search/cmd.rs:1552
-#: src/ui/settings_window.rs:1038
-#: src/ui/settings_window.rs:1520
+#: src/search/cmd.rs:1551
+#: src/ui/settings_window.rs:1399
+#: src/ui/settings_window.rs:1881
 msgid "Install"
 msgstr "インストール"
 
-#: src/ui/settings_window.rs:1123
+#: src/ui/settings_window.rs:1484
 msgid "Install failed"
 msgstr "インストールに失敗しました"
 
-#: src/search/cmd.rs:2159
+#: src/search/cmd.rs:2155
 msgid "Install the updates, then restart"
 msgstr "更新をインストールしてから再起動します"
 
-#: src/ui/settings_window.rs:1034
+#: src/ui/settings_window.rs:1395
 msgid "Install {name}?"
 msgstr "{name} をインストールしますか？"
 
@@ -375,81 +395,91 @@ msgstr "{name} をインストールしますか？"
 msgid "Install, uninstall, and manage apps"
 msgstr "アプリのインストール、アンインストール、管理を行います"
 
-#: src/search/cmd.rs:2532
-#: src/search/cmd.rs:2626
-#: src/search/cmd.rs:2645
-#: src/search/cmd.rs:2732
+#: src/search/cmd.rs:2564
+#: src/search/cmd.rs:2658
+#: src/search/cmd.rs:2677
+#: src/search/cmd.rs:2764
 msgid "Install: {name}"
 msgstr "インストール: {name}"
 
-#: src/ui/settings_window.rs:1117
+#: src/ui/settings_window.rs:1478
 msgid "Installed \"{name}\""
 msgstr "\\\"{name}\\\" をインストールしました"
 
-#: src/search/cmd.rs:2538
+#: src/search/cmd.rs:2570
 msgid "Installing {name}"
 msgstr "{name} をインストール中"
 
-#: src/ui/search_window.rs:4011
+#: src/ui/search_window.rs:3955
 msgid "It will be moved to the Trash."
 msgstr "ゴミ箱に移動されます。"
 
-#: src/ui/search_window.rs:1439
+#: src/ui/search_window.rs:1416
 msgid "Item deleted"
 msgstr "項目を削除しました"
 
-#: src/ui/search_window.rs:1480
+#: src/ui/search_window.rs:1457
 msgid "Item unpinned — Press Ctrl+Z to undo"
 msgstr "固定を解除しました — Ctrl+Z で元に戻す"
 
-#: src/ui/settings_window.rs:1797
+#: src/ui/settings_window.rs:2158
 msgid "Its trigger word and shortcut will be removed."
 msgstr "トリガーワードとショートカットが削除されます。"
 
-#: src/ui/settings_window.rs:2075
+#: src/ui/settings_window.rs:2436
 msgid "Keep history"
 msgstr "履歴を保持"
 
-#: src/preview.rs:439
-#: src/ui/settings_window.rs:450
+#: src/ui/settings_window.rs:304
 msgid "Keyboard"
 msgstr "キーボード"
 
-#: src/ui/settings_window.rs:581
-#: src/ui/settings_window.rs:1275
-#: src/ui/settings_window.rs:2006
+#: src/ui/settings_window.rs:942
+#: src/ui/settings_window.rs:1636
+#: src/ui/settings_window.rs:2367
 msgid "Keyboard Shortcut"
 msgstr "キーボードショートカット"
 
-#: src/ui/search_window.rs:1143
+#: src/ui/search_window.rs:1120
+#: src/ui/settings_window.rs:308
+#: src/ui/settings_window.rs:421
+#: src/ui/settings_window.rs:589
 msgid "Keyboard Shortcuts"
 msgstr "キーボードショートカット"
 
-#: src/ui/settings_window.rs:615
+#: src/ui/settings_window.rs:607
+msgid "Keyboard shortcuts"
+msgstr "キーボードショートカット"
+
+#: src/ui/settings_window.rs:309
+#: src/ui/settings_window.rs:596
+#: src/ui/settings_window.rs:976
 msgid "Keyboard shortcuts used inside the search window"
 msgstr "検索ウィンドウで使用するキーボードショートカット"
 
-#: src/ui/settings_window.rs:1249
+#: src/ui/settings_window.rs:1610
 msgid "Keyword"
 msgstr "キーワード"
 
-#: src/ui/settings_window.rs:1331
+#: src/ui/settings_window.rs:1692
 msgid "Keyword: letters, digits, -, _ and . only."
 msgstr "キーワード: 英数字、-、_、. のみ使用可"
 
-#: src/search/cmd.rs:1544
+#: src/search/cmd.rs:1543
 msgid "Kill"
 msgstr "終了"
 
 #: src/ui/search_window.rs:1050
+#: src/ui/settings_window.rs:426
+#: src/ui/settings_window.rs:609
 msgid "Kill app"
 msgstr "アプリを終了"
 
-#: src/ui/search_window.rs:2419
+#: src/ui/search_window.rs:2385
 msgid "Kill {name}?"
 msgstr "{name} を終了しますか？"
 
-#: src/search/cmd.rs:2489
+#: src/search/cmd.rs:2521
 msgid "Kill: {name}"
 msgstr "終了: {name}"
 
@@ -461,32 +491,32 @@ msgstr "ローカル翻訳エンジンに接続できません"
 msgid "Looking up \"{word}\"…"
 msgstr "\\\"{word}\\\" を検索中…"
 
-#: src/ui/settings_window.rs:2061
+#: src/ui/settings_window.rs:2422
 msgid "Maximum number of clipboard entries to keep"
 msgstr "保持するクリップボード項目の最大数"
 
-#: src/ui/settings_window.rs:1248
+#: src/ui/settings_window.rs:1609
 msgid "Name"
 msgstr "名前"
 
-#: src/ui/settings_window.rs:1323
+#: src/ui/settings_window.rs:1684
 msgid "Name, keyword and command are required."
 msgstr "名前、キーワード、コマンドは必須です。"
 
-#: src/ui/search_window.rs:3908
-#: src/ui/search_window.rs:4027
+#: src/ui/search_window.rs:3837
+#: src/ui/search_window.rs:3971
 msgid "No"
 msgstr "いいえ"
 
-#: src/search/cmd.rs:1853
+#: src/search/cmd.rs:1852
 msgid "No apps found for \"{query}\""
 msgstr "\\\"{query}\\\" に一致するアプリが見つかりません"
 
-#: src/search/cmd.rs:2007
+#: src/search/cmd.rs:2006
 msgid "No installed app matching \"{query}\""
 msgstr "\\\"{query}\\\" に一致するインストール済みアプリがありません"
 
-#: src/search/cmd.rs:2097
+#: src/search/cmd.rs:2105
 msgid "No matching updates"
 msgstr "一致する更新はありません"
 
@@ -494,44 +524,57 @@ msgstr "一致する更新はありません"
 msgid "No operations yet"
 msgstr "まだ操作はありません"
 
-#: src/search/cmd.rs:1686
+#: src/search/cmd.rs:1685
 msgid "No running app matching \"{query}\""
 msgstr "\\\"{query}\\\" に一致する実行中のアプリがありません"
 
-#: src/ui/settings_window.rs:1675
+#: src/ui/settings_window.rs:2036
 msgid "No triggers found"
 msgstr "トリガーが見つかりません"
 
-#: src/ui/settings_window.rs:1434
+#: src/ui/settings_window.rs:1795
 msgid "No triggers match \"{q}\"."
 msgstr "\\\"{q}\\\" に一致するトリガーはありません。"
 
-#: src/search/cmd.rs:2109
-#: src/search/cmd.rs:3140
-#: src/search/cmd.rs:3492
+#: src/search/cmd.rs:2338
+#: src/search/cmd.rs:3061
+#: src/search/cmd.rs:3328
+#: src/search/cmd.rs:3698
 msgid "No updates available"
 msgstr "利用可能な更新はありません"
 
-#: src/ui/settings_window.rs:1126
-#: src/ui/settings_window.rs:1393
+#: src/search/cmd.rs:2340
+#: src/search/cmd.rs:3062
+#: src/search/cmd.rs:3063
+msgid "Nothing pending"
+msgstr "更新はありません"
+
+#: src/ui/settings_window.rs:540
+msgid "Number base conversions"
+msgstr "基数変換"
+
+#: src/ui/settings_window.rs:1487
+#: src/ui/settings_window.rs:1754
 msgid "OK"
 msgstr "OK"
 
-#: src/search/cmd.rs:3126
-#: src/search/cmd.rs:3493
-#: src/ui/search_window.rs:3513
+#: src/search/cmd.rs:3202
+#: src/search/cmd.rs:3699
+#: src/ui/search_window.rs:3442
 msgid "One update available"
 msgstr "更新が 1 件あります"
 
-#: src/search/cmd.rs:1687
+#: src/search/cmd.rs:1686
 msgid "Only running apps can be killed"
 msgstr "実行中のアプリのみ終了できます"
 
-#: src/ui/settings_window.rs:684
+#: src/ui/settings_window.rs:640
+#: src/ui/settings_window.rs:1045
 msgid "Open Spotty"
 msgstr "Spotty を開く"
 
 #: src/ui/search_window.rs:1089
+#: src/ui/settings_window.rs:612
 msgid "Open folder in terminal"
 msgstr "ターミナルでフォルダーを開く"
 
@@ -544,19 +587,29 @@ msgid "Open in GNOME Settings"
 msgstr "GNOME 設定で開く"
 
 #: src/ui/search_window.rs:1114
+#: src/ui/settings_window.rs:611
 msgid "Open location in file manager"
 msgstr "ファイルマネージャーで場所を開く"
 
 #: src/ui/search_window.rs:593
+#: src/ui/settings_window.rs:606
 msgid "Operations"
 msgstr "操作"
 
-#: src/ui/settings_window.rs:214
-#: src/ui/settings_window.rs:218
+#: src/ui/settings_window.rs:371
+#: src/ui/settings_window.rs:375
 msgid "Package Manager"
 msgstr "パッケージマネージャー"
 
-#: src/ui/settings_window.rs:1924
+#: src/ui/settings_window.rs:601
+msgid "Paste"
+msgstr "貼り付け"
+
+#: src/ui/settings_window.rs:507
+msgid "Paste the result automatically"
+msgstr "結果を自動的に貼り付け"
+
+#: src/ui/settings_window.rs:2285
 msgid "Pause this trigger without uninstalling it"
 msgstr "アンインストールせずにこのトリガーを一時停止します"
 
@@ -564,12 +617,12 @@ msgstr "アンインストールせずにこのトリガーを一時停止しま
 msgid "Pin / Unpin selected"
 msgstr "選択を固定/固定解除"
 
-#: src/search/cmd.rs:1582
+#: src/search/cmd.rs:1581
 msgid "Please wait…"
 msgstr "お待ちください…"
 
-#: src/search/cmd.rs:2046
-#: src/search/cmd.rs:2113
+#: src/search/cmd.rs:2050
+#: src/search/cmd.rs:2343
 msgid "Press Enter to check again"
 msgstr "Enter で再確認"
 
@@ -581,16 +634,24 @@ msgstr "Enter で他の言語を選択"
 msgid "Press Enter to detect automatically"
 msgstr "Enter で自動検出"
 
-#: src/ui/search_window.rs:4936
+#: src/ui/search_window.rs:4859
 msgid "Press Enter to restart"
 msgstr "Enter で再起動"
 
-#: src/ui/settings_window.rs:2141
+#: src/ui/settings_window.rs:526
+msgid "Rates are fetched from a free public API when you convert"
+msgstr "変換時にレートを無料の公開APIから取得します"
+
+#: src/ui/settings_window.rs:2502
 msgid "Recent File/Folder Searches"
 msgstr "最近のファイル/フォルダー検索"
 
-#: src/search/cmd.rs:2129
-#: src/ui/settings_window.rs:364
+#: src/ui/settings_window.rs:604
+msgid "Redo"
+msgstr "やり直す"
+
+#: src/search/cmd.rs:2125
+#: src/ui/settings_window.rs:769
 msgid "Remind tomorrow"
 msgstr "明日もう一度通知"
 
@@ -598,30 +659,31 @@ msgstr "明日もう一度通知"
 msgid "Remove from history"
 msgstr "履歴から削除"
 
-#: src/ui/settings_window.rs:1510
+#: src/ui/settings_window.rs:1871
 msgid "Removed \"{name}\""
 msgstr "\\\"{name}\\\" を削除しました"
 
-#: src/ui/settings_window.rs:2178
-#: src/ui/settings_window.rs:2420
+#: src/ui/settings_window.rs:2539
+#: src/ui/settings_window.rs:2775
 msgid "Reset"
 msgstr "リセット"
 
-#: src/ui/settings_window.rs:731
+#: src/ui/settings_window.rs:1092
 msgid "Reset trigger words and shortcuts to defaults"
 msgstr "トリガーワードとショートカットをデフォルトに戻します"
 
-#: src/ui/settings_window.rs:393
+#: src/ui/settings_window.rs:801
 msgid "Restart"
 msgstr "再起動"
 
-#: src/search/cmd.rs:2172
-#: src/ui/search_window.rs:4935
-#: src/ui/settings_window.rs:388
+#: src/search/cmd.rs:2168
+#: src/ui/search_window.rs:4858
+#: src/ui/settings_window.rs:796
 msgid "Restart required to finish the update"
 msgstr "更新を完了するには再起動が必要です"
 
-#: src/ui/settings_window.rs:81
+#: src/ui/settings_window.rs:91
+#: src/ui/settings_window.rs:463
 msgid "Results"
 msgstr "結果"
 
@@ -629,7 +691,7 @@ msgstr "結果"
 msgid "Retry"
 msgstr "再試行"
 
-#: src/ui/settings_window.rs:2126
+#: src/ui/settings_window.rs:2487
 msgid "Root Path Browsing"
 msgstr "絶対パスの閲覧"
 
@@ -637,7 +699,7 @@ msgstr "絶対パスの閲覧"
 msgid "Run a command"
 msgstr "コマンドを実行"
 
-#: src/search/mod.rs:428
+#: src/search/mod.rs:493
 msgid "Run {name}"
 msgstr "{name} を実行"
 
@@ -653,23 +715,28 @@ msgstr "実行中…"
 msgid "Runs through your shell, output shown here"
 msgstr "シェルで実行され、出力はここに表示されます"
 
-#: src/search/cmd.rs:2001
+#: src/search/cmd.rs:2000
 msgid "Scanning installed apps…"
 msgstr "インストール済みアプリをスキャン中…"
 
-#: src/search/cmd.rs:1663
+#: src/search/cmd.rs:1662
 msgid "Scanning running processes…"
 msgstr "実行中のプロセスをスキャン中…"
+
+#: src/ui/settings_window.rs:512
+msgid "Scientific notation"
+msgstr "科学記数法"
 
 #: src/ui/search_window.rs:221
 msgid "Search"
 msgstr "検索"
 
-#: src/ui/settings_window.rs:149
+#: src/ui/settings_window.rs:187
 msgid "Search Engine"
 msgstr "検索エンジン"
 
-#: src/ui/settings_window.rs:614
+#: src/ui/settings_window.rs:595
+#: src/ui/settings_window.rs:975
 msgid "Search Window"
 msgstr "検索ウィンドウ"
 
@@ -678,7 +745,7 @@ msgid "Search all files and folders"
 msgstr "すべてのファイルとフォルダーを検索します"
 
 #: src/config.rs:164
-#: src/ui/search_window.rs:3391
+#: src/ui/search_window.rs:3320
 msgid "Search clipboard history"
 msgstr "クリップボードの履歴を検索します"
 
@@ -686,27 +753,32 @@ msgstr "クリップボードの履歴を検索します"
 msgid "Search emoji"
 msgstr "絵文字を検索"
 
-#: src/ui/settings_window.rs:93
+#: src/ui/settings_window.rs:120
+#: src/ui/settings_window.rs:366
 msgid "Search for new Apps"
 msgstr "新しいアプリも検索"
 
-#: src/ui/settings_window.rs:1640
+#: src/ui/settings_window.rs:2001
 msgid "Search triggers"
 msgstr "トリガーを検索"
 
-#: src/ui/search_window.rs:1577
+#: src/ui/search_window.rs:1554
 msgid "Searching for Bluetooth device{dots}"
 msgstr "Bluetooth デバイスを検索中{dots}"
 
-#: src/search/cmd.rs:1847
+#: src/search/cmd.rs:1846
 msgid "Searching for \"{query}\"…"
 msgstr "\\\"{query}\\\" を検索中…"
 
-#: src/ui/settings_window.rs:2441
+#: src/ui/settings_window.rs:602
+msgid "Select all"
+msgstr "すべて選択"
+
+#: src/ui/settings_window.rs:2796
 msgid "Set shortcut…"
 msgstr "ショートカットを設定…"
 
-#: src/ui/settings_window.rs:1736
+#: src/ui/settings_window.rs:2097
 msgid "Set the trigger repository URL in the Trigger Repository row."
 msgstr "トリガーリポジトリの URL をリポジトリ行で設定してください。"
 
@@ -718,21 +790,33 @@ msgstr "設定"
 msgid "Settings: {title}"
 msgstr "設定: {title}"
 
-#: src/ui/settings_window.rs:582
+#: src/ui/settings_window.rs:943
 msgid "Shortcut to focus the Spotty launcher"
 msgstr "Spotty ランチャーにフォーカスするショートカット"
 
-#: src/ui/settings_window.rs:2094
+#: src/ui/settings_window.rs:2455
 msgid "Show Keyboard Shortcuts"
 msgstr "キーボードショートカットを表示"
 
-#: src/ui/settings_window.rs:316
+#: src/ui/settings_window.rs:719
 msgid "Show a badge and a desktop notification when updates exist"
 msgstr "更新があるときバッジとデスクトップ通知を表示"
 
-#: src/ui/settings_window.rs:2142
+#: src/ui/settings_window.rs:535
+msgid "Show equivalents when no target unit is given"
+msgstr "変換先の単位を指定しない場合は換算値を表示"
+
+#: src/ui/settings_window.rs:497
+msgid "Show hex, octal and binary"
+msgstr "16進数・8進数・2進数を表示"
+
+#: src/ui/settings_window.rs:2503
 msgid "Show recently opened files and folders"
 msgstr "最近開いたファイルとフォルダーを表示します"
+
+#: src/ui/settings_window.rs:502
+msgid "Show the expression"
+msgstr "式を表示"
 
 #: src/search/translate.rs:658
 #: src/search/translate.rs:665
@@ -748,16 +832,16 @@ msgstr ""
 msgid "Spotty Settings"
 msgstr "Spotty の設定"
 
-#: src/preview.rs:2875
-#: src/preview.rs:4737
+#: src/preview.rs:2831
+#: src/preview.rs:4693
 msgid "Spreadsheet"
 msgstr "表計算"
 
-#: src/ui/settings_window.rs:705
+#: src/ui/settings_window.rs:1066
 msgid "Store"
 msgstr "ストア"
 
-#: src/ui/settings_window.rs:88
+#: src/ui/settings_window.rs:100
 msgid "System, Flatpak and Snap apps"
 msgstr "システム、Flatpak、Snap のアプリ"
 
@@ -769,17 +853,21 @@ msgstr "対象: {name}"
 msgid "Text match: {snippet}"
 msgstr "テキスト一致: {snippet}"
 
-#: src/ui/settings_window.rs:1336
+#: src/ui/settings_window.rs:1697
 msgid "The keyword \"{word}\" is already taken."
 msgstr "キーワード \\\"{word}\\\" は既に使用されています。"
 
-#: src/ui/settings_window.rs:1432
+#: src/ui/settings_window.rs:1793
 msgid "The repository has no triggers yet."
 msgstr "リポジトリにはまだトリガーがありません。"
 
-#: src/ui/search_window.rs:5219
+#: src/ui/search_window.rs:5150
 msgid "The trigger word and its files will be removed."
 msgstr "トリガーワードとそのファイルが削除されます。"
+
+#: src/ui/settings_window.rs:492
+msgid "Thousands separators"
+msgstr "三桁区切り"
 
 #: src/search/translate.rs:632
 msgid "Translate to {name}"
@@ -793,27 +881,28 @@ msgstr "翻訳中…"
 msgid "Translation unavailable"
 msgstr "翻訳できません"
 
-#: src/ui/settings_window.rs:1245
+#: src/ui/settings_window.rs:1606
 msgid "Trigger"
 msgstr "トリガー"
 
-#: src/ui/settings_window.rs:1601
+#: src/ui/settings_window.rs:1962
 msgid "Trigger Store"
 msgstr "トリガーストア"
 
-#: src/ui/settings_window.rs:1929
+#: src/ui/settings_window.rs:2290
 msgid "Trigger word"
 msgstr "トリガーワード"
 
-#: src/ui/settings_window.rs:2232
+#: src/ui/settings_window.rs:2593
 msgid "Trigger word \"{word}\" is already in use"
 msgstr "トリガーワード \\\"{word}\\\" は既に使用されています"
 
-#: src/ui/settings_window.rs:2227
+#: src/ui/settings_window.rs:2588
 msgid "Trigger word cannot be empty"
 msgstr "トリガーワードは空にできません"
 
-#: src/ui/settings_window.rs:671
+#: src/ui/settings_window.rs:637
+#: src/ui/settings_window.rs:1032
 msgid "Triggers"
 msgstr "トリガー"
 
@@ -821,7 +910,7 @@ msgstr "トリガー"
 msgid "Type a command to run"
 msgstr "実行するコマンドを入力"
 
-#: src/search/mod.rs:416
+#: src/search/mod.rs:481
 msgid "Type a command to run with {name}"
 msgstr "{name} で実行するコマンドを入力"
 
@@ -833,11 +922,11 @@ msgstr "キーワードを入力"
 msgid "Type a word to look up"
 msgstr "検索する単語を入力"
 
-#: src/search/cmd.rs:2099
+#: src/search/cmd.rs:2107
 msgid "Type all, flatpak, distro or a package name"
 msgstr "all、flatpak、distro またはパッケージ名を入力"
 
-#: src/search/mod.rs:394
+#: src/search/mod.rs:459
 msgid "Type something to search with {name}"
 msgstr "{name} で検索する内容を入力"
 
@@ -845,146 +934,132 @@ msgstr "{name} で検索する内容を入力"
 msgid "Type text to translate"
 msgstr "翻訳するテキストを入力"
 
-#: src/ui/search_window.rs:1445
-#: src/ui/search_window.rs:4795
+#: src/ui/search_window.rs:1422
+#: src/ui/search_window.rs:4750
+#: src/ui/settings_window.rs:603
 msgid "Undo"
 msgstr "元に戻す"
 
-#: src/search/cmd.rs:1560
-#: src/ui/search_window.rs:5222
-#: src/ui/settings_window.rs:1493
-#: src/ui/settings_window.rs:1800
+#: src/search/cmd.rs:1559
+#: src/ui/search_window.rs:5153
+#: src/ui/settings_window.rs:1854
+#: src/ui/settings_window.rs:2161
 msgid "Uninstall"
 msgstr "アンインストール"
 
-#: src/ui/settings_window.rs:1796
+#: src/ui/settings_window.rs:2157
 msgid "Uninstall \"{id}\"?"
 msgstr "\\\"{id}\\\" をアンインストールしますか？"
 
 #: src/ui/search_window.rs:1041
+#: src/ui/settings_window.rs:425
+#: src/ui/settings_window.rs:608
 msgid "Uninstall app"
 msgstr "アプリをアンインストール"
 
-#: src/ui/settings_window.rs:860
+#: src/ui/settings_window.rs:1221
 msgid "Uninstall trigger"
 msgstr "トリガーをアンインストール"
 
-#: src/ui/search_window.rs:2390
-#: src/ui/search_window.rs:5218
+#: src/ui/search_window.rs:2356
+#: src/ui/search_window.rs:5149
 msgid "Uninstall {name}?"
 msgstr "{name} をアンインストールしますか？"
 
-#: src/search/cmd.rs:2555
+#: src/search/cmd.rs:2587
 msgid "Uninstall: {name}"
 msgstr "アンインストール: {name}"
 
-#: src/search/cmd.rs:2559
+#: src/search/cmd.rs:2591
 msgid "Uninstalling {name}"
 msgstr "{name} をアンインストール中"
 
-#: src/search/cmd.rs:1568
+#: src/ui/settings_window.rs:530
+msgid "Unit conversions"
+msgstr "単位の変換"
+
+#: src/search/cmd.rs:1567
 msgid "Update"
 msgstr "更新"
 
-#: src/search/cmd.rs:2154
-#: src/ui/settings_window.rs:386
-#: src/ui/settings_window.rs:391
-#: src/ui/settings_window.rs:410
+#: src/search/cmd.rs:2150
+#: src/ui/settings_window.rs:794
+#: src/ui/settings_window.rs:799
+#: src/ui/settings_window.rs:816
 msgid "Update & Restart"
 msgstr "更新して再起動"
 
-#: src/ui/search_window.rs:4857
+#: src/search/cmd.rs:2397
 msgid "Update all packages"
 msgstr "すべてのパッケージを更新"
 
-#: src/ui/search_window.rs:1127
-#: src/ui/search_window.rs:4885
-#: src/ui/settings_window.rs:462
-msgid "Update everything"
-msgstr "すべてを更新"
+#: src/search/cmd.rs:3334
+#: src/search/cmd.rs:3688
+msgid "Update checks are off"
+msgstr "更新の確認はオフです"
 
-#: src/ui/search_window.rs:4858
+#: src/search/cmd.rs:2409
 msgid "Update flatpak packages"
 msgstr "Flatpak パッケージを更新"
 
-#: src/ui/search_window.rs:1135
-#: src/ui/search_window.rs:4887
-#: src/ui/settings_window.rs:469
-msgid "Update flatpak packages only"
-msgstr "Flatpak パッケージのみ更新"
-
-#: src/ui/settings_window.rs:315
+#: src/ui/settings_window.rs:718
 msgid "Update notification"
 msgstr "更新通知"
 
-#: src/ui/search_window.rs:4884
-msgid "Update now"
-msgstr "今すぐ更新"
-
-#: src/ui/search_window.rs:4859
+#: src/search/cmd.rs:2444
 msgid "Update snap packages"
 msgstr "Snap パッケージを更新"
 
-#: src/ui/search_window.rs:4860
+#: src/search/cmd.rs:2431
 msgid "Update system packages"
 msgstr "システムパッケージを更新"
 
-#: src/ui/search_window.rs:1131
-#: src/ui/search_window.rs:4886
-#: src/ui/settings_window.rs:464
-msgid "Update system packages only"
-msgstr "システムパッケージのみ更新"
-
-#: src/search/cmd.rs:2263
-#: src/search/cmd.rs:2308
+#: src/search/cmd.rs:2259
 msgid "Update: {name}"
 msgstr "更新: {name}"
 
-#: src/ui/settings_window.rs:255
+#: src/ui/settings_window.rs:257
+#: src/ui/settings_window.rs:675
 msgid "Updates"
 msgstr "更新"
 
-#: src/ui/settings_window.rs:219
+#: src/ui/settings_window.rs:376
 msgid "Used for app search, install, and uninstall via the cmd trigger"
 msgstr "cmd トリガーによるアプリの検索、インストール、アンインストールに使用されます"
 
-#: src/ui/settings_window.rs:150
+#: src/ui/settings_window.rs:188
 msgid "Used for web search results"
 msgstr "Web 検索結果に使用されます"
 
-#: src/ui/settings_window.rs:167
-#: src/ui/settings_window.rs:192
+#: src/ui/settings_window.rs:205
+#: src/ui/settings_window.rs:230
 msgid "Uses {name} (detected from your default browser)"
 msgstr "{name} を使用します（既定のブラウザーから検出）"
 
-#: src/ui/settings_window.rs:130
-#: src/ui/settings_window.rs:136
+#: src/ui/settings_window.rs:168
+#: src/ui/settings_window.rs:174
 msgid "Web Search"
 msgstr "Web 検索"
 
-#: src/ui/settings_window.rs:340
+#: src/ui/settings_window.rs:741
 msgid "Weekly"
 msgstr "毎週"
 
-#: src/ui/settings_window.rs:1246
+#: src/ui/settings_window.rs:1607
 msgid "What you type to open it."
 msgstr "開くために入力する内容。"
 
-#: src/ui/settings_window.rs:531
+#: src/ui/settings_window.rs:892
 msgid "Word: {word} · No shortcut"
 msgstr "単語: {word} · ショートカットなし"
 
-#: src/ui/settings_window.rs:533
+#: src/ui/settings_window.rs:894
 msgid "Word: {word} · {shortcut}"
 msgstr "単語: {word} · {shortcut}"
 
-#: src/ui/search_window.rs:3912
+#: src/ui/search_window.rs:3841
 msgid "Yes"
 msgstr "はい"
-
-#: src/search/cmd.rs:2367
-msgid "all packages ({sources})"
-msgstr "すべてのパッケージ（{sources}）"
 
 #: src/triggers.rs:346
 msgid "curl exited with {status}"
@@ -1001,7 +1076,7 @@ msgstr "空の応答"
 msgid "id '{id}' is a built-in trigger"
 msgstr "id '{id}' は組み込みトリガーです"
 
-#: src/search/cmd.rs:1553
+#: src/search/cmd.rs:1552
 msgid "install <app>  —  install from Flatpak, distro, or Snap"
 msgstr "install <app>  —  Flatpak、ディストリ、または Snap からインストール"
 
@@ -1013,7 +1088,7 @@ msgstr "無効な id '{id}': 英数字、_、-、. のみ使用できます"
 msgid "just now"
 msgstr "たった今"
 
-#: src/search/cmd.rs:1545
+#: src/search/cmd.rs:1544
 msgid "kill <app-name>  —  stop a running process"
 msgstr "kill <app-name>  —  実行中のプロセスを停止"
 
@@ -1037,20 +1112,20 @@ msgstr "トリガー '{id}' はインストールされていません"
 msgid "trigger word '{word}' is already in use"
 msgstr "トリガーワード '{word}' は既に使用されています"
 
-#: src/search/cmd.rs:1561
+#: src/search/cmd.rs:1560
 msgid "uninstall <app>  —  remove an installed app"
 msgstr "uninstall <app>  —  インストール済みアプリを削除"
 
-#: src/search/cmd.rs:1569
+#: src/search/cmd.rs:1568
 msgid "update  —  update installed packages"
 msgstr "update  —  インストール済みパッケージを更新"
 
-#: src/search/cmd.rs:2521
-#: src/search/cmd.rs:2556
+#: src/search/cmd.rs:2553
+#: src/search/cmd.rs:2588
 msgid "via Flatpak ({app})"
 msgstr ""
 
-#: src/search/cmd.rs:2754
+#: src/search/cmd.rs:2786
 msgid "via snap"
 msgstr ""
 
@@ -1058,12 +1133,12 @@ msgstr ""
 msgid "web action needs a 'url' template"
 msgstr "web アクションには 'url' テンプレートが必要です"
 
-#: src/search/cmd.rs:2523
+#: src/search/cmd.rs:2555
 msgid "{description} — via Flatpak ({app})"
 msgstr ""
 
-#: src/search/mod.rs:405
-#: src/search/mod.rs:432
+#: src/search/mod.rs:470
+#: src/search/mod.rs:497
 msgid "{name}: {query}"
 msgstr ""
 
@@ -1071,21 +1146,9 @@ msgstr ""
 msgid "{noun} {target} {suffix}"
 msgstr ""
 
-#: src/search/cmd.rs:2379
-msgid "{n} flatpak packages"
-msgstr "{n} 個の flatpak パッケージ"
-
-#: src/search/cmd.rs:2412
-msgid "{n} snap packages"
-msgstr "snap パッケージ {n} 件"
-
-#: src/search/cmd.rs:2398
-msgid "{n} system packages ({pm})"
-msgstr "システムパッケージ {n} 件（{pm}）"
-
-#: src/search/cmd.rs:3401
-#: src/search/cmd.rs:3494
-#: src/ui/search_window.rs:3515
+#: src/search/cmd.rs:3603
+#: src/search/cmd.rs:3700
+#: src/ui/search_window.rs:3444
 msgid "{n} updates available"
 msgstr "更新が {n} 件あります"
 
@@ -1106,17 +1169,16 @@ msgstr "{n} 分前"
 msgid "{pos} — {text}"
 msgstr ""
 
-#: src/search/cmd.rs:2274
-#: src/search/cmd.rs:2320
-#: src/ui/search_window.rs:4864
+#: src/search/cmd.rs:2270
+#: src/search/cmd.rs:2329
 msgid "{source} Update"
 msgstr "{source} の更新"
 
 #: src/operations.rs:175
 #: src/operations.rs:195
-#: src/operations.rs:846
-#: src/operations.rs:872
-#: src/operations.rs:897
+#: src/operations.rs:849
+#: src/operations.rs:875
+#: src/operations.rs:900
 msgid "{source} · {status}"
 msgstr ""
 
@@ -1130,7 +1192,7 @@ msgstr "{src} → {tgt}"
 msgid "{title} {suffix}"
 msgstr ""
 
-#: src/ui/search_window.rs:3664
+#: src/ui/search_window.rs:3593
 msgid "{title} — {detail}"
 msgstr ""
 
@@ -1138,7 +1200,7 @@ msgstr ""
 msgid "{word} — complete the word with Tab"
 msgstr "{word} — Tab で単語を補完"
 
-#: src/ui/settings_window.rs:1480
+#: src/ui/settings_window.rs:1841
 msgid "{word} — {description}"
 msgstr ""
 
@@ -1146,14 +1208,14 @@ msgstr ""
 msgid "• {text}"
 msgstr ""
 
-#: src/preview.rs:675
+#: src/preview.rs:651
 msgid "…and {n} more"
 msgstr "…ほか {n} 件"
 
-#: src/preview.rs:491
+#: src/preview.rs:476
 msgid "▶"
 msgstr ""
 
-#: src/preview.rs:481
+#: src/preview.rs:466
 msgid "◀"
 msgstr ""

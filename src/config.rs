@@ -230,6 +230,42 @@ pub struct Config {
     pub enable_clipboard: bool,
     #[serde(default = "dt")]
     pub enable_calculator: bool,
+    /// Fraction digits shown in calculator results (2/4/6/8/10).
+    #[serde(default = "default_calc_precision")]
+    pub calc_precision: u32,
+    /// Group the integer part of a result for display (1,234,567). The
+    /// copied value never gets separators.
+    #[serde(default)]
+    pub calc_separators: bool,
+    /// Also show hex/octal/binary of integer results in the subtitle.
+    #[serde(default)]
+    pub calc_bases: bool,
+    /// Enter pastes the result into the previously focused app (Ctrl+V
+    /// after the usual delay); off = copy only, like it always was.
+    #[serde(default)]
+    pub calc_paste: bool,
+    /// Show "expression = result" as the row title; off = result only.
+    #[serde(default = "dt")]
+    pub calc_show_expr: bool,
+    /// Unit conversion rows (`10 km to mi`) — master switch for the
+    /// "Conversions" group.
+    #[serde(default = "dt")]
+    pub calc_converter: bool,
+    /// Also show a list of equivalents when a query names a unit (or
+    /// currency) but no target: `10 km`.
+    #[serde(default = "dt")]
+    pub calc_equivalents: bool,
+    /// Number-base conversion rows (`255 to hex`, `0xff to dec`).
+    #[serde(default = "dt")]
+    pub calc_base_convert: bool,
+    /// Live currency (plus crypto/metals) conversion rows. Rates come
+    /// from a free keyless API, fetched on demand and disk-cached.
+    #[serde(default = "dt")]
+    pub calc_currency: bool,
+    /// Scientific notation for results fixed notation would drown
+    /// (|v| >= 1e15) or lose to rounding (rounds to zero).
+    #[serde(default = "dt")]
+    pub calc_sci_notation: bool,
     #[serde(default = "dt")]
     pub show_recent_file_searches: bool,
     /// Allow browsing absolute paths (/ and ~/) in the main search box.
@@ -293,14 +329,6 @@ pub struct Config {
     pub redo_shortcut: String,
     #[serde(default = "default_delete_word_shortcut")]
     pub delete_word_shortcut: String,
-    /// Update shortcuts (search window, update context): check + upgrade
-    /// everything, system packages only, flatpak only.
-    #[serde(default = "default_update_all_shortcut")]
-    pub update_all_shortcut: String,
-    #[serde(default = "default_update_system_shortcut")]
-    pub update_system_shortcut: String,
-    #[serde(default = "default_update_flatpak_shortcut")]
-    pub update_flatpak_shortcut: String,
     /// Universally pinned search results (apps, files, web searches, etc.) —
     /// always shown first when the query matches, in any search mode.
     #[serde(default)]
@@ -377,6 +405,11 @@ pub fn default_update_check_hours() -> u32 {
     24
 }
 
+/// Calculator fraction digits: 6 keeps the long-standing behaviour.
+fn default_calc_precision() -> u32 {
+    6
+}
+
 fn de() -> SearchEngine {
     SearchEngine::BrowserDefault
 }
@@ -443,18 +476,6 @@ fn default_redo_shortcut() -> String {
 fn default_delete_word_shortcut() -> String {
     "<Control>space".into()
 }
-fn default_update_all_shortcut() -> String {
-    // Ctrl+Enter only means "open location" inside Find mode; in the
-    // update context it checks for updates and upgrades everything.
-    "<Control>Return".into()
-}
-fn default_update_system_shortcut() -> String {
-    // Ctrl+D is "delete file" only inside Find mode.
-    "<Control>d".into()
-}
-fn default_update_flatpak_shortcut() -> String {
-    "<Control>f".into()
-}
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -465,6 +486,16 @@ impl Default for Config {
             enable_web: true,
             enable_clipboard: true,
             enable_calculator: true,
+            calc_precision: default_calc_precision(),
+            calc_separators: false,
+            calc_bases: false,
+            calc_paste: false,
+            calc_show_expr: true,
+            calc_converter: true,
+            calc_equivalents: true,
+            calc_base_convert: true,
+            calc_currency: true,
+            calc_sci_notation: true,
             show_recent_file_searches: true,
             enable_root_browsing: true,
             shortcut: ds(),
@@ -489,9 +520,6 @@ impl Default for Config {
             undo_shortcut: default_undo_shortcut(),
             redo_shortcut: default_redo_shortcut(),
             delete_word_shortcut: default_delete_word_shortcut(),
-            update_all_shortcut: default_update_all_shortcut(),
-            update_system_shortcut: default_update_system_shortcut(),
-            update_flatpak_shortcut: default_update_flatpak_shortcut(),
             pinned_results: Vec::new(),
             show_shortcut_hints: true,
             max_index_entries: dm(),
@@ -742,17 +770,35 @@ mod update_flag_tests {
         assert_eq!(c.update_check_interval_hours, 24);
         assert_eq!(c.update_snooze_until, 0);
     }
+}
+
+#[cfg(test)]
+mod calculator_setting_tests {
+    #[test]
+    fn serde_defaults_for_calculator_settings() {
+        let c: super::Config = serde_json::from_str("{}").expect("empty config");
+        assert_eq!(c.calc_precision, 6);
+        assert!(!c.calc_separators, "separators are opt-in");
+        assert!(!c.calc_bases, "bases are opt-in");
+        assert!(!c.calc_paste, "Enter keeps copying until turned on");
+        assert!(c.calc_show_expr, "\"expr = result\" titles stay the default");
+        assert!(c.calc_converter, "unit conversions are on by default");
+        assert!(c.calc_equivalents, "equivalents are on by default");
+        assert!(c.calc_base_convert, "base conversions are on by default");
+        assert!(c.calc_currency, "currency conversion is on by default");
+        assert!(c.calc_sci_notation, "scientific notation is on by default");
+    }
 
     #[test]
-    fn serde_defaults_for_update_shortcuts() {
-        let c = crate::config::Config::default();
-        assert_eq!(c.update_all_shortcut, "<Control>Return");
-        assert_eq!(c.update_system_shortcut, "<Control>d");
-        assert_eq!(c.update_flatpak_shortcut, "<Control>f");
-        // Config files written before these keys existed still get them.
-        let c: super::Config = serde_json::from_str("{}").expect("empty config");
-        assert_eq!(c.update_all_shortcut, "<Control>Return");
-        assert_eq!(c.update_system_shortcut, "<Control>d");
-        assert_eq!(c.update_flatpak_shortcut, "<Control>f");
+    fn old_configs_gain_the_new_fields() {
+        // A config written before the conversions feature must still
+        // parse and get every new switch at its default.
+        let c: super::Config =
+            serde_json::from_str(r#"{"enable_calculator":false,"calc_precision":8}"#)
+                .expect("old config");
+        assert!(!c.enable_calculator, "existing fields survive");
+        assert_eq!(c.calc_precision, 8);
+        assert!(c.calc_converter && c.calc_equivalents && c.calc_base_convert);
+        assert!(c.calc_currency && c.calc_sci_notation);
     }
 }

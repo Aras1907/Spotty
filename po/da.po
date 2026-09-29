@@ -16,35 +16,31 @@ msgstr ""
 msgid "    “{ex}”"
 msgstr ""
 
-#: src/preview.rs:486
+#: src/preview.rs:471
 msgid "1 / 1"
 msgstr ""
 
-#: src/ui/settings_window.rs:495
+#: src/ui/settings_window.rs:320
 msgid "About"
 msgstr "Om"
 
-#: src/ui/settings_window.rs:498
+#: src/ui/settings_window.rs:323
 msgid "About Spotty"
 msgstr "Om Spotty"
 
-#: src/ui/settings_window.rs:1216
+#: src/ui/settings_window.rs:1577
 msgid "Add Trigger"
 msgstr "Tilføj trigger"
 
-#: src/ui/settings_window.rs:941
+#: src/ui/settings_window.rs:1302
 msgid "Add Trigger Word"
 msgstr "Tilføj triggorord"
 
-#: src/ui/settings_window.rs:1616
+#: src/ui/settings_window.rs:1977
 msgid "Add a local trigger"
 msgstr "Tilføj en lokal trigger"
 
-#: src/search/cmd.rs:2112
-msgid "All packages are up to date"
-msgstr "Alle pakker er opdaterede"
-
-#: src/ui/settings_window.rs:2127
+#: src/ui/settings_window.rs:2488
 msgid "Allow typing / or ~/ to browse the filesystem directly"
 msgstr "Tillad at skrive / eller ~/ for at gennemse filsystemet direkte"
 
@@ -52,33 +48,38 @@ msgstr "Tillad at skrive / eller ~/ for at gennemse filsystemet direkte"
 msgid "Already {language}"
 msgstr "Allerede {language}"
 
-#: src/ui/settings_window.rs:94
+#: src/ui/settings_window.rs:121
 msgid "Also suggest installable apps as you type"
 msgstr "Foreslå også installerbare apps, mens du skriver"
 
-#: src/ui/settings_window.rs:137
+#: src/ui/settings_window.rs:175
 msgid "Always show web search row"
 msgstr "Vis altid websøgerækken"
 
-#: src/ui/settings_window.rs:87
+#: src/ui/settings_window.rs:99
+#: src/ui/settings_window.rs:416
 msgid "Applications"
 msgstr "Applikationer"
 
-#: src/ui/search_window.rs:2185
-#: src/ui/search_window.rs:3171
+#: src/ui/search_window.rs:2151
+#: src/ui/search_window.rs:3100
 msgid "Are you sure you want to install {name}?"
 msgstr "Er du sikker på, du vil installere {name}?"
 
-#: src/ui/search_window.rs:2189
-#: src/ui/search_window.rs:3175
+#: src/ui/search_window.rs:2155
+#: src/ui/search_window.rs:3104
 msgid "Are you sure you want to uninstall {name}?"
 msgstr "Er du sikker på, du vil afinstallere {name}?"
 
-#: src/ui/search_window.rs:2200
-#: src/ui/search_window.rs:3215
-#: src/ui/settings_window.rs:420
+#: src/ui/search_window.rs:2166
+#: src/ui/search_window.rs:3144
+#: src/ui/settings_window.rs:826
 msgid "Are you sure?"
 msgstr "Er du sikker?"
+
+#: src/ui/settings_window.rs:142
+msgid "Arithmetic, units, currency and number bases"
+msgstr "Aritmetik, enheder, valutaer og talsystemer"
 
 #: src/search/translate.rs:579
 #: src/search/translate.rs:665
@@ -95,124 +96,142 @@ msgstr "Tilbage til Auto (systemets sprog)"
 msgid "Bluetooth devices"
 msgstr "Bluetooth-enheder"
 
-#: src/ui/settings_window.rs:706
+#: src/ui/settings_window.rs:1067
 msgid "Browse and install triggers"
 msgstr "Gennemse og installer trigggers"
 
-#: src/ui/settings_window.rs:99
-msgid "Calculator"
-msgstr "Lommeregner"
+#: src/ui/settings_window.rs:141
+#: src/ui/settings_window.rs:456
+msgid "Calculator & Conversions"
+msgstr "Lommeregner og omregninger"
 
 #: src/ui/result_row.rs:301
 #: src/ui/search_window.rs:529
 #: src/ui/search_window.rs:754
-#: src/ui/search_window.rs:2202
-#: src/ui/search_window.rs:3217
-#: src/ui/search_window.rs:4765
-#: src/ui/search_window.rs:5221
-#: src/ui/settings_window.rs:422
-#: src/ui/settings_window.rs:1037
-#: src/ui/settings_window.rs:1799
+#: src/ui/search_window.rs:2168
+#: src/ui/search_window.rs:3146
+#: src/ui/search_window.rs:4720
+#: src/ui/search_window.rs:5152
+#: src/ui/settings_window.rs:828
+#: src/ui/settings_window.rs:1398
+#: src/ui/settings_window.rs:2160
 msgid "Cancel"
 msgstr "Annuller"
 
-#: src/ui/settings_window.rs:1572
+#: src/ui/settings_window.rs:1933
 msgid "Cannot save the manifest: {e}"
 msgstr "Kan ikke gemme manifestet: {e}"
 
-#: src/ui/settings_window.rs:1364
+#: src/ui/settings_window.rs:1725
 msgid "Cannot save the trigger: {e}"
 msgstr "Kan ikke gemme triggeren: {e}"
 
-#: src/ui/settings_window.rs:330
+#: src/ui/settings_window.rs:731
 msgid "Check every"
 msgstr "Kontrolfrekvens"
 
-#: src/ui/settings_window.rs:260
-msgid "Check for updates"
-msgstr "Søg efter opdateringer"
-
-#: src/ui/settings_window.rs:272
+#: src/ui/settings_window.rs:683
+#: src/ui/settings_window.rs:691
 msgid "Check now"
 msgstr "Søg nu"
 
-#: src/search/cmd.rs:1854
+#: src/search/cmd.rs:1853
 msgid "Check spelling or try a different name"
 msgstr "Tjek stavningen eller prøv et andet navn"
 
-#: src/search/cmd.rs:2008
+#: src/search/cmd.rs:2007
 msgid "Check spelling or try fewer characters"
 msgstr "Tjek stavningen eller prøv med færre tegn"
 
-#: src/search/cmd.rs:2045
-#: src/search/cmd.rs:3485
-#: src/search/cmd.rs:3495
+#: src/search/cmd.rs:2049
+#: src/search/cmd.rs:3691
+#: src/search/cmd.rs:3701
 msgid "Checking for updates…"
 msgstr "Søger efter opdateringer…"
 
-#: src/ui/settings_window.rs:82
+#: src/ui/settings_window.rs:92
 msgid "Choose what types of results appear"
 msgstr "Vælg, hvilke resultattyper der vises"
 
-#: src/ui/settings_window.rs:2026
+#: src/ui/settings_window.rs:2387
 msgid "Clipboard"
 msgstr "Udklipsholder"
 
-#: src/preview.rs:619
+#: src/preview.rs:602
 msgid "Clipped {time}"
 msgstr "Kopieret {time}"
 
-#: src/ui/settings_window.rs:1263
+#: src/ui/settings_window.rs:1624
 msgid "Command"
 msgstr "Kommando"
 
-#: src/ui/settings_window.rs:1269
+#: src/ui/settings_window.rs:1630
 msgid "Command line"
 msgstr "Kommandolinje"
 
-#: src/ui/search_window.rs:2203
-#: src/ui/search_window.rs:3218
-#: src/ui/settings_window.rs:423
+#: src/ui/search_window.rs:2169
+#: src/ui/search_window.rs:3147
+#: src/ui/settings_window.rs:829
 msgid "Confirm"
 msgstr "Bekræft"
 
-#: src/ui/search_window.rs:4058
+#: src/ui/settings_window.rs:525
+msgid "Conversions"
+msgstr "Omregninger"
+
+#: src/ui/settings_window.rs:599
+msgid "Copy"
+msgstr "Kopier"
+
+#: src/ui/search_window.rs:4013
 msgid "Couldn't delete \"{name}\": {e}"
 msgstr "Kan ikke slette \\\"{name}\\\": {e}"
 
-#: src/ui/settings_window.rs:1390
+#: src/ui/settings_window.rs:1751
 msgid "Couldn't install"
 msgstr "Kunne ikke installere"
 
-#: src/ui/settings_window.rs:1679
+#: src/ui/settings_window.rs:2040
 msgid "Couldn't load the trigger repository"
 msgstr "Kan ikke indlæse trigger-arkivet"
 
-#: src/ui/settings_window.rs:1769
+#: src/ui/settings_window.rs:2130
 msgid "Couldn't load {url}: {e}"
 msgstr "Kan ikke indlæse {url}: {e}"
 
-#: src/ui/settings_window.rs:1514
+#: src/ui/settings_window.rs:1875
 msgid "Couldn't uninstall: {e}"
 msgstr "Kunne ikke afinstallere: {e}"
 
-#: src/ui/settings_window.rs:1201
+#: src/ui/settings_window.rs:1562
 msgid "Create a Trigger"
 msgstr "Opret en trigger"
 
-#: src/ui/settings_window.rs:122
+#: src/ui/settings_window.rs:545
+msgid "Currency conversion"
+msgstr "Valutaomregning"
+
+#: src/ui/settings_window.rs:160
 msgid "Custom Search URL"
 msgstr "Tilpasset søge-URL"
 
-#: src/ui/settings_window.rs:339
+#: src/ui/settings_window.rs:600
+msgid "Cut"
+msgstr "Klip"
+
+#: src/ui/settings_window.rs:740
 msgid "Daily"
 msgstr "Dagligt"
 
-#: src/ui/search_window.rs:4023
+#: src/ui/settings_window.rs:468
+msgid "Decimal places"
+msgstr "Decimaler"
+
+#: src/ui/search_window.rs:3967
 msgid "Delete"
 msgstr "Slet"
 
-#: src/ui/settings_window.rs:2076
+#: src/ui/settings_window.rs:2437
 msgid "Delete clipboard entries older than this (pinned items are exempt)"
 msgstr "Sletter ældre udklip (fastgjorte er undtaget)"
 
@@ -220,11 +239,19 @@ msgstr "Sletter ældre udklip (fastgjorte er undtaget)"
 msgid "Delete file"
 msgstr "Slet fil"
 
+#: src/ui/settings_window.rs:610
+msgid "Delete file / folder"
+msgstr "Slet fil / mappe"
+
 #: src/ui/search_window.rs:1100
 msgid "Delete folder"
 msgstr "Slet mappe"
 
-#: src/ui/settings_window.rs:1251
+#: src/ui/settings_window.rs:605
+msgid "Delete word"
+msgstr "Slet ord"
+
+#: src/ui/settings_window.rs:1612
 msgid "Description (optional)"
 msgstr "Beskrivelse (valgfri)"
 
@@ -236,33 +263,33 @@ msgstr "Opdages automatisk — tryk Enter for at vælge"
 msgid "Dictionary: {query}"
 msgstr "Ordbog: {query}"
 
-#: src/search/cmd.rs:2187
+#: src/search/cmd.rs:2183
 msgid "Disable update checks"
 msgstr "Deaktiver opdateringskontrol"
 
-#: src/ui/settings_window.rs:538
+#: src/ui/settings_window.rs:899
 msgid "Disabled · {base}"
 msgstr "Deaktiveret · {base}"
 
-#: src/search/cmd.rs:2137
-#: src/ui/settings_window.rs:373
+#: src/search/cmd.rs:2133
+#: src/ui/settings_window.rs:778
 msgid "Dismiss update notice"
 msgstr "Skjul opdateringsunderretningen"
 
-#: src/ui/settings_window.rs:2095
+#: src/ui/settings_window.rs:2456
 msgid "Display a hint bar in the clipboard manager"
 msgstr "Viser en tipbjælke i udklipshåndteringen"
 
-#: src/ui/search_window.rs:4004
+#: src/ui/search_window.rs:3948
 msgid "Do you want to delete \"{name}\"?"
 msgstr "Vil du slette \\\"{name}\\\"?"
 
-#: src/ui/search_window.rs:2182
-#: src/ui/search_window.rs:3167
+#: src/ui/search_window.rs:2148
+#: src/ui/search_window.rs:3096
 msgid "Do you want to update {name}?"
 msgstr "Vil du opdatere {name}?"
 
-#: src/ui/search_window.rs:2191
+#: src/ui/search_window.rs:2157
 msgid "Do you want to {action}?"
 msgstr "Vil du {action}?"
 
@@ -270,36 +297,37 @@ msgstr "Vil du {action}?"
 msgid "Done"
 msgstr "Færdig"
 
-#: src/ui/settings_window.rs:1576
+#: src/ui/settings_window.rs:1937
 msgid "Download failed: {e}"
 msgstr "Download mislykkedes: {e}"
 
-#: src/ui/settings_window.rs:553
+#: src/ui/settings_window.rs:914
 msgid "Edit \"Open Spotty\" shortcut"
 msgstr "Rediger genvejen \\\"Åbn Spotty\\\""
 
-#: src/ui/settings_window.rs:1880
-#: src/ui/settings_window.rs:1887
+#: src/ui/settings_window.rs:2241
+#: src/ui/settings_window.rs:2248
 msgid "Edit \"{name}\" trigger"
 msgstr "Rediger triggeren \\\"{name}\\\""
 
-#: src/ui/settings_window.rs:677
+#: src/ui/settings_window.rs:1038
 msgid "Edit trigger words, import a manifest with +, or delete installed triggers."
 msgstr "Rediger triggorord, importér et manifest med + eller slet installerede trigggers."
 
-#: src/search/cmd.rs:2189
+#: src/search/cmd.rs:2185
+#: src/search/cmd.rs:3308
 msgid "Enable update checks"
 msgstr "Aktiver opdateringskontrol"
 
-#: src/ui/settings_window.rs:1923
+#: src/ui/settings_window.rs:2284
 msgid "Enabled"
 msgstr "Aktiveret"
 
-#: src/ui/settings_window.rs:338
+#: src/ui/settings_window.rs:739
 msgid "Every 12 hours"
 msgstr "Hver 12. time"
 
-#: src/ui/settings_window.rs:337
+#: src/ui/settings_window.rs:738
 msgid "Every 6 hours"
 msgstr "Hver 6. time"
 
@@ -307,67 +335,59 @@ msgstr "Hver 6. time"
 msgid "Fetching the definition"
 msgstr "Henter definitionen"
 
-#: src/ui/settings_window.rs:1669
+#: src/ui/settings_window.rs:2030
 msgid "Fetching triggers…"
 msgstr "Henter trigggers…"
 
-#: src/ui/settings_window.rs:2122
+#: src/ui/settings_window.rs:2483
 msgid "Find"
 msgstr "Find"
 
-#: src/ui/settings_window.rs:256
-msgid "Find package updates in the background"
-msgstr "Søger efter pakkeopdateringer i baggrunden"
-
-#: src/ui/settings_window.rs:74
+#: src/ui/settings_window.rs:84
 msgid "General"
 msgstr "Generelt"
 
-#: src/search/cmd.rs:2138
-#: src/ui/settings_window.rs:374
+#: src/search/cmd.rs:2134
+#: src/ui/settings_window.rs:779
 msgid "Hidden until a new update appears"
 msgstr "Skjult indtil en ny opdatering vises"
 
-#: src/search/cmd.rs:2130
-#: src/ui/settings_window.rs:365
+#: src/search/cmd.rs:2126
+#: src/ui/settings_window.rs:770
 msgid "Hide the update notice for 24 hours"
 msgstr "Skjul opdateringsunderretningen i 24 timer"
 
-#: src/preview.rs:212
+#: src/preview.rs:209
 msgid "Highlight a result\nto preview"
 msgstr "Fremhæv et resultat\\nfor at se forhåndsvisning"
 
-#: src/ui/settings_window.rs:2060
+#: src/ui/settings_window.rs:2421
 msgid "History Limit"
 msgstr "Historikgrænse"
 
-#: src/ui/settings_window.rs:336
+#: src/ui/settings_window.rs:737
 msgid "Hourly"
 msgstr "Hvert time"
 
-#: src/ui/settings_window.rs:1254
+#: src/ui/settings_window.rs:1615
 msgid "Icon name (optional)"
 msgstr "Ikonnavn (valgfri)"
 
-#: src/ui/settings_window.rs:100
-msgid "Inline arithmetic"
-msgstr "Direkte beregninger"
-
-#: src/search/cmd.rs:1552
-#: src/ui/settings_window.rs:1038
-#: src/ui/settings_window.rs:1520
+#: src/search/cmd.rs:1551
+#: src/ui/settings_window.rs:1399
+#: src/ui/settings_window.rs:1881
 msgid "Install"
 msgstr "Installer"
 
-#: src/ui/settings_window.rs:1123
+#: src/ui/settings_window.rs:1484
 msgid "Install failed"
 msgstr "Installation mislykkedes"
 
-#: src/search/cmd.rs:2159
+#: src/search/cmd.rs:2155
 msgid "Install the updates, then restart"
 msgstr "Installerer opdateringerne og genstarter derefter"
 
-#: src/ui/settings_window.rs:1034
+#: src/ui/settings_window.rs:1395
 msgid "Install {name}?"
 msgstr "Installer {name}?"
 
@@ -375,81 +395,91 @@ msgstr "Installer {name}?"
 msgid "Install, uninstall, and manage apps"
 msgstr "Installerer, afinstallerer og administrerer apps"
 
-#: src/search/cmd.rs:2532
-#: src/search/cmd.rs:2626
-#: src/search/cmd.rs:2645
-#: src/search/cmd.rs:2732
+#: src/search/cmd.rs:2564
+#: src/search/cmd.rs:2658
+#: src/search/cmd.rs:2677
+#: src/search/cmd.rs:2764
 msgid "Install: {name}"
 msgstr "Installer: {name}"
 
-#: src/ui/settings_window.rs:1117
+#: src/ui/settings_window.rs:1478
 msgid "Installed \"{name}\""
 msgstr "\\\"{name}\\\" installeret"
 
-#: src/search/cmd.rs:2538
+#: src/search/cmd.rs:2570
 msgid "Installing {name}"
 msgstr "Installerer {name}"
 
-#: src/ui/search_window.rs:4011
+#: src/ui/search_window.rs:3955
 msgid "It will be moved to the Trash."
 msgstr "Den flyttes til papirkurven."
 
-#: src/ui/search_window.rs:1439
+#: src/ui/search_window.rs:1416
 msgid "Item deleted"
 msgstr "Element slettet"
 
-#: src/ui/search_window.rs:1480
+#: src/ui/search_window.rs:1457
 msgid "Item unpinned — Press Ctrl+Z to undo"
 msgstr "Element løsnet — tryk Ctrl+Z for at fortryde"
 
-#: src/ui/settings_window.rs:1797
+#: src/ui/settings_window.rs:2158
 msgid "Its trigger word and shortcut will be removed."
 msgstr "Dens triggorord og genvej fjernes."
 
-#: src/ui/settings_window.rs:2075
+#: src/ui/settings_window.rs:2436
 msgid "Keep history"
 msgstr "Behold historik"
 
-#: src/preview.rs:439
-#: src/ui/settings_window.rs:450
+#: src/ui/settings_window.rs:304
 msgid "Keyboard"
 msgstr "Tastatur"
 
-#: src/ui/settings_window.rs:581
-#: src/ui/settings_window.rs:1275
-#: src/ui/settings_window.rs:2006
+#: src/ui/settings_window.rs:942
+#: src/ui/settings_window.rs:1636
+#: src/ui/settings_window.rs:2367
 msgid "Keyboard Shortcut"
 msgstr "Tastaturgenvej"
 
-#: src/ui/search_window.rs:1143
+#: src/ui/search_window.rs:1120
+#: src/ui/settings_window.rs:308
+#: src/ui/settings_window.rs:421
+#: src/ui/settings_window.rs:589
 msgid "Keyboard Shortcuts"
 msgstr "Tastaturgenveje"
 
-#: src/ui/settings_window.rs:615
+#: src/ui/settings_window.rs:607
+msgid "Keyboard shortcuts"
+msgstr "Tastaturgenveje"
+
+#: src/ui/settings_window.rs:309
+#: src/ui/settings_window.rs:596
+#: src/ui/settings_window.rs:976
 msgid "Keyboard shortcuts used inside the search window"
 msgstr "Tastaturgenveje brugt i søgevinduet"
 
-#: src/ui/settings_window.rs:1249
+#: src/ui/settings_window.rs:1610
 msgid "Keyword"
 msgstr "Nøgleord"
 
-#: src/ui/settings_window.rs:1331
+#: src/ui/settings_window.rs:1692
 msgid "Keyword: letters, digits, -, _ and . only."
 msgstr "Nøgleord: kun bogstaver, cifre, -, _ og ."
 
-#: src/search/cmd.rs:1544
+#: src/search/cmd.rs:1543
 msgid "Kill"
 msgstr "Afslut"
 
 #: src/ui/search_window.rs:1050
+#: src/ui/settings_window.rs:426
+#: src/ui/settings_window.rs:609
 msgid "Kill app"
 msgstr "Afslut app"
 
-#: src/ui/search_window.rs:2419
+#: src/ui/search_window.rs:2385
 msgid "Kill {name}?"
 msgstr "Afslut {name}?"
 
-#: src/search/cmd.rs:2489
+#: src/search/cmd.rs:2521
 msgid "Kill: {name}"
 msgstr "Afslut: {name}"
 
@@ -461,32 +491,32 @@ msgstr "Lokal oversættelsesmotor ikke tilgængelig"
 msgid "Looking up \"{word}\"…"
 msgstr "Leder efter \\\"{word}\\\"…"
 
-#: src/ui/settings_window.rs:2061
+#: src/ui/settings_window.rs:2422
 msgid "Maximum number of clipboard entries to keep"
 msgstr "Maksimalt antal udklip at beholde"
 
-#: src/ui/settings_window.rs:1248
+#: src/ui/settings_window.rs:1609
 msgid "Name"
 msgstr "Navn"
 
-#: src/ui/settings_window.rs:1323
+#: src/ui/settings_window.rs:1684
 msgid "Name, keyword and command are required."
 msgstr "Navn, nøgleord og kommando er påkrævet."
 
-#: src/ui/search_window.rs:3908
-#: src/ui/search_window.rs:4027
+#: src/ui/search_window.rs:3837
+#: src/ui/search_window.rs:3971
 msgid "No"
 msgstr "Nej"
 
-#: src/search/cmd.rs:1853
+#: src/search/cmd.rs:1852
 msgid "No apps found for \"{query}\""
 msgstr "Ingen apps fundet til \\\"{query}\\\""
 
-#: src/search/cmd.rs:2007
+#: src/search/cmd.rs:2006
 msgid "No installed app matching \"{query}\""
 msgstr "Ingen installeret app matcher \\\"{query}\\\""
 
-#: src/search/cmd.rs:2097
+#: src/search/cmd.rs:2105
 msgid "No matching updates"
 msgstr "Ingen matchende opdateringer"
 
@@ -494,44 +524,57 @@ msgstr "Ingen matchende opdateringer"
 msgid "No operations yet"
 msgstr "Ingen operationer endnu"
 
-#: src/search/cmd.rs:1686
+#: src/search/cmd.rs:1685
 msgid "No running app matching \"{query}\""
 msgstr "Ingen kørende app matcher \\\"{query}\\\""
 
-#: src/ui/settings_window.rs:1675
+#: src/ui/settings_window.rs:2036
 msgid "No triggers found"
 msgstr "Ingen trigggers fundet"
 
-#: src/ui/settings_window.rs:1434
+#: src/ui/settings_window.rs:1795
 msgid "No triggers match \"{q}\"."
 msgstr "Ingen trigger matcher \\\"{q}\\\"."
 
-#: src/search/cmd.rs:2109
-#: src/search/cmd.rs:3140
-#: src/search/cmd.rs:3492
+#: src/search/cmd.rs:2338
+#: src/search/cmd.rs:3061
+#: src/search/cmd.rs:3328
+#: src/search/cmd.rs:3698
 msgid "No updates available"
 msgstr "Ingen opdateringer tilgængelige"
 
-#: src/ui/settings_window.rs:1126
-#: src/ui/settings_window.rs:1393
+#: src/search/cmd.rs:2340
+#: src/search/cmd.rs:3062
+#: src/search/cmd.rs:3063
+msgid "Nothing pending"
+msgstr "Intet at opdatere"
+
+#: src/ui/settings_window.rs:540
+msgid "Number base conversions"
+msgstr "Omregning mellem talsystemer"
+
+#: src/ui/settings_window.rs:1487
+#: src/ui/settings_window.rs:1754
 msgid "OK"
 msgstr "OK"
 
-#: src/search/cmd.rs:3126
-#: src/search/cmd.rs:3493
-#: src/ui/search_window.rs:3513
+#: src/search/cmd.rs:3202
+#: src/search/cmd.rs:3699
+#: src/ui/search_window.rs:3442
 msgid "One update available"
 msgstr "Én opdatering tilgængelig"
 
-#: src/search/cmd.rs:1687
+#: src/search/cmd.rs:1686
 msgid "Only running apps can be killed"
 msgstr "Kun kørende apps kan afsluttes"
 
-#: src/ui/settings_window.rs:684
+#: src/ui/settings_window.rs:640
+#: src/ui/settings_window.rs:1045
 msgid "Open Spotty"
 msgstr "Åbn Spotty"
 
 #: src/ui/search_window.rs:1089
+#: src/ui/settings_window.rs:612
 msgid "Open folder in terminal"
 msgstr "Åbn mappe i terminal"
 
@@ -544,19 +587,29 @@ msgid "Open in GNOME Settings"
 msgstr "Åbn i GNOME-indstillinger"
 
 #: src/ui/search_window.rs:1114
+#: src/ui/settings_window.rs:611
 msgid "Open location in file manager"
 msgstr "Åbn placering i filhåndteringen"
 
 #: src/ui/search_window.rs:593
+#: src/ui/settings_window.rs:606
 msgid "Operations"
 msgstr "Operationer"
 
-#: src/ui/settings_window.rs:214
-#: src/ui/settings_window.rs:218
+#: src/ui/settings_window.rs:371
+#: src/ui/settings_window.rs:375
 msgid "Package Manager"
 msgstr "Pakkehåndtering"
 
-#: src/ui/settings_window.rs:1924
+#: src/ui/settings_window.rs:601
+msgid "Paste"
+msgstr "Indsæt"
+
+#: src/ui/settings_window.rs:507
+msgid "Paste the result automatically"
+msgstr "Indsæt resultatet automatisk"
+
+#: src/ui/settings_window.rs:2285
 msgid "Pause this trigger without uninstalling it"
 msgstr "Sætter triggeren på pause uden at afinstallere den"
 
@@ -564,12 +617,12 @@ msgstr "Sætter triggeren på pause uden at afinstallere den"
 msgid "Pin / Unpin selected"
 msgstr "Fastgør/Løsn det valgte"
 
-#: src/search/cmd.rs:1582
+#: src/search/cmd.rs:1581
 msgid "Please wait…"
 msgstr "Vent venligst…"
 
-#: src/search/cmd.rs:2046
-#: src/search/cmd.rs:2113
+#: src/search/cmd.rs:2050
+#: src/search/cmd.rs:2343
 msgid "Press Enter to check again"
 msgstr "Tryk Enter for at kontrollere igen"
 
@@ -581,16 +634,24 @@ msgstr "Tryk Enter for at vælge et andet sprog"
 msgid "Press Enter to detect automatically"
 msgstr "Tryk Enter for automatisk genkendelse"
 
-#: src/ui/search_window.rs:4936
+#: src/ui/search_window.rs:4859
 msgid "Press Enter to restart"
 msgstr "Tryk Enter for at genstarte"
 
-#: src/ui/settings_window.rs:2141
+#: src/ui/settings_window.rs:526
+msgid "Rates are fetched from a free public API when you convert"
+msgstr "Kurser hentes fra en gratis offentlig API, når du omregner"
+
+#: src/ui/settings_window.rs:2502
 msgid "Recent File/Folder Searches"
 msgstr "Seneste fil-/mappesøgninger"
 
-#: src/search/cmd.rs:2129
-#: src/ui/settings_window.rs:364
+#: src/ui/settings_window.rs:604
+msgid "Redo"
+msgstr "Gentag"
+
+#: src/search/cmd.rs:2125
+#: src/ui/settings_window.rs:769
 msgid "Remind tomorrow"
 msgstr "Påmig i morgen"
 
@@ -598,30 +659,31 @@ msgstr "Påmig i morgen"
 msgid "Remove from history"
 msgstr "Fjern fra historik"
 
-#: src/ui/settings_window.rs:1510
+#: src/ui/settings_window.rs:1871
 msgid "Removed \"{name}\""
 msgstr "\\\"{name}\\\" fjernet"
 
-#: src/ui/settings_window.rs:2178
-#: src/ui/settings_window.rs:2420
+#: src/ui/settings_window.rs:2539
+#: src/ui/settings_window.rs:2775
 msgid "Reset"
 msgstr "Nulstil"
 
-#: src/ui/settings_window.rs:731
+#: src/ui/settings_window.rs:1092
 msgid "Reset trigger words and shortcuts to defaults"
 msgstr "Nulstiller triggorord og genveje til standard"
 
-#: src/ui/settings_window.rs:393
+#: src/ui/settings_window.rs:801
 msgid "Restart"
 msgstr "Genstart"
 
-#: src/search/cmd.rs:2172
-#: src/ui/search_window.rs:4935
-#: src/ui/settings_window.rs:388
+#: src/search/cmd.rs:2168
+#: src/ui/search_window.rs:4858
+#: src/ui/settings_window.rs:796
 msgid "Restart required to finish the update"
 msgstr "Genstart påkrævet for at fuldføre opdateringen"
 
-#: src/ui/settings_window.rs:81
+#: src/ui/settings_window.rs:91
+#: src/ui/settings_window.rs:463
 msgid "Results"
 msgstr "Resultater"
 
@@ -629,7 +691,7 @@ msgstr "Resultater"
 msgid "Retry"
 msgstr "Forsøg igen"
 
-#: src/ui/settings_window.rs:2126
+#: src/ui/settings_window.rs:2487
 msgid "Root Path Browsing"
 msgstr "Gennemse absolutte stier"
 
@@ -637,7 +699,7 @@ msgstr "Gennemse absolutte stier"
 msgid "Run a command"
 msgstr "Kør et kommando"
 
-#: src/search/mod.rs:428
+#: src/search/mod.rs:493
 msgid "Run {name}"
 msgstr "Kør {name}"
 
@@ -653,23 +715,28 @@ msgstr "Kører…"
 msgid "Runs through your shell, output shown here"
 msgstr "Kører i din skal, outputtet vises her"
 
-#: src/search/cmd.rs:2001
+#: src/search/cmd.rs:2000
 msgid "Scanning installed apps…"
 msgstr "Scanner installerede apps…"
 
-#: src/search/cmd.rs:1663
+#: src/search/cmd.rs:1662
 msgid "Scanning running processes…"
 msgstr "Scanner kørende processer…"
+
+#: src/ui/settings_window.rs:512
+msgid "Scientific notation"
+msgstr "Eksponentialnotation"
 
 #: src/ui/search_window.rs:221
 msgid "Search"
 msgstr "Søg"
 
-#: src/ui/settings_window.rs:149
+#: src/ui/settings_window.rs:187
 msgid "Search Engine"
 msgstr "Søgemaskine"
 
-#: src/ui/settings_window.rs:614
+#: src/ui/settings_window.rs:595
+#: src/ui/settings_window.rs:975
 msgid "Search Window"
 msgstr "Søgevindue"
 
@@ -678,7 +745,7 @@ msgid "Search all files and folders"
 msgstr "Søger i alle filer og mapper"
 
 #: src/config.rs:164
-#: src/ui/search_window.rs:3391
+#: src/ui/search_window.rs:3320
 msgid "Search clipboard history"
 msgstr "Søger i udklipshistorikken"
 
@@ -686,27 +753,32 @@ msgstr "Søger i udklipshistorikken"
 msgid "Search emoji"
 msgstr "Søg emoji"
 
-#: src/ui/settings_window.rs:93
+#: src/ui/settings_window.rs:120
+#: src/ui/settings_window.rs:366
 msgid "Search for new Apps"
 msgstr "Søg også efter nye apps"
 
-#: src/ui/settings_window.rs:1640
+#: src/ui/settings_window.rs:2001
 msgid "Search triggers"
 msgstr "Søg trigggers"
 
-#: src/ui/search_window.rs:1577
+#: src/ui/search_window.rs:1554
 msgid "Searching for Bluetooth device{dots}"
 msgstr "Søger efter Bluetooth-enhed{dots}"
 
-#: src/search/cmd.rs:1847
+#: src/search/cmd.rs:1846
 msgid "Searching for \"{query}\"…"
 msgstr "Søger efter \\\"{query}\\\"…"
 
-#: src/ui/settings_window.rs:2441
+#: src/ui/settings_window.rs:602
+msgid "Select all"
+msgstr "Vælg alt"
+
+#: src/ui/settings_window.rs:2796
 msgid "Set shortcut…"
 msgstr "Angiv genvej…"
 
-#: src/ui/settings_window.rs:1736
+#: src/ui/settings_window.rs:2097
 msgid "Set the trigger repository URL in the Trigger Repository row."
 msgstr "Angiv trigger-arkivets URL i arkivrækken."
 
@@ -718,21 +790,33 @@ msgstr "Indstillinger"
 msgid "Settings: {title}"
 msgstr "Indstillinger: {title}"
 
-#: src/ui/settings_window.rs:582
+#: src/ui/settings_window.rs:943
 msgid "Shortcut to focus the Spotty launcher"
 msgstr "Genvej til at fokusere Spotty-launcheren"
 
-#: src/ui/settings_window.rs:2094
+#: src/ui/settings_window.rs:2455
 msgid "Show Keyboard Shortcuts"
 msgstr "Vis tastaturgenveje"
 
-#: src/ui/settings_window.rs:316
+#: src/ui/settings_window.rs:719
 msgid "Show a badge and a desktop notification when updates exist"
 msgstr "Vis et badge og en skrivebordsnotifikation, når der er opdateringer"
 
-#: src/ui/settings_window.rs:2142
+#: src/ui/settings_window.rs:535
+msgid "Show equivalents when no target unit is given"
+msgstr "Vis ækvivalenter, når ingen målenhed er angivet"
+
+#: src/ui/settings_window.rs:497
+msgid "Show hex, octal and binary"
+msgstr "Vis hexadezimal, oktal og binær"
+
+#: src/ui/settings_window.rs:2503
 msgid "Show recently opened files and folders"
 msgstr "Viser nyligt åbnede filer og mapper"
+
+#: src/ui/settings_window.rs:502
+msgid "Show the expression"
+msgstr "Vis udtrykket"
 
 #: src/search/translate.rs:658
 #: src/search/translate.rs:665
@@ -748,16 +832,16 @@ msgstr ""
 msgid "Spotty Settings"
 msgstr "Spotty-indstillinger"
 
-#: src/preview.rs:2875
-#: src/preview.rs:4737
+#: src/preview.rs:2831
+#: src/preview.rs:4693
 msgid "Spreadsheet"
 msgstr "Regneark"
 
-#: src/ui/settings_window.rs:705
+#: src/ui/settings_window.rs:1066
 msgid "Store"
 msgstr "Butik"
 
-#: src/ui/settings_window.rs:88
+#: src/ui/settings_window.rs:100
 msgid "System, Flatpak and Snap apps"
 msgstr "System-, Flatpak- og Snap-apps"
 
@@ -769,17 +853,21 @@ msgstr "Mål: {name}"
 msgid "Text match: {snippet}"
 msgstr "Tekstmatch: {snippet}"
 
-#: src/ui/settings_window.rs:1336
+#: src/ui/settings_window.rs:1697
 msgid "The keyword \"{word}\" is already taken."
 msgstr "Nøgleordet \\\"{word}\\\" er allerede optaget."
 
-#: src/ui/settings_window.rs:1432
+#: src/ui/settings_window.rs:1793
 msgid "The repository has no triggers yet."
 msgstr "Arkivet har endnu ingen trigggers."
 
-#: src/ui/search_window.rs:5219
+#: src/ui/search_window.rs:5150
 msgid "The trigger word and its files will be removed."
 msgstr "Dens triggorord og tilhørende filer fjernes."
+
+#: src/ui/settings_window.rs:492
+msgid "Thousands separators"
+msgstr "Tusindtalsseparator"
 
 #: src/search/translate.rs:632
 msgid "Translate to {name}"
@@ -793,27 +881,28 @@ msgstr "Oversætter…"
 msgid "Translation unavailable"
 msgstr "Oversættelse ikke tilgængelig"
 
-#: src/ui/settings_window.rs:1245
+#: src/ui/settings_window.rs:1606
 msgid "Trigger"
 msgstr "Trigger"
 
-#: src/ui/settings_window.rs:1601
+#: src/ui/settings_window.rs:1962
 msgid "Trigger Store"
 msgstr "Triggerbutik"
 
-#: src/ui/settings_window.rs:1929
+#: src/ui/settings_window.rs:2290
 msgid "Trigger word"
 msgstr "Triggorord"
 
-#: src/ui/settings_window.rs:2232
+#: src/ui/settings_window.rs:2593
 msgid "Trigger word \"{word}\" is already in use"
 msgstr "Triggorordet \\\"{word}\\\" er allerede i brug"
 
-#: src/ui/settings_window.rs:2227
+#: src/ui/settings_window.rs:2588
 msgid "Trigger word cannot be empty"
 msgstr "Triggorordet må ikke være tomt"
 
-#: src/ui/settings_window.rs:671
+#: src/ui/settings_window.rs:637
+#: src/ui/settings_window.rs:1032
 msgid "Triggers"
 msgstr "Udløsere"
 
@@ -821,7 +910,7 @@ msgstr "Udløsere"
 msgid "Type a command to run"
 msgstr "Skriv et kommando at køre"
 
-#: src/search/mod.rs:416
+#: src/search/mod.rs:481
 msgid "Type a command to run with {name}"
 msgstr "Skriv et kommando at køre med {name}"
 
@@ -833,11 +922,11 @@ msgstr "Skriv et nøgleord"
 msgid "Type a word to look up"
 msgstr "Skriv et ord at slå op"
 
-#: src/search/cmd.rs:2099
+#: src/search/cmd.rs:2107
 msgid "Type all, flatpak, distro or a package name"
 msgstr "Skriv all, flatpak, distro eller et pakkenavn"
 
-#: src/search/mod.rs:394
+#: src/search/mod.rs:459
 msgid "Type something to search with {name}"
 msgstr "Skriv noget at søge med {name}"
 
@@ -845,146 +934,132 @@ msgstr "Skriv noget at søge med {name}"
 msgid "Type text to translate"
 msgstr "Skriv teksten der skal oversættes"
 
-#: src/ui/search_window.rs:1445
-#: src/ui/search_window.rs:4795
+#: src/ui/search_window.rs:1422
+#: src/ui/search_window.rs:4750
+#: src/ui/settings_window.rs:603
 msgid "Undo"
 msgstr "Fortryd"
 
-#: src/search/cmd.rs:1560
-#: src/ui/search_window.rs:5222
-#: src/ui/settings_window.rs:1493
-#: src/ui/settings_window.rs:1800
+#: src/search/cmd.rs:1559
+#: src/ui/search_window.rs:5153
+#: src/ui/settings_window.rs:1854
+#: src/ui/settings_window.rs:2161
 msgid "Uninstall"
 msgstr "Afinstaller"
 
-#: src/ui/settings_window.rs:1796
+#: src/ui/settings_window.rs:2157
 msgid "Uninstall \"{id}\"?"
 msgstr "Afinstaller \\\"{id}\\\"?"
 
 #: src/ui/search_window.rs:1041
+#: src/ui/settings_window.rs:425
+#: src/ui/settings_window.rs:608
 msgid "Uninstall app"
 msgstr "Afinstaller app"
 
-#: src/ui/settings_window.rs:860
+#: src/ui/settings_window.rs:1221
 msgid "Uninstall trigger"
 msgstr "Afinstaller trigger"
 
-#: src/ui/search_window.rs:2390
-#: src/ui/search_window.rs:5218
+#: src/ui/search_window.rs:2356
+#: src/ui/search_window.rs:5149
 msgid "Uninstall {name}?"
 msgstr "Afinstaller {name}?"
 
-#: src/search/cmd.rs:2555
+#: src/search/cmd.rs:2587
 msgid "Uninstall: {name}"
 msgstr "Afinstaller: {name}"
 
-#: src/search/cmd.rs:2559
+#: src/search/cmd.rs:2591
 msgid "Uninstalling {name}"
 msgstr "Afinstallerer {name}"
 
-#: src/search/cmd.rs:1568
+#: src/ui/settings_window.rs:530
+msgid "Unit conversions"
+msgstr "Enhedsomregning"
+
+#: src/search/cmd.rs:1567
 msgid "Update"
 msgstr "Opdater"
 
-#: src/search/cmd.rs:2154
-#: src/ui/settings_window.rs:386
-#: src/ui/settings_window.rs:391
-#: src/ui/settings_window.rs:410
+#: src/search/cmd.rs:2150
+#: src/ui/settings_window.rs:794
+#: src/ui/settings_window.rs:799
+#: src/ui/settings_window.rs:816
 msgid "Update & Restart"
 msgstr "Opdater og genstart"
 
-#: src/ui/search_window.rs:4857
+#: src/search/cmd.rs:2397
 msgid "Update all packages"
 msgstr "Opdater alle pakker"
 
-#: src/ui/search_window.rs:1127
-#: src/ui/search_window.rs:4885
-#: src/ui/settings_window.rs:462
-msgid "Update everything"
-msgstr "Opdater alt"
+#: src/search/cmd.rs:3334
+#: src/search/cmd.rs:3688
+msgid "Update checks are off"
+msgstr "Kontrol af opdateringer er fra"
 
-#: src/ui/search_window.rs:4858
+#: src/search/cmd.rs:2409
 msgid "Update flatpak packages"
 msgstr "Opdater Flatpak-pakkerne"
 
-#: src/ui/search_window.rs:1135
-#: src/ui/search_window.rs:4887
-#: src/ui/settings_window.rs:469
-msgid "Update flatpak packages only"
-msgstr "Opdater kun Flatpak-pakkerne"
-
-#: src/ui/settings_window.rs:315
+#: src/ui/settings_window.rs:718
 msgid "Update notification"
 msgstr "Opdateringsunderretning"
 
-#: src/ui/search_window.rs:4884
-msgid "Update now"
-msgstr "Opdater nu"
-
-#: src/ui/search_window.rs:4859
+#: src/search/cmd.rs:2444
 msgid "Update snap packages"
 msgstr "Opdater Snap-pakkerne"
 
-#: src/ui/search_window.rs:4860
+#: src/search/cmd.rs:2431
 msgid "Update system packages"
 msgstr "Opdater systempakkerne"
 
-#: src/ui/search_window.rs:1131
-#: src/ui/search_window.rs:4886
-#: src/ui/settings_window.rs:464
-msgid "Update system packages only"
-msgstr "Opdater kun systempakkerne"
-
-#: src/search/cmd.rs:2263
-#: src/search/cmd.rs:2308
+#: src/search/cmd.rs:2259
 msgid "Update: {name}"
 msgstr "Opdater: {name}"
 
-#: src/ui/settings_window.rs:255
+#: src/ui/settings_window.rs:257
+#: src/ui/settings_window.rs:675
 msgid "Updates"
 msgstr "Opdateringer"
 
-#: src/ui/settings_window.rs:219
+#: src/ui/settings_window.rs:376
 msgid "Used for app search, install, and uninstall via the cmd trigger"
 msgstr "Bruges til søgning, installation og afinstallation af apps via cmd-triggern"
 
-#: src/ui/settings_window.rs:150
+#: src/ui/settings_window.rs:188
 msgid "Used for web search results"
 msgstr "Bruges til websøgeresultater"
 
-#: src/ui/settings_window.rs:167
-#: src/ui/settings_window.rs:192
+#: src/ui/settings_window.rs:205
+#: src/ui/settings_window.rs:230
 msgid "Uses {name} (detected from your default browser)"
 msgstr "Bruger {name} (opdaget fra din standardbrowser)"
 
-#: src/ui/settings_window.rs:130
-#: src/ui/settings_window.rs:136
+#: src/ui/settings_window.rs:168
+#: src/ui/settings_window.rs:174
 msgid "Web Search"
 msgstr "Websøgning"
 
-#: src/ui/settings_window.rs:340
+#: src/ui/settings_window.rs:741
 msgid "Weekly"
 msgstr "Ugentligt"
 
-#: src/ui/settings_window.rs:1246
+#: src/ui/settings_window.rs:1607
 msgid "What you type to open it."
 msgstr "Hvad du skriver for at åbne den."
 
-#: src/ui/settings_window.rs:531
+#: src/ui/settings_window.rs:892
 msgid "Word: {word} · No shortcut"
 msgstr "Ord: {word} · Ingen genvej"
 
-#: src/ui/settings_window.rs:533
+#: src/ui/settings_window.rs:894
 msgid "Word: {word} · {shortcut}"
 msgstr "Ord: {word} · {shortcut}"
 
-#: src/ui/search_window.rs:3912
+#: src/ui/search_window.rs:3841
 msgid "Yes"
 msgstr "Ja"
-
-#: src/search/cmd.rs:2367
-msgid "all packages ({sources})"
-msgstr "alle pakker ({sources})"
 
 #: src/triggers.rs:346
 msgid "curl exited with {status}"
@@ -1001,7 +1076,7 @@ msgstr "tomt svar"
 msgid "id '{id}' is a built-in trigger"
 msgstr "id '{id}' er en indbygget trigger"
 
-#: src/search/cmd.rs:1553
+#: src/search/cmd.rs:1552
 msgid "install <app>  —  install from Flatpak, distro, or Snap"
 msgstr "install <app>  —  installer fra Flatpak, distribution eller Snap"
 
@@ -1013,7 +1088,7 @@ msgstr "ugyldigt id '{id}': kun bogstaver, cifre, '_', '-' og '.' tilladt"
 msgid "just now"
 msgstr "lige nu"
 
-#: src/search/cmd.rs:1545
+#: src/search/cmd.rs:1544
 msgid "kill <app-name>  —  stop a running process"
 msgstr "kill <app-name>  —  stopper en kørende proces"
 
@@ -1037,20 +1112,20 @@ msgstr "triggeren '{id}' er ikke installeret"
 msgid "trigger word '{word}' is already in use"
 msgstr "triggorordet '{word}' er allerede i brug"
 
-#: src/search/cmd.rs:1561
+#: src/search/cmd.rs:1560
 msgid "uninstall <app>  —  remove an installed app"
 msgstr "uninstall <app>  —  fjerner en installeret app"
 
-#: src/search/cmd.rs:1569
+#: src/search/cmd.rs:1568
 msgid "update  —  update installed packages"
 msgstr "update  —  opdaterer installerede pakker"
 
-#: src/search/cmd.rs:2521
-#: src/search/cmd.rs:2556
+#: src/search/cmd.rs:2553
+#: src/search/cmd.rs:2588
 msgid "via Flatpak ({app})"
 msgstr ""
 
-#: src/search/cmd.rs:2754
+#: src/search/cmd.rs:2786
 msgid "via snap"
 msgstr ""
 
@@ -1058,12 +1133,12 @@ msgstr ""
 msgid "web action needs a 'url' template"
 msgstr "web-handling kræver en 'url'-skabelon"
 
-#: src/search/cmd.rs:2523
+#: src/search/cmd.rs:2555
 msgid "{description} — via Flatpak ({app})"
 msgstr ""
 
-#: src/search/mod.rs:405
-#: src/search/mod.rs:432
+#: src/search/mod.rs:470
+#: src/search/mod.rs:497
 msgid "{name}: {query}"
 msgstr ""
 
@@ -1071,21 +1146,9 @@ msgstr ""
 msgid "{noun} {target} {suffix}"
 msgstr ""
 
-#: src/search/cmd.rs:2379
-msgid "{n} flatpak packages"
-msgstr "{n} flatpak-pakker"
-
-#: src/search/cmd.rs:2412
-msgid "{n} snap packages"
-msgstr "{n} snappakker"
-
-#: src/search/cmd.rs:2398
-msgid "{n} system packages ({pm})"
-msgstr "{n} systempakker ({pm})"
-
-#: src/search/cmd.rs:3401
-#: src/search/cmd.rs:3494
-#: src/ui/search_window.rs:3515
+#: src/search/cmd.rs:3603
+#: src/search/cmd.rs:3700
+#: src/ui/search_window.rs:3444
 msgid "{n} updates available"
 msgstr "{n} opdateringer tilgængelige"
 
@@ -1106,17 +1169,16 @@ msgstr "{n} m siden"
 msgid "{pos} — {text}"
 msgstr ""
 
-#: src/search/cmd.rs:2274
-#: src/search/cmd.rs:2320
-#: src/ui/search_window.rs:4864
+#: src/search/cmd.rs:2270
+#: src/search/cmd.rs:2329
 msgid "{source} Update"
 msgstr "Opdatering {source}"
 
 #: src/operations.rs:175
 #: src/operations.rs:195
-#: src/operations.rs:846
-#: src/operations.rs:872
-#: src/operations.rs:897
+#: src/operations.rs:849
+#: src/operations.rs:875
+#: src/operations.rs:900
 msgid "{source} · {status}"
 msgstr ""
 
@@ -1130,7 +1192,7 @@ msgstr "{src} → {tgt}"
 msgid "{title} {suffix}"
 msgstr ""
 
-#: src/ui/search_window.rs:3664
+#: src/ui/search_window.rs:3593
 msgid "{title} — {detail}"
 msgstr ""
 
@@ -1138,7 +1200,7 @@ msgstr ""
 msgid "{word} — complete the word with Tab"
 msgstr "{word} — fuldfør ordet med Tab"
 
-#: src/ui/settings_window.rs:1480
+#: src/ui/settings_window.rs:1841
 msgid "{word} — {description}"
 msgstr ""
 
@@ -1146,14 +1208,14 @@ msgstr ""
 msgid "• {text}"
 msgstr ""
 
-#: src/preview.rs:675
+#: src/preview.rs:651
 msgid "…and {n} more"
 msgstr "…og {n} mere"
 
-#: src/preview.rs:491
+#: src/preview.rs:476
 msgid "▶"
 msgstr ""
 
-#: src/preview.rs:481
+#: src/preview.rs:466
 msgid "◀"
 msgstr ""

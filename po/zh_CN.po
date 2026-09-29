@@ -16,35 +16,31 @@ msgstr ""
 msgid "    “{ex}”"
 msgstr ""
 
-#: src/preview.rs:486
+#: src/preview.rs:471
 msgid "1 / 1"
 msgstr ""
 
-#: src/ui/settings_window.rs:495
+#: src/ui/settings_window.rs:320
 msgid "About"
 msgstr "关于"
 
-#: src/ui/settings_window.rs:498
+#: src/ui/settings_window.rs:323
 msgid "About Spotty"
 msgstr "关于 Spotty"
 
-#: src/ui/settings_window.rs:1216
+#: src/ui/settings_window.rs:1577
 msgid "Add Trigger"
 msgstr "添加触发词"
 
-#: src/ui/settings_window.rs:941
+#: src/ui/settings_window.rs:1302
 msgid "Add Trigger Word"
 msgstr "添加触发词"
 
-#: src/ui/settings_window.rs:1616
+#: src/ui/settings_window.rs:1977
 msgid "Add a local trigger"
 msgstr "添加本地触发词"
 
-#: src/search/cmd.rs:2112
-msgid "All packages are up to date"
-msgstr "所有软件包均为最新"
-
-#: src/ui/settings_window.rs:2127
+#: src/ui/settings_window.rs:2488
 msgid "Allow typing / or ~/ to browse the filesystem directly"
 msgstr "允许输入 / 或 ~/ 直接浏览文件系统"
 
@@ -52,33 +48,38 @@ msgstr "允许输入 / 或 ~/ 直接浏览文件系统"
 msgid "Already {language}"
 msgstr "已是{language}"
 
-#: src/ui/settings_window.rs:94
+#: src/ui/settings_window.rs:121
 msgid "Also suggest installable apps as you type"
 msgstr "输入时也建议可安装的应用"
 
-#: src/ui/settings_window.rs:137
+#: src/ui/settings_window.rs:175
 msgid "Always show web search row"
 msgstr "始终显示网络搜索行"
 
-#: src/ui/settings_window.rs:87
+#: src/ui/settings_window.rs:99
+#: src/ui/settings_window.rs:416
 msgid "Applications"
 msgstr "应用程序"
 
-#: src/ui/search_window.rs:2185
-#: src/ui/search_window.rs:3171
+#: src/ui/search_window.rs:2151
+#: src/ui/search_window.rs:3100
 msgid "Are you sure you want to install {name}?"
 msgstr "确定要安装 {name} 吗？"
 
-#: src/ui/search_window.rs:2189
-#: src/ui/search_window.rs:3175
+#: src/ui/search_window.rs:2155
+#: src/ui/search_window.rs:3104
 msgid "Are you sure you want to uninstall {name}?"
 msgstr "确定要卸载 {name} 吗？"
 
-#: src/ui/search_window.rs:2200
-#: src/ui/search_window.rs:3215
-#: src/ui/settings_window.rs:420
+#: src/ui/search_window.rs:2166
+#: src/ui/search_window.rs:3144
+#: src/ui/settings_window.rs:826
 msgid "Are you sure?"
 msgstr "确定吗？"
+
+#: src/ui/settings_window.rs:142
+msgid "Arithmetic, units, currency and number bases"
+msgstr "算术、单位、货币与进制"
 
 #: src/search/translate.rs:579
 #: src/search/translate.rs:665
@@ -95,124 +96,142 @@ msgstr "返回自动（系统语言）"
 msgid "Bluetooth devices"
 msgstr "蓝牙设备"
 
-#: src/ui/settings_window.rs:706
+#: src/ui/settings_window.rs:1067
 msgid "Browse and install triggers"
 msgstr "浏览并安装触发词"
 
-#: src/ui/settings_window.rs:99
-msgid "Calculator"
-msgstr "计算器"
+#: src/ui/settings_window.rs:141
+#: src/ui/settings_window.rs:456
+msgid "Calculator & Conversions"
+msgstr "计算器与转换"
 
 #: src/ui/result_row.rs:301
 #: src/ui/search_window.rs:529
 #: src/ui/search_window.rs:754
-#: src/ui/search_window.rs:2202
-#: src/ui/search_window.rs:3217
-#: src/ui/search_window.rs:4765
-#: src/ui/search_window.rs:5221
-#: src/ui/settings_window.rs:422
-#: src/ui/settings_window.rs:1037
-#: src/ui/settings_window.rs:1799
+#: src/ui/search_window.rs:2168
+#: src/ui/search_window.rs:3146
+#: src/ui/search_window.rs:4720
+#: src/ui/search_window.rs:5152
+#: src/ui/settings_window.rs:828
+#: src/ui/settings_window.rs:1398
+#: src/ui/settings_window.rs:2160
 msgid "Cancel"
 msgstr "取消"
 
-#: src/ui/settings_window.rs:1572
+#: src/ui/settings_window.rs:1933
 msgid "Cannot save the manifest: {e}"
 msgstr "无法保存清单：{e}"
 
-#: src/ui/settings_window.rs:1364
+#: src/ui/settings_window.rs:1725
 msgid "Cannot save the trigger: {e}"
 msgstr "无法保存触发词：{e}"
 
-#: src/ui/settings_window.rs:330
+#: src/ui/settings_window.rs:731
 msgid "Check every"
 msgstr "检查频率"
 
-#: src/ui/settings_window.rs:260
-msgid "Check for updates"
-msgstr "检查更新"
-
-#: src/ui/settings_window.rs:272
+#: src/ui/settings_window.rs:683
+#: src/ui/settings_window.rs:691
 msgid "Check now"
 msgstr "立即检查"
 
-#: src/search/cmd.rs:1854
+#: src/search/cmd.rs:1853
 msgid "Check spelling or try a different name"
 msgstr "检查拼写或换一个名称"
 
-#: src/search/cmd.rs:2008
+#: src/search/cmd.rs:2007
 msgid "Check spelling or try fewer characters"
 msgstr "检查拼写或减少字符数"
 
-#: src/search/cmd.rs:2045
-#: src/search/cmd.rs:3485
-#: src/search/cmd.rs:3495
+#: src/search/cmd.rs:2049
+#: src/search/cmd.rs:3691
+#: src/search/cmd.rs:3701
 msgid "Checking for updates…"
 msgstr "正在检查更新…"
 
-#: src/ui/settings_window.rs:82
+#: src/ui/settings_window.rs:92
 msgid "Choose what types of results appear"
 msgstr "选择要显示的结果类型"
 
-#: src/ui/settings_window.rs:2026
+#: src/ui/settings_window.rs:2387
 msgid "Clipboard"
 msgstr "剪贴板"
 
-#: src/preview.rs:619
+#: src/preview.rs:602
 msgid "Clipped {time}"
 msgstr "已复制 {time}"
 
-#: src/ui/settings_window.rs:1263
+#: src/ui/settings_window.rs:1624
 msgid "Command"
 msgstr "命令"
 
-#: src/ui/settings_window.rs:1269
+#: src/ui/settings_window.rs:1630
 msgid "Command line"
 msgstr "命令行"
 
-#: src/ui/search_window.rs:2203
-#: src/ui/search_window.rs:3218
-#: src/ui/settings_window.rs:423
+#: src/ui/search_window.rs:2169
+#: src/ui/search_window.rs:3147
+#: src/ui/settings_window.rs:829
 msgid "Confirm"
 msgstr "确认"
 
-#: src/ui/search_window.rs:4058
+#: src/ui/settings_window.rs:525
+msgid "Conversions"
+msgstr "转换"
+
+#: src/ui/settings_window.rs:599
+msgid "Copy"
+msgstr "复制"
+
+#: src/ui/search_window.rs:4013
 msgid "Couldn't delete \"{name}\": {e}"
 msgstr "无法删除 \\\"{name}\\\"：{e}"
 
-#: src/ui/settings_window.rs:1390
+#: src/ui/settings_window.rs:1751
 msgid "Couldn't install"
 msgstr "无法安装"
 
-#: src/ui/settings_window.rs:1679
+#: src/ui/settings_window.rs:2040
 msgid "Couldn't load the trigger repository"
 msgstr "无法加载触发词仓库"
 
-#: src/ui/settings_window.rs:1769
+#: src/ui/settings_window.rs:2130
 msgid "Couldn't load {url}: {e}"
 msgstr "无法加载 {url}：{e}"
 
-#: src/ui/settings_window.rs:1514
+#: src/ui/settings_window.rs:1875
 msgid "Couldn't uninstall: {e}"
 msgstr "无法卸载：{e}"
 
-#: src/ui/settings_window.rs:1201
+#: src/ui/settings_window.rs:1562
 msgid "Create a Trigger"
 msgstr "创建触发词"
 
-#: src/ui/settings_window.rs:122
+#: src/ui/settings_window.rs:545
+msgid "Currency conversion"
+msgstr "货币换算"
+
+#: src/ui/settings_window.rs:160
 msgid "Custom Search URL"
 msgstr "自定义搜索地址"
 
-#: src/ui/settings_window.rs:339
+#: src/ui/settings_window.rs:600
+msgid "Cut"
+msgstr "剪切"
+
+#: src/ui/settings_window.rs:740
 msgid "Daily"
 msgstr "每天"
 
-#: src/ui/search_window.rs:4023
+#: src/ui/settings_window.rs:468
+msgid "Decimal places"
+msgstr "小数位数"
+
+#: src/ui/search_window.rs:3967
 msgid "Delete"
 msgstr "删除"
 
-#: src/ui/settings_window.rs:2076
+#: src/ui/settings_window.rs:2437
 msgid "Delete clipboard entries older than this (pinned items are exempt)"
 msgstr "删除较旧的剪贴板条目（已固定的除外）"
 
@@ -220,11 +239,19 @@ msgstr "删除较旧的剪贴板条目（已固定的除外）"
 msgid "Delete file"
 msgstr "删除文件"
 
+#: src/ui/settings_window.rs:610
+msgid "Delete file / folder"
+msgstr "删除文件 / 文件夹"
+
 #: src/ui/search_window.rs:1100
 msgid "Delete folder"
 msgstr "删除文件夹"
 
-#: src/ui/settings_window.rs:1251
+#: src/ui/settings_window.rs:605
+msgid "Delete word"
+msgstr "删除单词"
+
+#: src/ui/settings_window.rs:1612
 msgid "Description (optional)"
 msgstr "描述（可选）"
 
@@ -236,33 +263,33 @@ msgstr "自动检测 — 按 Enter 选择"
 msgid "Dictionary: {query}"
 msgstr "词典：{query}"
 
-#: src/search/cmd.rs:2187
+#: src/search/cmd.rs:2183
 msgid "Disable update checks"
 msgstr "关闭更新检查"
 
-#: src/ui/settings_window.rs:538
+#: src/ui/settings_window.rs:899
 msgid "Disabled · {base}"
 msgstr "已禁用 · {base}"
 
-#: src/search/cmd.rs:2137
-#: src/ui/settings_window.rs:373
+#: src/search/cmd.rs:2133
+#: src/ui/settings_window.rs:778
 msgid "Dismiss update notice"
 msgstr "忽略更新提示"
 
-#: src/ui/settings_window.rs:2095
+#: src/ui/settings_window.rs:2456
 msgid "Display a hint bar in the clipboard manager"
 msgstr "在剪贴板管理器中显示提示栏"
 
-#: src/ui/search_window.rs:4004
+#: src/ui/search_window.rs:3948
 msgid "Do you want to delete \"{name}\"?"
 msgstr "要删除 \\\"{name}\\\" 吗？"
 
-#: src/ui/search_window.rs:2182
-#: src/ui/search_window.rs:3167
+#: src/ui/search_window.rs:2148
+#: src/ui/search_window.rs:3096
 msgid "Do you want to update {name}?"
 msgstr "要更新 {name} 吗？"
 
-#: src/ui/search_window.rs:2191
+#: src/ui/search_window.rs:2157
 msgid "Do you want to {action}?"
 msgstr "要{action}吗？"
 
@@ -270,36 +297,37 @@ msgstr "要{action}吗？"
 msgid "Done"
 msgstr "完成"
 
-#: src/ui/settings_window.rs:1576
+#: src/ui/settings_window.rs:1937
 msgid "Download failed: {e}"
 msgstr "下载失败：{e}"
 
-#: src/ui/settings_window.rs:553
+#: src/ui/settings_window.rs:914
 msgid "Edit \"Open Spotty\" shortcut"
 msgstr "编辑“打开 Spotty”快捷键"
 
-#: src/ui/settings_window.rs:1880
-#: src/ui/settings_window.rs:1887
+#: src/ui/settings_window.rs:2241
+#: src/ui/settings_window.rs:2248
 msgid "Edit \"{name}\" trigger"
 msgstr "编辑触发词 \\\"{name}\\\""
 
-#: src/ui/settings_window.rs:677
+#: src/ui/settings_window.rs:1038
 msgid "Edit trigger words, import a manifest with +, or delete installed triggers."
 msgstr "编辑触发词、用 + 导入清单或删除已安装的触发词。"
 
-#: src/search/cmd.rs:2189
+#: src/search/cmd.rs:2185
+#: src/search/cmd.rs:3308
 msgid "Enable update checks"
 msgstr "开启更新检查"
 
-#: src/ui/settings_window.rs:1923
+#: src/ui/settings_window.rs:2284
 msgid "Enabled"
 msgstr "已启用"
 
-#: src/ui/settings_window.rs:338
+#: src/ui/settings_window.rs:739
 msgid "Every 12 hours"
 msgstr "每 12 小时"
 
-#: src/ui/settings_window.rs:337
+#: src/ui/settings_window.rs:738
 msgid "Every 6 hours"
 msgstr "每 6 小时"
 
@@ -307,67 +335,59 @@ msgstr "每 6 小时"
 msgid "Fetching the definition"
 msgstr "正在获取释义"
 
-#: src/ui/settings_window.rs:1669
+#: src/ui/settings_window.rs:2030
 msgid "Fetching triggers…"
 msgstr "正在获取触发词…"
 
-#: src/ui/settings_window.rs:2122
+#: src/ui/settings_window.rs:2483
 msgid "Find"
 msgstr "查找"
 
-#: src/ui/settings_window.rs:256
-msgid "Find package updates in the background"
-msgstr "在后台查找软件包更新"
-
-#: src/ui/settings_window.rs:74
+#: src/ui/settings_window.rs:84
 msgid "General"
 msgstr "常规"
 
-#: src/search/cmd.rs:2138
-#: src/ui/settings_window.rs:374
+#: src/search/cmd.rs:2134
+#: src/ui/settings_window.rs:779
 msgid "Hidden until a new update appears"
 msgstr "在出现新更新前隐藏"
 
-#: src/search/cmd.rs:2130
-#: src/ui/settings_window.rs:365
+#: src/search/cmd.rs:2126
+#: src/ui/settings_window.rs:770
 msgid "Hide the update notice for 24 hours"
 msgstr "隐藏更新提示 24 小时"
 
-#: src/preview.rs:212
+#: src/preview.rs:209
 msgid "Highlight a result\nto preview"
 msgstr "高亮一个结果\\n以预览"
 
-#: src/ui/settings_window.rs:2060
+#: src/ui/settings_window.rs:2421
 msgid "History Limit"
 msgstr "历史记录上限"
 
-#: src/ui/settings_window.rs:336
+#: src/ui/settings_window.rs:737
 msgid "Hourly"
 msgstr "每小时"
 
-#: src/ui/settings_window.rs:1254
+#: src/ui/settings_window.rs:1615
 msgid "Icon name (optional)"
 msgstr "图标名称（可选）"
 
-#: src/ui/settings_window.rs:100
-msgid "Inline arithmetic"
-msgstr "即时计算"
-
-#: src/search/cmd.rs:1552
-#: src/ui/settings_window.rs:1038
-#: src/ui/settings_window.rs:1520
+#: src/search/cmd.rs:1551
+#: src/ui/settings_window.rs:1399
+#: src/ui/settings_window.rs:1881
 msgid "Install"
 msgstr "安装"
 
-#: src/ui/settings_window.rs:1123
+#: src/ui/settings_window.rs:1484
 msgid "Install failed"
 msgstr "安装失败"
 
-#: src/search/cmd.rs:2159
+#: src/search/cmd.rs:2155
 msgid "Install the updates, then restart"
 msgstr "先安装更新，然后重启"
 
-#: src/ui/settings_window.rs:1034
+#: src/ui/settings_window.rs:1395
 msgid "Install {name}?"
 msgstr "安装 {name}？"
 
@@ -375,81 +395,91 @@ msgstr "安装 {name}？"
 msgid "Install, uninstall, and manage apps"
 msgstr "安装、卸载并管理应用"
 
-#: src/search/cmd.rs:2532
-#: src/search/cmd.rs:2626
-#: src/search/cmd.rs:2645
-#: src/search/cmd.rs:2732
+#: src/search/cmd.rs:2564
+#: src/search/cmd.rs:2658
+#: src/search/cmd.rs:2677
+#: src/search/cmd.rs:2764
 msgid "Install: {name}"
 msgstr "安装：{name}"
 
-#: src/ui/settings_window.rs:1117
+#: src/ui/settings_window.rs:1478
 msgid "Installed \"{name}\""
 msgstr "已安装 \\\"{name}\\\""
 
-#: src/search/cmd.rs:2538
+#: src/search/cmd.rs:2570
 msgid "Installing {name}"
 msgstr "正在安装 {name}"
 
-#: src/ui/search_window.rs:4011
+#: src/ui/search_window.rs:3955
 msgid "It will be moved to the Trash."
 msgstr "它将被移入回收站。"
 
-#: src/ui/search_window.rs:1439
+#: src/ui/search_window.rs:1416
 msgid "Item deleted"
 msgstr "已删除项目"
 
-#: src/ui/search_window.rs:1480
+#: src/ui/search_window.rs:1457
 msgid "Item unpinned — Press Ctrl+Z to undo"
 msgstr "已取消固定 — 按 Ctrl+Z 撤销"
 
-#: src/ui/settings_window.rs:1797
+#: src/ui/settings_window.rs:2158
 msgid "Its trigger word and shortcut will be removed."
 msgstr "它的触发词和快捷键将被移除。"
 
-#: src/ui/settings_window.rs:2075
+#: src/ui/settings_window.rs:2436
 msgid "Keep history"
 msgstr "保留历史记录"
 
-#: src/preview.rs:439
-#: src/ui/settings_window.rs:450
+#: src/ui/settings_window.rs:304
 msgid "Keyboard"
 msgstr "键盘"
 
-#: src/ui/settings_window.rs:581
-#: src/ui/settings_window.rs:1275
-#: src/ui/settings_window.rs:2006
+#: src/ui/settings_window.rs:942
+#: src/ui/settings_window.rs:1636
+#: src/ui/settings_window.rs:2367
 msgid "Keyboard Shortcut"
 msgstr "键盘快捷键"
 
-#: src/ui/search_window.rs:1143
+#: src/ui/search_window.rs:1120
+#: src/ui/settings_window.rs:308
+#: src/ui/settings_window.rs:421
+#: src/ui/settings_window.rs:589
 msgid "Keyboard Shortcuts"
 msgstr "键盘快捷键"
 
-#: src/ui/settings_window.rs:615
+#: src/ui/settings_window.rs:607
+msgid "Keyboard shortcuts"
+msgstr "键盘快捷键"
+
+#: src/ui/settings_window.rs:309
+#: src/ui/settings_window.rs:596
+#: src/ui/settings_window.rs:976
 msgid "Keyboard shortcuts used inside the search window"
 msgstr "在搜索窗口中使用的键盘快捷键"
 
-#: src/ui/settings_window.rs:1249
+#: src/ui/settings_window.rs:1610
 msgid "Keyword"
 msgstr "关键词"
 
-#: src/ui/settings_window.rs:1331
+#: src/ui/settings_window.rs:1692
 msgid "Keyword: letters, digits, -, _ and . only."
 msgstr "关键词：仅限字母、数字、-、_ 和 ."
 
-#: src/search/cmd.rs:1544
+#: src/search/cmd.rs:1543
 msgid "Kill"
 msgstr "结束"
 
 #: src/ui/search_window.rs:1050
+#: src/ui/settings_window.rs:426
+#: src/ui/settings_window.rs:609
 msgid "Kill app"
 msgstr "结束应用"
 
-#: src/ui/search_window.rs:2419
+#: src/ui/search_window.rs:2385
 msgid "Kill {name}?"
 msgstr "结束 {name} 吗？"
 
-#: src/search/cmd.rs:2489
+#: src/search/cmd.rs:2521
 msgid "Kill: {name}"
 msgstr "结束：{name}"
 
@@ -461,32 +491,32 @@ msgstr "本地翻译引擎无法连接"
 msgid "Looking up \"{word}\"…"
 msgstr "正在查找 \\\"{word}\\\"…"
 
-#: src/ui/settings_window.rs:2061
+#: src/ui/settings_window.rs:2422
 msgid "Maximum number of clipboard entries to keep"
 msgstr "保留的剪贴板条目最大数量"
 
-#: src/ui/settings_window.rs:1248
+#: src/ui/settings_window.rs:1609
 msgid "Name"
 msgstr "名称"
 
-#: src/ui/settings_window.rs:1323
+#: src/ui/settings_window.rs:1684
 msgid "Name, keyword and command are required."
 msgstr "名称、关键词和命令为必填项。"
 
-#: src/ui/search_window.rs:3908
-#: src/ui/search_window.rs:4027
+#: src/ui/search_window.rs:3837
+#: src/ui/search_window.rs:3971
 msgid "No"
 msgstr "否"
 
-#: src/search/cmd.rs:1853
+#: src/search/cmd.rs:1852
 msgid "No apps found for \"{query}\""
 msgstr "未找到 \\\"{query}\\\" 的应用"
 
-#: src/search/cmd.rs:2007
+#: src/search/cmd.rs:2006
 msgid "No installed app matching \"{query}\""
 msgstr "没有匹配 \\\"{query}\\\" 的已安装应用"
 
-#: src/search/cmd.rs:2097
+#: src/search/cmd.rs:2105
 msgid "No matching updates"
 msgstr "没有匹配的更新"
 
@@ -494,44 +524,57 @@ msgstr "没有匹配的更新"
 msgid "No operations yet"
 msgstr "暂无操作"
 
-#: src/search/cmd.rs:1686
+#: src/search/cmd.rs:1685
 msgid "No running app matching \"{query}\""
 msgstr "没有匹配 \\\"{query}\\\" 的运行中应用"
 
-#: src/ui/settings_window.rs:1675
+#: src/ui/settings_window.rs:2036
 msgid "No triggers found"
 msgstr "未找到触发词"
 
-#: src/ui/settings_window.rs:1434
+#: src/ui/settings_window.rs:1795
 msgid "No triggers match \"{q}\"."
 msgstr "没有匹配 \\\"{q}\\\" 的触发词。"
 
-#: src/search/cmd.rs:2109
-#: src/search/cmd.rs:3140
-#: src/search/cmd.rs:3492
+#: src/search/cmd.rs:2338
+#: src/search/cmd.rs:3061
+#: src/search/cmd.rs:3328
+#: src/search/cmd.rs:3698
 msgid "No updates available"
 msgstr "没有可用更新"
 
-#: src/ui/settings_window.rs:1126
-#: src/ui/settings_window.rs:1393
+#: src/search/cmd.rs:2340
+#: src/search/cmd.rs:3062
+#: src/search/cmd.rs:3063
+msgid "Nothing pending"
+msgstr "暂无更新"
+
+#: src/ui/settings_window.rs:540
+msgid "Number base conversions"
+msgstr "进制转换"
+
+#: src/ui/settings_window.rs:1487
+#: src/ui/settings_window.rs:1754
 msgid "OK"
 msgstr "确定"
 
-#: src/search/cmd.rs:3126
-#: src/search/cmd.rs:3493
-#: src/ui/search_window.rs:3513
+#: src/search/cmd.rs:3202
+#: src/search/cmd.rs:3699
+#: src/ui/search_window.rs:3442
 msgid "One update available"
 msgstr "有 1 项更新"
 
-#: src/search/cmd.rs:1687
+#: src/search/cmd.rs:1686
 msgid "Only running apps can be killed"
 msgstr "只能结束运行中的应用"
 
-#: src/ui/settings_window.rs:684
+#: src/ui/settings_window.rs:640
+#: src/ui/settings_window.rs:1045
 msgid "Open Spotty"
 msgstr "打开 Spotty"
 
 #: src/ui/search_window.rs:1089
+#: src/ui/settings_window.rs:612
 msgid "Open folder in terminal"
 msgstr "在终端中打开文件夹"
 
@@ -544,19 +587,29 @@ msgid "Open in GNOME Settings"
 msgstr "在 GNOME 设置中打开"
 
 #: src/ui/search_window.rs:1114
+#: src/ui/settings_window.rs:611
 msgid "Open location in file manager"
 msgstr "在文件管理器中打开位置"
 
 #: src/ui/search_window.rs:593
+#: src/ui/settings_window.rs:606
 msgid "Operations"
 msgstr "操作"
 
-#: src/ui/settings_window.rs:214
-#: src/ui/settings_window.rs:218
+#: src/ui/settings_window.rs:371
+#: src/ui/settings_window.rs:375
 msgid "Package Manager"
 msgstr "包管理器"
 
-#: src/ui/settings_window.rs:1924
+#: src/ui/settings_window.rs:601
+msgid "Paste"
+msgstr "粘贴"
+
+#: src/ui/settings_window.rs:507
+msgid "Paste the result automatically"
+msgstr "自动粘贴结果"
+
+#: src/ui/settings_window.rs:2285
 msgid "Pause this trigger without uninstalling it"
 msgstr "暂停此触发词而不卸载它"
 
@@ -564,12 +617,12 @@ msgstr "暂停此触发词而不卸载它"
 msgid "Pin / Unpin selected"
 msgstr "固定/取消固定所选"
 
-#: src/search/cmd.rs:1582
+#: src/search/cmd.rs:1581
 msgid "Please wait…"
 msgstr "请稍候…"
 
-#: src/search/cmd.rs:2046
-#: src/search/cmd.rs:2113
+#: src/search/cmd.rs:2050
+#: src/search/cmd.rs:2343
 msgid "Press Enter to check again"
 msgstr "按 Enter 重新检查"
 
@@ -581,16 +634,24 @@ msgstr "按 Enter 选择其他语言"
 msgid "Press Enter to detect automatically"
 msgstr "按 Enter 自动检测"
 
-#: src/ui/search_window.rs:4936
+#: src/ui/search_window.rs:4859
 msgid "Press Enter to restart"
 msgstr "按 Enter 重新启动"
 
-#: src/ui/settings_window.rs:2141
+#: src/ui/settings_window.rs:526
+msgid "Rates are fetched from a free public API when you convert"
+msgstr "换算时从免费的公共 API 获取汇率"
+
+#: src/ui/settings_window.rs:2502
 msgid "Recent File/Folder Searches"
 msgstr "最近的文件/文件夹搜索"
 
-#: src/search/cmd.rs:2129
-#: src/ui/settings_window.rs:364
+#: src/ui/settings_window.rs:604
+msgid "Redo"
+msgstr "重做"
+
+#: src/search/cmd.rs:2125
+#: src/ui/settings_window.rs:769
 msgid "Remind tomorrow"
 msgstr "明天提醒我"
 
@@ -598,30 +659,31 @@ msgstr "明天提醒我"
 msgid "Remove from history"
 msgstr "从历史记录中移除"
 
-#: src/ui/settings_window.rs:1510
+#: src/ui/settings_window.rs:1871
 msgid "Removed \"{name}\""
 msgstr "已移除 \\\"{name}\\\""
 
-#: src/ui/settings_window.rs:2178
-#: src/ui/settings_window.rs:2420
+#: src/ui/settings_window.rs:2539
+#: src/ui/settings_window.rs:2775
 msgid "Reset"
 msgstr "重置"
 
-#: src/ui/settings_window.rs:731
+#: src/ui/settings_window.rs:1092
 msgid "Reset trigger words and shortcuts to defaults"
 msgstr "将触发词和快捷键恢复为默认值"
 
-#: src/ui/settings_window.rs:393
+#: src/ui/settings_window.rs:801
 msgid "Restart"
 msgstr "重启"
 
-#: src/search/cmd.rs:2172
-#: src/ui/search_window.rs:4935
-#: src/ui/settings_window.rs:388
+#: src/search/cmd.rs:2168
+#: src/ui/search_window.rs:4858
+#: src/ui/settings_window.rs:796
 msgid "Restart required to finish the update"
 msgstr "需要重启才能完成更新"
 
-#: src/ui/settings_window.rs:81
+#: src/ui/settings_window.rs:91
+#: src/ui/settings_window.rs:463
 msgid "Results"
 msgstr "结果"
 
@@ -629,7 +691,7 @@ msgstr "结果"
 msgid "Retry"
 msgstr "重试"
 
-#: src/ui/settings_window.rs:2126
+#: src/ui/settings_window.rs:2487
 msgid "Root Path Browsing"
 msgstr "根路径浏览"
 
@@ -637,7 +699,7 @@ msgstr "根路径浏览"
 msgid "Run a command"
 msgstr "运行命令"
 
-#: src/search/mod.rs:428
+#: src/search/mod.rs:493
 msgid "Run {name}"
 msgstr "运行 {name}"
 
@@ -653,23 +715,28 @@ msgstr "运行中…"
 msgid "Runs through your shell, output shown here"
 msgstr "在你的 shell 中运行，输出显示在这里"
 
-#: src/search/cmd.rs:2001
+#: src/search/cmd.rs:2000
 msgid "Scanning installed apps…"
 msgstr "正在扫描已安装的应用…"
 
-#: src/search/cmd.rs:1663
+#: src/search/cmd.rs:1662
 msgid "Scanning running processes…"
 msgstr "正在扫描运行中的进程…"
+
+#: src/ui/settings_window.rs:512
+msgid "Scientific notation"
+msgstr "科学记数法"
 
 #: src/ui/search_window.rs:221
 msgid "Search"
 msgstr "搜索"
 
-#: src/ui/settings_window.rs:149
+#: src/ui/settings_window.rs:187
 msgid "Search Engine"
 msgstr "搜索引擎"
 
-#: src/ui/settings_window.rs:614
+#: src/ui/settings_window.rs:595
+#: src/ui/settings_window.rs:975
 msgid "Search Window"
 msgstr "搜索窗口"
 
@@ -678,7 +745,7 @@ msgid "Search all files and folders"
 msgstr "搜索所有文件和文件夹"
 
 #: src/config.rs:164
-#: src/ui/search_window.rs:3391
+#: src/ui/search_window.rs:3320
 msgid "Search clipboard history"
 msgstr "搜索剪贴板历史记录"
 
@@ -686,27 +753,32 @@ msgstr "搜索剪贴板历史记录"
 msgid "Search emoji"
 msgstr "搜索表情符号"
 
-#: src/ui/settings_window.rs:93
+#: src/ui/settings_window.rs:120
+#: src/ui/settings_window.rs:366
 msgid "Search for new Apps"
 msgstr "同时搜索新应用"
 
-#: src/ui/settings_window.rs:1640
+#: src/ui/settings_window.rs:2001
 msgid "Search triggers"
 msgstr "搜索触发词"
 
-#: src/ui/search_window.rs:1577
+#: src/ui/search_window.rs:1554
 msgid "Searching for Bluetooth device{dots}"
 msgstr "正在搜索蓝牙设备{dots}"
 
-#: src/search/cmd.rs:1847
+#: src/search/cmd.rs:1846
 msgid "Searching for \"{query}\"…"
 msgstr "正在搜索 \\\"{query}\\\"…"
 
-#: src/ui/settings_window.rs:2441
+#: src/ui/settings_window.rs:602
+msgid "Select all"
+msgstr "全选"
+
+#: src/ui/settings_window.rs:2796
 msgid "Set shortcut…"
 msgstr "设置快捷键…"
 
-#: src/ui/settings_window.rs:1736
+#: src/ui/settings_window.rs:2097
 msgid "Set the trigger repository URL in the Trigger Repository row."
 msgstr "在“触发词仓库”行中设置触发词仓库的 URL。"
 
@@ -718,21 +790,33 @@ msgstr "设置"
 msgid "Settings: {title}"
 msgstr "设置：{title}"
 
-#: src/ui/settings_window.rs:582
+#: src/ui/settings_window.rs:943
 msgid "Shortcut to focus the Spotty launcher"
 msgstr "聚焦 Spotty 启动器的快捷键"
 
-#: src/ui/settings_window.rs:2094
+#: src/ui/settings_window.rs:2455
 msgid "Show Keyboard Shortcuts"
 msgstr "显示键盘快捷键"
 
-#: src/ui/settings_window.rs:316
+#: src/ui/settings_window.rs:719
 msgid "Show a badge and a desktop notification when updates exist"
 msgstr "有更新时显示徽章和桌面通知"
 
-#: src/ui/settings_window.rs:2142
+#: src/ui/settings_window.rs:535
+msgid "Show equivalents when no target unit is given"
+msgstr "未指定目标单位时显示等值换算"
+
+#: src/ui/settings_window.rs:497
+msgid "Show hex, octal and binary"
+msgstr "显示十六进制、八进制和二进制"
+
+#: src/ui/settings_window.rs:2503
 msgid "Show recently opened files and folders"
 msgstr "显示最近打开的文件和文件夹"
+
+#: src/ui/settings_window.rs:502
+msgid "Show the expression"
+msgstr "显示表达式"
 
 #: src/search/translate.rs:658
 #: src/search/translate.rs:665
@@ -748,16 +832,16 @@ msgstr ""
 msgid "Spotty Settings"
 msgstr "Spotty 设置"
 
-#: src/preview.rs:2875
-#: src/preview.rs:4737
+#: src/preview.rs:2831
+#: src/preview.rs:4693
 msgid "Spreadsheet"
 msgstr "电子表格"
 
-#: src/ui/settings_window.rs:705
+#: src/ui/settings_window.rs:1066
 msgid "Store"
 msgstr "商店"
 
-#: src/ui/settings_window.rs:88
+#: src/ui/settings_window.rs:100
 msgid "System, Flatpak and Snap apps"
 msgstr "系统、Flatpak 和 Snap 应用"
 
@@ -769,17 +853,21 @@ msgstr "目标：{name}"
 msgid "Text match: {snippet}"
 msgstr "文本匹配：{snippet}"
 
-#: src/ui/settings_window.rs:1336
+#: src/ui/settings_window.rs:1697
 msgid "The keyword \"{word}\" is already taken."
 msgstr "关键词 \\\"{word}\\\" 已被占用。"
 
-#: src/ui/settings_window.rs:1432
+#: src/ui/settings_window.rs:1793
 msgid "The repository has no triggers yet."
 msgstr "仓库中还没有触发词。"
 
-#: src/ui/search_window.rs:5219
+#: src/ui/search_window.rs:5150
 msgid "The trigger word and its files will be removed."
 msgstr "它的触发词及其文件将被移除。"
+
+#: src/ui/settings_window.rs:492
+msgid "Thousands separators"
+msgstr "千位分隔符"
 
 #: src/search/translate.rs:632
 msgid "Translate to {name}"
@@ -793,27 +881,28 @@ msgstr "正在翻译…"
 msgid "Translation unavailable"
 msgstr "翻译不可用"
 
-#: src/ui/settings_window.rs:1245
+#: src/ui/settings_window.rs:1606
 msgid "Trigger"
 msgstr "触发词"
 
-#: src/ui/settings_window.rs:1601
+#: src/ui/settings_window.rs:1962
 msgid "Trigger Store"
 msgstr "触发词商店"
 
-#: src/ui/settings_window.rs:1929
+#: src/ui/settings_window.rs:2290
 msgid "Trigger word"
 msgstr "触发词"
 
-#: src/ui/settings_window.rs:2232
+#: src/ui/settings_window.rs:2593
 msgid "Trigger word \"{word}\" is already in use"
 msgstr "触发词 \\\"{word}\\\" 已在使用中"
 
-#: src/ui/settings_window.rs:2227
+#: src/ui/settings_window.rs:2588
 msgid "Trigger word cannot be empty"
 msgstr "触发词不能为空"
 
-#: src/ui/settings_window.rs:671
+#: src/ui/settings_window.rs:637
+#: src/ui/settings_window.rs:1032
 msgid "Triggers"
 msgstr "触发词"
 
@@ -821,7 +910,7 @@ msgstr "触发词"
 msgid "Type a command to run"
 msgstr "输入要运行的命令"
 
-#: src/search/mod.rs:416
+#: src/search/mod.rs:481
 msgid "Type a command to run with {name}"
 msgstr "输入要与 {name} 一起运行的命令"
 
@@ -833,11 +922,11 @@ msgstr "输入关键词"
 msgid "Type a word to look up"
 msgstr "输入要查询的单词"
 
-#: src/search/cmd.rs:2099
+#: src/search/cmd.rs:2107
 msgid "Type all, flatpak, distro or a package name"
 msgstr "输入 all、flatpak、distro 或软件包名"
 
-#: src/search/mod.rs:394
+#: src/search/mod.rs:459
 msgid "Type something to search with {name}"
 msgstr "输入要用 {name} 搜索的内容"
 
@@ -845,146 +934,132 @@ msgstr "输入要用 {name} 搜索的内容"
 msgid "Type text to translate"
 msgstr "输入要翻译的文本"
 
-#: src/ui/search_window.rs:1445
-#: src/ui/search_window.rs:4795
+#: src/ui/search_window.rs:1422
+#: src/ui/search_window.rs:4750
+#: src/ui/settings_window.rs:603
 msgid "Undo"
 msgstr "撤销"
 
-#: src/search/cmd.rs:1560
-#: src/ui/search_window.rs:5222
-#: src/ui/settings_window.rs:1493
-#: src/ui/settings_window.rs:1800
+#: src/search/cmd.rs:1559
+#: src/ui/search_window.rs:5153
+#: src/ui/settings_window.rs:1854
+#: src/ui/settings_window.rs:2161
 msgid "Uninstall"
 msgstr "卸载"
 
-#: src/ui/settings_window.rs:1796
+#: src/ui/settings_window.rs:2157
 msgid "Uninstall \"{id}\"?"
 msgstr "卸载 \\\"{id}\\\" 吗？"
 
 #: src/ui/search_window.rs:1041
+#: src/ui/settings_window.rs:425
+#: src/ui/settings_window.rs:608
 msgid "Uninstall app"
 msgstr "卸载应用"
 
-#: src/ui/settings_window.rs:860
+#: src/ui/settings_window.rs:1221
 msgid "Uninstall trigger"
 msgstr "卸载触发词"
 
-#: src/ui/search_window.rs:2390
-#: src/ui/search_window.rs:5218
+#: src/ui/search_window.rs:2356
+#: src/ui/search_window.rs:5149
 msgid "Uninstall {name}?"
 msgstr "卸载 {name} 吗？"
 
-#: src/search/cmd.rs:2555
+#: src/search/cmd.rs:2587
 msgid "Uninstall: {name}"
 msgstr "卸载：{name}"
 
-#: src/search/cmd.rs:2559
+#: src/search/cmd.rs:2591
 msgid "Uninstalling {name}"
 msgstr "正在卸载 {name}"
 
-#: src/search/cmd.rs:1568
+#: src/ui/settings_window.rs:530
+msgid "Unit conversions"
+msgstr "单位换算"
+
+#: src/search/cmd.rs:1567
 msgid "Update"
 msgstr "更新"
 
-#: src/search/cmd.rs:2154
-#: src/ui/settings_window.rs:386
-#: src/ui/settings_window.rs:391
-#: src/ui/settings_window.rs:410
+#: src/search/cmd.rs:2150
+#: src/ui/settings_window.rs:794
+#: src/ui/settings_window.rs:799
+#: src/ui/settings_window.rs:816
 msgid "Update & Restart"
 msgstr "更新并重启"
 
-#: src/ui/search_window.rs:4857
+#: src/search/cmd.rs:2397
 msgid "Update all packages"
 msgstr "更新所有软件包"
 
-#: src/ui/search_window.rs:1127
-#: src/ui/search_window.rs:4885
-#: src/ui/settings_window.rs:462
-msgid "Update everything"
-msgstr "全部更新"
+#: src/search/cmd.rs:3334
+#: src/search/cmd.rs:3688
+msgid "Update checks are off"
+msgstr "更新检查已关闭"
 
-#: src/ui/search_window.rs:4858
+#: src/search/cmd.rs:2409
 msgid "Update flatpak packages"
 msgstr "更新 Flatpak 软件包"
 
-#: src/ui/search_window.rs:1135
-#: src/ui/search_window.rs:4887
-#: src/ui/settings_window.rs:469
-msgid "Update flatpak packages only"
-msgstr "仅更新 Flatpak 软件包"
-
-#: src/ui/settings_window.rs:315
+#: src/ui/settings_window.rs:718
 msgid "Update notification"
 msgstr "更新通知"
 
-#: src/ui/search_window.rs:4884
-msgid "Update now"
-msgstr "立即更新"
-
-#: src/ui/search_window.rs:4859
+#: src/search/cmd.rs:2444
 msgid "Update snap packages"
 msgstr "更新 Snap 软件包"
 
-#: src/ui/search_window.rs:4860
+#: src/search/cmd.rs:2431
 msgid "Update system packages"
 msgstr "更新系统软件包"
 
-#: src/ui/search_window.rs:1131
-#: src/ui/search_window.rs:4886
-#: src/ui/settings_window.rs:464
-msgid "Update system packages only"
-msgstr "仅更新系统软件包"
-
-#: src/search/cmd.rs:2263
-#: src/search/cmd.rs:2308
+#: src/search/cmd.rs:2259
 msgid "Update: {name}"
 msgstr "更新：{name}"
 
-#: src/ui/settings_window.rs:255
+#: src/ui/settings_window.rs:257
+#: src/ui/settings_window.rs:675
 msgid "Updates"
 msgstr "更新"
 
-#: src/ui/settings_window.rs:219
+#: src/ui/settings_window.rs:376
 msgid "Used for app search, install, and uninstall via the cmd trigger"
 msgstr "用于通过 cmd 触发词搜索、安装和卸载应用"
 
-#: src/ui/settings_window.rs:150
+#: src/ui/settings_window.rs:188
 msgid "Used for web search results"
 msgstr "用于网络搜索结果"
 
-#: src/ui/settings_window.rs:167
-#: src/ui/settings_window.rs:192
+#: src/ui/settings_window.rs:205
+#: src/ui/settings_window.rs:230
 msgid "Uses {name} (detected from your default browser)"
 msgstr "使用 {name}（从你的默认浏览器检测到）"
 
-#: src/ui/settings_window.rs:130
-#: src/ui/settings_window.rs:136
+#: src/ui/settings_window.rs:168
+#: src/ui/settings_window.rs:174
 msgid "Web Search"
 msgstr "网络搜索"
 
-#: src/ui/settings_window.rs:340
+#: src/ui/settings_window.rs:741
 msgid "Weekly"
 msgstr "每周"
 
-#: src/ui/settings_window.rs:1246
+#: src/ui/settings_window.rs:1607
 msgid "What you type to open it."
 msgstr "你输入什么来打开它。"
 
-#: src/ui/settings_window.rs:531
+#: src/ui/settings_window.rs:892
 msgid "Word: {word} · No shortcut"
 msgstr "词：{word} · 无快捷键"
 
-#: src/ui/settings_window.rs:533
+#: src/ui/settings_window.rs:894
 msgid "Word: {word} · {shortcut}"
 msgstr "词：{word} · {shortcut}"
 
-#: src/ui/search_window.rs:3912
+#: src/ui/search_window.rs:3841
 msgid "Yes"
 msgstr "是"
-
-#: src/search/cmd.rs:2367
-msgid "all packages ({sources})"
-msgstr "所有软件包（{sources}）"
 
 #: src/triggers.rs:346
 msgid "curl exited with {status}"
@@ -1001,7 +1076,7 @@ msgstr "空响应"
 msgid "id '{id}' is a built-in trigger"
 msgstr "id '{id}' 是内置触发词"
 
-#: src/search/cmd.rs:1553
+#: src/search/cmd.rs:1552
 msgid "install <app>  —  install from Flatpak, distro, or Snap"
 msgstr "install <app>  —  从 Flatpak、发行版或 Snap 安装"
 
@@ -1013,7 +1088,7 @@ msgstr "无效的 id '{id}'：只能使用字母、数字、_、- 和 ."
 msgid "just now"
 msgstr "刚刚"
 
-#: src/search/cmd.rs:1545
+#: src/search/cmd.rs:1544
 msgid "kill <app-name>  —  stop a running process"
 msgstr "kill <app-name>  —  停止运行中的进程"
 
@@ -1037,20 +1112,20 @@ msgstr "触发词 '{id}' 未安装"
 msgid "trigger word '{word}' is already in use"
 msgstr "触发词 '{word}' 已在使用中"
 
-#: src/search/cmd.rs:1561
+#: src/search/cmd.rs:1560
 msgid "uninstall <app>  —  remove an installed app"
 msgstr "uninstall <app>  —  移除已安装的应用"
 
-#: src/search/cmd.rs:1569
+#: src/search/cmd.rs:1568
 msgid "update  —  update installed packages"
 msgstr "update  —  更新已安装的软件包"
 
-#: src/search/cmd.rs:2521
-#: src/search/cmd.rs:2556
+#: src/search/cmd.rs:2553
+#: src/search/cmd.rs:2588
 msgid "via Flatpak ({app})"
 msgstr ""
 
-#: src/search/cmd.rs:2754
+#: src/search/cmd.rs:2786
 msgid "via snap"
 msgstr ""
 
@@ -1058,12 +1133,12 @@ msgstr ""
 msgid "web action needs a 'url' template"
 msgstr "web 操作需要 'url' 模板"
 
-#: src/search/cmd.rs:2523
+#: src/search/cmd.rs:2555
 msgid "{description} — via Flatpak ({app})"
 msgstr ""
 
-#: src/search/mod.rs:405
-#: src/search/mod.rs:432
+#: src/search/mod.rs:470
+#: src/search/mod.rs:497
 msgid "{name}: {query}"
 msgstr ""
 
@@ -1071,21 +1146,9 @@ msgstr ""
 msgid "{noun} {target} {suffix}"
 msgstr ""
 
-#: src/search/cmd.rs:2379
-msgid "{n} flatpak packages"
-msgstr "{n} 个 flatpak 软件包"
-
-#: src/search/cmd.rs:2412
-msgid "{n} snap packages"
-msgstr "{n} 个 snap 软件包"
-
-#: src/search/cmd.rs:2398
-msgid "{n} system packages ({pm})"
-msgstr "{n} 个系统软件包（{pm}）"
-
-#: src/search/cmd.rs:3401
-#: src/search/cmd.rs:3494
-#: src/ui/search_window.rs:3515
+#: src/search/cmd.rs:3603
+#: src/search/cmd.rs:3700
+#: src/ui/search_window.rs:3444
 msgid "{n} updates available"
 msgstr "有 {n} 项更新"
 
@@ -1106,17 +1169,16 @@ msgstr "{n} 分钟前"
 msgid "{pos} — {text}"
 msgstr ""
 
-#: src/search/cmd.rs:2274
-#: src/search/cmd.rs:2320
-#: src/ui/search_window.rs:4864
+#: src/search/cmd.rs:2270
+#: src/search/cmd.rs:2329
 msgid "{source} Update"
 msgstr "{source} 更新"
 
 #: src/operations.rs:175
 #: src/operations.rs:195
-#: src/operations.rs:846
-#: src/operations.rs:872
-#: src/operations.rs:897
+#: src/operations.rs:849
+#: src/operations.rs:875
+#: src/operations.rs:900
 msgid "{source} · {status}"
 msgstr ""
 
@@ -1130,7 +1192,7 @@ msgstr "{src} → {tgt}"
 msgid "{title} {suffix}"
 msgstr ""
 
-#: src/ui/search_window.rs:3664
+#: src/ui/search_window.rs:3593
 msgid "{title} — {detail}"
 msgstr ""
 
@@ -1138,7 +1200,7 @@ msgstr ""
 msgid "{word} — complete the word with Tab"
 msgstr "{word} — 按 Tab 补全单词"
 
-#: src/ui/settings_window.rs:1480
+#: src/ui/settings_window.rs:1841
 msgid "{word} — {description}"
 msgstr ""
 
@@ -1146,14 +1208,14 @@ msgstr ""
 msgid "• {text}"
 msgstr ""
 
-#: src/preview.rs:675
+#: src/preview.rs:651
 msgid "…and {n} more"
 msgstr "…还有 {n} 个"
 
-#: src/preview.rs:491
+#: src/preview.rs:476
 msgid "▶"
 msgstr ""
 
-#: src/preview.rs:481
+#: src/preview.rs:466
 msgid "◀"
 msgstr ""

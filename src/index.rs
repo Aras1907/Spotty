@@ -789,6 +789,25 @@ fn save_file_index(files: &[FileEntry]) {
     }
 }
 
+/// Drop `path` and everything indexed under it from the snapshot — called
+/// right after an item is trashed so its row disappears immediately. The
+/// change watcher only re-indexes the priority folders, so any other
+/// location would keep the stale row forever.
+pub fn prune_indexed_path(snap: &mut Snapshot, path: &std::path::Path) {
+    snap.files.retain(|f| !f.path.starts_with(path));
+}
+
+/// Persist the snapshot's file list off the caller's thread — used after a
+/// manual prune, since the watcher only writes when a priority folder
+/// changed (and the next restart would load the stale entry back).
+pub fn persist_files_async(snap: &Arc<RwLock<Snapshot>>) {
+    let snap = snap.clone();
+    thread::spawn(move || {
+        let files = snap.read().unwrap().files.clone();
+        save_file_index(&files);
+    });
+}
+
 fn load_cached_file_index() -> Option<Vec<FileEntry>> {
     let path = cached_index_path();
     let sig_path = cached_sig_path();
@@ -808,4 +827,63 @@ fn load_cached_file_index() -> Option<Vec<FileEntry>> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod prune_tests {
+    use super::{prune_indexed_path, FileEntry, Snapshot};
+    use std::path::PathBuf;
+
+    fn entry(p: &str) -> FileEntry {
+        FileEntry {
+            path: PathBuf::from(p),
+            name: String::new(),
+            name_lower: String::new(),
+            is_dir: false,
+        }
+    }
+
+    #[test]
+    fn prune_drops_the_path_and_its_children_only() {
+        let mut snap = Snapshot {
+            apps: Vec::new(),
+            files: vec![
+                entry("/home/u/.config/brave-container"),
+                entry("/home/u/.config/brave-container/Profile 1/cookies.sqlite"),
+                entry("/home/u/.config/brave-container-backup"),
+                entry("/home/u/.config/other"),
+            ],
+        };
+
+        prune_indexed_path(&mut snap, std::path::Path::new("/home/u/.config/brave-container"));
+
+        let left: Vec<String> = snap
+            .files
+            .iter()
+            .map(|f| f.path.display().to_string())
+            .collect();
+        // The trashed folder and its contents are gone; the sibling that
+        // merely shares the name prefix survives.
+        assert_eq!(
+            left,
+            vec![
+                "/home/u/.config/brave-container-backup",
+                "/home/u/.config/other"
+            ]
+        );
+    }
+
+    #[test]
+    fn prune_of_a_file_keeps_its_directory() {
+        let mut snap = Snapshot {
+            apps: Vec::new(),
+            files: vec![
+                entry("/home/u/Downloads/notes.txt"),
+                entry("/home/u/Downloads"),
+            ],
+        };
+        prune_indexed_path(&mut snap, std::path::Path::new("/home/u/Downloads/notes.txt"));
+        assert_eq!(snap.files.len(), 1);
+        assert_eq!(snap.files[0].path, PathBuf::from("/home/u/Downloads"));
+    }
 }

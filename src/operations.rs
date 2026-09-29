@@ -814,6 +814,9 @@ fn finish(id: u64, state: State) {
     // (off-thread; the live state clears itself after the user reboots).
     if was_update {
         crate::search::cmd::refresh_reboot_state();
+        // The pending list is stale now — drop it and re-check, so the
+        // rows/badge go away once the run really applied everything.
+        crate::search::cmd::refresh_updates_after_run();
     }
     nudge_ui();
     post_op_refresh();

@@ -489,7 +489,12 @@ pub fn update_verb_rows(query: &str, config: &Config) -> Option<Vec<SearchResult
         || verb == "upd"
         || verb.starts_with("upg");
     let prefix = rest.is_empty() && verb_completion(q).is_some();
-    if !exact && !prefix {
+    // A typo'd verb ("updte", "udpat") still opens the same list; two
+    // edits is strict enough that "upload" never counts as "update".
+    let typo = ["update", "updates", "upgrade"]
+        .iter()
+        .any(|v| crate::search::fuzzy_match(&verb, v));
+    if !exact && !prefix && !typo {
         return None;
     }
     let score = if rest.is_empty() { 100_000 } else { 50_000 };
@@ -531,6 +536,30 @@ pub fn ensure_updates_checked() {
 /// Refresh the cached update list once it is older than `max_age`. The
 /// background scheduler passes the user-configured interval, searches pass
 /// a short one so the list in the results stays fresh.
+/// Milliseconds of the last finished update run: a check that started
+/// before it can still contain the packages that run just installed, so its
+/// result is discarded instead of cached.
+static LAST_UPDATE_DONE: AtomicU64 = AtomicU64::new(0);
+
+/// True when the check started at `started` (ms) predates the last
+/// finished update run.
+fn check_is_stale(started: u64) -> bool {
+    started < LAST_UPDATE_DONE.load(Ordering::SeqCst)
+}
+
+/// Drop the cached pending list and remember when — see [`check_is_stale`].
+fn invalidate_update_cache() {
+    LAST_UPDATE_DONE.store(now_millis(), Ordering::SeqCst);
+    *update_cache().lock().unwrap() = None;
+}
+
+/// An update run finished: forget the stale pending list and check again
+/// right away, so the rows (and the badge) show what is actually left.
+pub fn refresh_updates_after_run() {
+    invalidate_update_cache();
+    ensure_updates_checked_age(Duration::ZERO);
+}
+
 pub fn ensure_updates_checked_age(max_age: Duration) {
     {
         let c = update_cache().lock().unwrap();
@@ -547,14 +576,25 @@ pub fn ensure_updates_checked_age(max_age: Duration) {
         }
         *f = true;
     }
-    std::thread::spawn(|| {
+    let started = now_millis();
+    std::thread::spawn(move || {
         let updates = fetch_updates();
-        *update_cache().lock().unwrap() = Some((Instant::now(), updates.clone()));
+        // A run finished while this check was in flight: its list can still
+        // contain the updated packages — drop it and check once more.
+        let stale = check_is_stale(started);
+        if !stale {
+            *update_cache().lock().unwrap() = Some((Instant::now(), updates.clone()));
+        }
         *update_fetching().lock().unwrap() = false;
         glib::MainContext::default().invoke(move || {
             crate::app::refresh_search_window();
-            notify_if_new(&updates);
+            if !stale {
+                notify_if_new(&updates);
+            }
         });
+        if stale {
+            ensure_updates_checked_age(Duration::ZERO);
+        }
     });
 }
 
@@ -572,47 +612,6 @@ pub fn periodic_update_check(config: &Config) {
 /// "Check now" in Settings → Updates: ignore the freshness window.
 pub fn check_updates_now() {
     ensure_updates_checked_age(Duration::ZERO);
-}
-
-/// True when `query` opens the update list ("update", "upd", "upgrade"...)
-/// — the context the update shortcuts (Ctrl+Enter / Ctrl+D / Ctrl+F) act in.
-pub fn in_update_context(query: &str) -> bool {
-    let first = query
-        .trim()
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    matches!(
-        first.as_str(),
-        "update" | "updates" | "upd" | "upgrade" | "upg"
-    )
-}
-
-/// Args for a shortcut-driven scope run right now — `None` when that scope
-/// has nothing pending, so the shortcut never fires an empty pkexec run.
-pub fn update_scope_args(scope: &str) -> Option<Vec<String>> {
-    let list = update_cache().lock().ok()?.as_ref()?.1.clone();
-    if list.is_empty() {
-        return None;
-    }
-    let has = |s: &str| list.iter().any(|u| u.source == s);
-    let src = match scope {
-        "all" => "all",
-        "flatpak" if has("flatpak") => "flatpak",
-        "snap" if has("snap") => "snap",
-        "distro" => list
-            .iter()
-            .map(|u| u.source.as_str())
-            .find(|s| matches!(*s, "dnf" | "apt" | "pacman" | "zypper"))?,
-        _ => return None,
-    };
-    let args = update_cmd_args(src, None);
-    if args.len() == 1 && args[0] == "true" {
-        None
-    } else {
-        Some(args)
-    }
 }
 
 fn update_cmd_args(source: &str, app_id: Option<&str>) -> Vec<String> {
@@ -2024,6 +2023,11 @@ pub fn update_results(query: &str, config: &Config) -> Vec<SearchResult> {
 }
 
 fn search_updates(query: &str, config: &Config) -> Vec<SearchResult> {
+    // Master switch off: the verb only offers to turn the feature back on
+    // (the badge and the background checks are gated elsewhere).
+    if !config.enable_updates {
+        return vec![update_toggle_row(config)];
+    }
     ensure_updates_checked();
     // Clone updates out of the cache so the lock is released before the
     // row builders touch it (std::sync::Mutex is not reentrant — holding
@@ -2040,80 +2044,72 @@ fn search_updates(query: &str, config: &Config) -> Vec<SearchResult> {
     }
     let rest = query.trim();
     let rl = rest.to_lowercase();
-    if *update_fetching().lock().unwrap() {
+    if *update_fetching().lock().unwrap() || updates.is_none() {
         out.push(check_now_row(
             gettext("Checking for updates…"),
             gettext("Press Enter to check again"),
             "emblem-synchronizing-symbolic",
         ));
     } else {
-        match &updates {
-            Some(list) if !list.is_empty() => {
-                // 1. Scopes — the choices behind "update ", "update
-                //    flatpak", "update all", "update distro"...
-                let scopes = scopes_from(list);
-                let mut matched = false;
-                let mut flatpak_scope = false;
-                let mut distro_scope = false;
-                let mut snap_scope = false;
-                for sc in &scopes {
-                    if rest.is_empty() || sc.matches(&rl) {
-                        out.push(sc.row());
-                        matched = true;
-                        match sc.key {
-                            "flatpak" => flatpak_scope = true,
-                            "distro" => distro_scope = true,
-                            "snap" => snap_scope = true,
-                            _ => {} // "all" already covers every package
-                        }
+        {
+            let list: &[UpdateInfo] = updates.as_deref().unwrap_or_default();
+            // 1. The scoped targets — the obvious things to type after
+            //    "update " ("update all", "update flatpak", "update system
+            //    packages", "update snap") — always offered, so they read
+            //    as recommendations even with nothing pending (idle rows
+            //    re-check on Enter instead of firing an empty run).
+            let scopes = scopes_from(list);
+            let mut matched = false;
+            let mut flatpak_scope = false;
+            let mut distro_scope = false;
+            let mut snap_scope = false;
+            for sc in &scopes {
+                if rest.is_empty() || sc.matches(&rl) {
+                    out.push(sc.row());
+                    matched = true;
+                    match sc.key {
+                        "flatpak" => flatpak_scope = true,
+                        "distro" => distro_scope = true,
+                        "snap" => snap_scope = true,
+                        _ => {} // "all" already covers every package
                     }
-                }
-                // 2. One row per pending package ("update firefox"). Picking
-                //    a source scope also lists its packages, so a single one
-                //    can still be chosen ("update flatpak" -> Firefox…).
-                let in_scope = |u: &UpdateInfo| match u.source.as_str() {
-                    "flatpak" => flatpak_scope,
-                    "snap" => snap_scope,
-                    _ => distro_scope,
-                };
-                let mut n = 0;
-                for u in list {
-                    if n >= 10 {
-                        break;
-                    }
-                    if rest.is_empty()
-                        || in_scope(u)
-                        || u.name.to_lowercase().contains(&rl)
-                        || package_display(u).to_lowercase().contains(&rl)
-                    {
-                        out.push(package_row(u));
-                        n += 1;
-                        matched = true;
-                    }
-                }
-                if !matched {
-                    out.push(SearchResult {
-                        kind: ResultKind::System,
-                        title: gettext("No matching updates").into(),
-                        subtitle: Some(
-                            gettext("Type all, flatpak, distro or a package name").into(),
-                        ),
-                        icon: Some("edit-find-symbolic".into()),
-                        action: Action::Noop,
-                        score: 1000,
-                    });
                 }
             }
-            _ => {
-                out.push(check_now_row(
-                    gettext("No updates available"),
-                    format!(
-                        "{} · {}",
-                        gettext("All packages are up to date"),
-                        gettext("Press Enter to check again")
+            // 2. One row per pending package ("update firefox"). Picking a
+            //    source scope also lists its packages, so a single one can
+            //    still be chosen ("update flatpak" -> Firefox…).
+            let in_scope = |u: &UpdateInfo| match u.source.as_str() {
+                "flatpak" => flatpak_scope,
+                "snap" => snap_scope,
+                _ => distro_scope,
+            };
+            let mut n = 0;
+            for u in list {
+                if n >= 10 {
+                    break;
+                }
+                if rest.is_empty()
+                    || in_scope(u)
+                    || u.name.to_lowercase().contains(&rl)
+                    || package_display(u).to_lowercase().contains(&rl)
+                    || crate::search::fuzzy_match(&rl, &package_display(u))
+                {
+                    out.push(package_row(u));
+                    n += 1;
+                    matched = true;
+                }
+            }
+            if !matched {
+                out.push(SearchResult {
+                    kind: ResultKind::System,
+                    title: gettext("No matching updates").into(),
+                    subtitle: Some(
+                        gettext("Type all, flatpak, distro or a package name").into(),
                     ),
-                    "object-select-symbolic",
-                ));
+                    icon: Some("edit-find-symbolic".into()),
+                    action: Action::Noop,
+                    score: 1000,
+                });
             }
         }
     }
@@ -2280,47 +2276,80 @@ fn package_row(u: &UpdateInfo) -> SearchResult {
 }
 
 /// A target the user can type after the verb: "update all", "update
-/// flatpak", "update distro" (the detected PM), "update snap".
+/// flatpak", "update system" (the detected PM), "update snap". The scopes
+/// are always offered — the obvious targets after "update " — with the
+/// subtitle telling whether that target has anything pending.
 #[derive(Debug)]
 struct Scope {
-    /// What the user types (and what the ghost suggestion completes to).
+    /// What the user types: "all" | "flatpak" | "distro" | "snap".
     key: &'static str,
     /// Source name `update_cmd_args` understands ("distro" -> detected PM).
     cmd: String,
     /// Typing keywords that select this scope.
     kws: Vec<String>,
-    /// Title name: "all packages (flatpak, dnf)", "2 flatpak packages"...
-    name: String,
-    /// Sources, shown in the row subtitle.
+    /// The canonical typed target ("system" for the distro scope) — what
+    /// ghost text completes the query to.
+    typed: String,
+    /// Row title: "Update all packages", "Update flatpak packages"...
+    title: String,
+    /// Pending packages in this scope (0 = idle, Enter re-checks).
+    count: usize,
+    /// Sources, shown in the subtitle while pending.
     sources: String,
     /// Package lines this scope would upgrade (the preview list).
     details: Vec<String>,
 }
 
 impl Scope {
-    /// True when the typed target ("update f") picks this scope.
+    /// True when the typed target ("update f", "update sytem") picks this
+    /// scope — prefix first, fuzzy for typos.
     fn matches(&self, rl: &str) -> bool {
-        self.kws.iter().any(|k| k.starts_with(rl))
+        self.kws
+            .iter()
+            .any(|k| k.starts_with(rl) || crate::search::fuzzy_match(rl, k))
     }
 
     /// The result row for this scope.
     fn row(&self) -> SearchResult {
-        let title = gettext("Update: {name}").replace("{name}", &self.name);
+        let title = self.title.clone();
         remember_details(&title, self.details.clone());
-        remember_query(&title, format!("update {}", self.key));
-        let args = update_cmd_args(&self.cmd, None);
-        let icon = "software-update-available-symbolic";
+        remember_query(&title, format!("update {}", self.typed));
+        // Pending rows advertise the update; idle ones show the checkmark —
+        // there is nothing to do for that target.
+        let icon = if self.count > 0 {
+            "software-update-available-symbolic"
+        } else {
+            "object-select-symbolic"
+        };
+        let (subtitle, action) = if self.count > 0 {
+            (
+                format!("{} — update available", self.sources),
+                Action::StartOperation {
+                    title: title.clone(),
+                    source: gettext("{source} Update").replace("{source}", &self.cmd),
+                    icon: icon.to_string(),
+                    args: update_cmd_args(&self.cmd, None),
+                },
+            )
+        } else {
+            // Nothing pending for this target: the recommendation still
+            // shows, and Enter re-checks instead of firing an empty run.
+            let state = if self.key == "all" {
+                gettext("No updates available")
+            } else {
+                gettext("Nothing pending")
+            };
+            (
+                format!("{} · {}", state, gettext("Press Enter to check again")),
+                Action::CheckUpdates,
+            )
+        };
         SearchResult {
             kind: ResultKind::System,
-            title: title.clone(),
-            subtitle: Some(format!("{} — update available", self.sources)),
+            title,
+            subtitle: Some(subtitle),
             icon: Some(icon.to_string()),
-            action: Action::StartOperation {
-                title,
-                source: gettext("{source} Update").replace("{source}", &self.cmd),
-                icon: icon.to_string(),
-                args,
-            },
+            action,
             score: match self.key {
                 "all" => 2000,
                 "flatpak" => 1900,
@@ -2348,9 +2377,10 @@ fn scope_group(
     (details.len(), details, sources)
 }
 
-/// The scopes offered for `list`, in typing order: all, flatpak, distro,
-/// snap — only the ones with something pending.
+/// The scopes offered for `list`, in typing order: all, flatpak, system,
+/// snap — always shown (pending or not) so they read as recommendations.
 fn scopes_from(list: &[UpdateInfo]) -> Vec<Scope> {
+    ensure_snap_available();
     let mut out = Vec::new();
     let pm = list
         .iter()
@@ -2359,57 +2389,60 @@ fn scopes_from(list: &[UpdateInfo]) -> Vec<Scope> {
         .map(str::to_string);
 
     let (count, details, sources) = scope_group(list, |_| true);
-    if count > 0 {
-        out.push(Scope {
-            key: "all",
-            cmd: "all".into(),
-            kws: vec!["all".into(), "everything".into()],
-            name: gettext("all packages ({sources})")
-                .replace("{sources}", &sources.join(", ")),
-            sources: sources.join(", "),
-            details,
-        });
-    }
+    out.push(Scope {
+        key: "all",
+        cmd: "all".into(),
+        kws: vec!["all".into(), "everything".into()],
+        typed: "all".into(),
+        title: gettext("Update all packages"),
+        count,
+        sources: sources.join(", "),
+        details,
+    });
+
     let (count, details, sources) = scope_group(list, |s| s == "flatpak");
-    if count > 0 {
-        out.push(Scope {
-            key: "flatpak",
-            cmd: "flatpak".into(),
-            kws: vec!["flatpak".into(), "flathub".into()],
-            name: gettext("{n} flatpak packages").replace("{n}", &count.to_string()),
-            sources: sources.join(", "),
-            details,
-        });
-    }
+    out.push(Scope {
+        key: "flatpak",
+        cmd: "flatpak".into(),
+        kws: vec!["flatpak".into(), "flathub".into()],
+        typed: "flatpak".into(),
+        title: gettext("Update flatpak packages"),
+        count,
+        sources: sources.join(", "),
+        details,
+    });
+
+    let distro_sources = ["dnf", "apt", "pacman", "zypper"];
+    let (count, details, sources) = scope_group(list, |s| distro_sources.contains(&s));
+    let mut kws = vec![
+        "distro".into(),
+        "distribution".into(),
+        "system".into(),
+        "sys".into(),
+    ];
     if let Some(pm) = &pm {
-        let pm_for_group = pm.clone();
-        let (count, details, sources) = scope_group(list, move |s| s == pm_for_group);
-        if count > 0 {
-            out.push(Scope {
-                key: "distro",
-                cmd: pm.clone(),
-                kws: vec![
-                    "distro".into(),
-                    "distribution".into(),
-                    "system".into(),
-                    "sys".into(),
-                    pm.clone(),
-                ],
-                name: gettext("{n} system packages ({pm})")
-                    .replace("{n}", &count.to_string())
-                    .replace("{pm}", pm),
-                sources: sources.join(", "),
-                details,
-            });
-        }
+        kws.push(pm.clone());
     }
+    out.push(Scope {
+        key: "distro",
+        cmd: pm.unwrap_or_default(),
+        kws,
+        typed: "system".into(),
+        title: gettext("Update system packages"),
+        count,
+        sources: sources.join(", "),
+        details,
+    });
+
     let (count, details, sources) = scope_group(list, |s| s == "snap");
-    if count > 0 {
+    if count > 0 || snap_is_available() == Some(true) {
         out.push(Scope {
             key: "snap",
             cmd: "snap".into(),
             kws: vec!["snap".into(), "snapd".into()],
-            name: gettext("{n} snap packages").replace("{n}", &count.to_string()),
+            typed: "snap".into(),
+            title: gettext("Update snap packages"),
+            count,
             sources: sources.join(", "),
             details,
         });
@@ -2417,8 +2450,7 @@ fn scopes_from(list: &[UpdateInfo]) -> Vec<Scope> {
     out
 }
 
-/// The "No updates available" / "Checking for updates..." rows: Enter
-/// re-runs the check instead of doing nothing.
+/// The "Checking for updates..." row: Enter re-runs the check.
 fn check_now_row(title: String, subtitle: String, icon: &str) -> SearchResult {
     SearchResult {
         kind: ResultKind::System,
@@ -2766,9 +2798,12 @@ fn snap_uninstall_result(pkg: &DistroPackage) -> SearchResult {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn matches_verb(verb: &str, candidates: &[&str]) -> bool {
-    candidates
-        .iter()
-        .any(|c| *c == verb || c.starts_with(verb) || verb.starts_with(c))
+    candidates.iter().any(|c| {
+        *c == verb
+            || c.starts_with(verb)
+            || verb.starts_with(c)
+            || crate::search::fuzzy_match(verb, c)
+    })
 }
 
 fn shell_safe(s: &str) -> String {
@@ -2837,16 +2872,6 @@ mod tests {
     }
 
     #[test]
-    fn update_context_follows_the_verb() {
-        for q in ["update", "update flatpak", "upd", "upgrade now", "  UPDATE  "] {
-            assert!(super::in_update_context(q), "{q:?}");
-        }
-        for q in ["", "install", "up", "find foo"] {
-            assert!(!super::in_update_context(q), "{q:?}");
-        }
-    }
-
-    #[test]
     fn one_cache_entry_per_package_and_scopes_on_top() {
         // The cache holds one entry per *real* package: aggregates are
         // built for display only, so they can never inflate the
@@ -2881,13 +2906,69 @@ mod tests {
         assert_eq!(duo.len(), 2, "dnf + snap: {duo:?}");
         let scopes = super::scopes_from(&duo);
         let keys: Vec<&str> = scopes.iter().map(|s| s.key).collect();
-        assert_eq!(keys, vec!["all", "distro", "snap"], "{scopes:?}");
+        // The recommendations are always offered, in typing order.
+        assert_eq!(keys[..3], ["all", "flatpak", "distro"], "{scopes:?}");
         assert_eq!(scopes[0].details.len(), 2, "all scope merges both");
-        assert_eq!(scopes[1].cmd, "dnf", "distro scope runs the detected PM");
+        assert_eq!(scopes[2].cmd, "dnf", "system scope runs the detected PM");
         assert!(scopes[0].matches("a"));
-        assert!(scopes[1].matches("d") && scopes[1].matches("dnf"));
-        assert!(scopes[2].matches("sn"));
-        assert!(!scopes[2].matches("f"));
+        assert!(scopes[1].matches("f") && scopes[1].matches("flatpak"));
+        assert!(scopes[2].matches("d") && scopes[2].matches("system"));
+        // …even for a source with nothing pending.
+        assert_eq!(scopes[1].count, 0, "flatpak idle but still shown");
+        assert_eq!(scopes[2].count, 1, "one distro package pending");
+    }
+
+    #[test]
+    fn typoed_update_search_still_finds_everything() {
+        let _g = cache_guard();
+        {
+            let mut c = super::update_cache().lock().unwrap();
+            *c = Some((
+                std::time::Instant::now(),
+                vec![
+                    super::UpdateInfo {
+                        source: "flatpak".into(),
+                        app_id: Some("org.mozilla.firefox".into()),
+                        name: "Firefox".into(),
+                        details: vec!["Firefox".into()],
+                    },
+                    super::UpdateInfo {
+                        source: "dnf".into(),
+                        app_id: None,
+                        name: "vim.x86_64  2:9.2.1129-1.fc44".into(),
+                        details: vec!["vim.x86_64  2:9.2.1129-1.fc44".into()],
+                    },
+                ],
+            ));
+        }
+        let cfg = crate::config::Config::default();
+
+        // A typo'd verb still opens the list — only two edits away.
+        assert!(super::update_verb_rows("updte", &cfg).is_some(), "typo verb");
+        assert!(super::update_verb_rows("Updte flatpak", &cfg).is_some(), "typo verb + target");
+        // …unrelated words stay out.
+        assert!(super::update_verb_rows("upload", &cfg).is_none(), "upload");
+        assert!(super::update_verb_rows("updateing", &cfg).is_none(), "updateing");
+
+        // Typo'd targets pick their scope and package.
+        for (q, want) in [
+            ("sytem", "Update system packages"),
+            ("flk", "Update flatpak packages"),
+            ("aall", "Update all packages"),
+        ] {
+            let rows = super::update_results(q, &cfg);
+            assert!(
+                rows.iter().any(|r| r.title == want),
+                "{q:?} should match {want:?}: {:?}",
+                rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>()
+            );
+        }
+        let rows = super::update_results("firfox", &cfg);
+        assert!(
+            rows.iter().any(|r| r.title == "Update: Firefox"),
+            "firfox should match the package: {:?}",
+            rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -2918,34 +2999,41 @@ mod tests {
         // "update" → scopes first, then one row per pending package.
         let rows = super::update_results("", &cfg);
         let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
-        assert!(titles.iter().any(|t| t.contains("all packages (")), "{titles:?}");
-        assert!(titles.iter().any(|t| t.contains("1 flatpak packages")), "{titles:?}");
-        assert!(titles.iter().any(|t| t.contains("1 system packages (dnf)")), "{titles:?}");
+        assert!(titles.contains(&"Update all packages"), "{titles:?}");
+        assert!(titles.contains(&"Update flatpak packages"), "{titles:?}");
+        assert!(titles.contains(&"Update system packages"), "{titles:?}");
         assert!(titles.contains(&"Update: Firefox"), "{titles:?}");
         assert!(titles.contains(&"Update: vim.x86_64"), "{titles:?}");
-        let all_i = titles.iter().position(|t| t.contains("all packages")).unwrap();
+        let all_i = titles.iter().position(|t| *t == "Update all packages").unwrap();
         let pkg_i = titles.iter().position(|t| *t == "Update: Firefox").unwrap();
         assert!(all_i < pkg_i, "scope rows rank above packages: {titles:?}");
 
         // The ghost suggestions each row completes to.
-        let all_title = titles.iter().find(|t| t.contains("all packages")).unwrap();
-        assert_eq!(super::query_for(all_title).as_deref(), Some("update all"));
+        assert_eq!(super::query_for("Update all packages").as_deref(), Some("update all"));
+        assert_eq!(
+            super::query_for("Update flatpak packages").as_deref(),
+            Some("update flatpak")
+        );
+        assert_eq!(
+            super::query_for("Update system packages").as_deref(),
+            Some("update system")
+        );
         assert_eq!(super::query_for("Update: Firefox").as_deref(), Some("update Firefox"));
         assert_eq!(super::query_for("no such row"), None);
 
-        // "update flatpak" → the flatpak scope + its package, nothing distro.
+        // "update flatpak" → the flatpak scope + its package, nothing system.
         let rows = super::update_results("flatpak", &cfg);
         let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
-        assert!(titles.iter().any(|t| t.contains("1 flatpak packages")), "{titles:?}");
+        assert!(titles.contains(&"Update flatpak packages"), "{titles:?}");
         assert!(titles.contains(&"Update: Firefox"), "{titles:?}");
-        assert!(!titles.iter().any(|t| t.contains("system packages")), "{titles:?}");
+        assert!(!titles.contains(&"Update system packages"), "{titles:?}");
 
-        // "update d|di|distro|dnf|system" all pick the distro scope.
+        // "update d|di|distro|dnf|system" all pick the system scope.
         for q in ["d", "di", "distro", "dnf", "system"] {
             let rows = super::update_results(q, &cfg);
             assert!(
-                rows.iter().any(|r| r.title.contains("system packages (dnf)")),
-                "{q:?} should select the distro scope: {:?}",
+                rows.iter().any(|r| r.title == "Update system packages"),
+                "{q:?} should select the system scope: {:?}",
                 rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>()
             );
         }
@@ -2959,7 +3047,7 @@ mod tests {
     }
 
     #[test]
-    fn no_updates_offers_a_recheck_on_enter() {
+    fn idle_scopes_stay_visible_and_recheck_on_enter() {
         let _g = cache_guard();
         {
             let mut c = super::update_cache().lock().unwrap();
@@ -2967,44 +3055,30 @@ mod tests {
         }
         let cfg = crate::config::Config::default();
         let rows = super::update_results("", &cfg);
-        let row = rows
-            .iter()
-            .find(|r| r.title.contains("No updates available"))
-            .expect("no-updates row");
-        assert!(
-            matches!(row.action, crate::search::Action::CheckUpdates),
-            "Enter re-checks: {:?}",
-            row.action
-        );
-    }
-
-    #[test]
-    fn scope_shortcuts_only_fire_with_something_pending() {
-        let _g = cache_guard();
-        {
-            let mut c = super::update_cache().lock().unwrap();
-            *c = Some((std::time::Instant::now(), Vec::new()));
+        // The three recommendations show even with nothing pending, and
+        // Enter re-checks instead of firing an empty run.
+        for (title, state) in [
+            ("Update all packages", crate::i18n::gettext("No updates available")),
+            ("Update flatpak packages", crate::i18n::gettext("Nothing pending")),
+            ("Update system packages", crate::i18n::gettext("Nothing pending")),
+        ] {
+            let row = rows
+                .iter()
+                .find(|r| r.title == title)
+                .unwrap_or_else(|| panic!("{title} missing: {:?}", rows.iter().map(|r| &r.title).collect::<Vec<_>>()));
+            assert!(
+                matches!(row.action, crate::search::Action::CheckUpdates),
+                "{title}: {:?}",
+                row.action
+            );
+            let sub = row.subtitle.as_deref().unwrap_or_default();
+            assert!(sub.contains(&state), "{title}: {sub}");
+            assert!(sub.contains("Press Enter to check again"), "{title}: {sub}");
+            // …and still complete their typed command for ghost text.
+            assert!(super::query_for(&row.title).is_some(), "{title}");
+            // Nothing to update → the checkmark, not the update glyph.
+            assert_eq!(row.icon.as_deref(), Some("object-select-symbolic"), "{title}");
         }
-        assert!(super::update_scope_args("all").is_none(), "empty cache");
-        assert!(super::update_scope_args("flatpak").is_none());
-        {
-            let mut c = super::update_cache().lock().unwrap();
-            *c = Some((
-                std::time::Instant::now(),
-                vec![super::UpdateInfo {
-                    source: "dnf".into(),
-                    app_id: None,
-                    name: "vim.x86_64  2:9.2".into(),
-                    details: vec!["vim.x86_64  2:9.2".into()],
-                }],
-            ));
-        }
-        let all = super::update_scope_args("all").expect("all runs");
-        assert!(all.join(" ").contains("dnf upgrade"), "{all:?}");
-        let sys = super::update_scope_args("distro").expect("distro runs");
-        assert!(sys.join(" ").contains("dnf"), "{sys:?}");
-        assert!(super::update_scope_args("flatpak").is_none(), "nothing flatpak pending");
-        assert!(super::update_scope_args("snap").is_none(), "nothing snap pending");
     }
 
     #[test]
@@ -3123,7 +3197,121 @@ mod tests {
             "enable/disable row"
         );
         assert!(super::updates_pending());
-        assert_eq!(super::update_status_text(), crate::i18n::gettext("One update available"));
+        assert_eq!(
+            super::update_status_text(true),
+            crate::i18n::gettext("One update available")
+        );
+    }
+
+    #[test]
+    fn a_finished_run_forgets_the_stale_pending_list() {
+        use std::sync::atomic::Ordering;
+        let _g = cache_guard();
+        {
+            let mut c = super::update_cache().lock().unwrap();
+            *c = Some((
+                std::time::Instant::now(),
+                vec![super::UpdateInfo {
+                    source: "dnf".into(),
+                    app_id: None,
+                    name: "vim.x86_64  2:9.2".into(),
+                    details: vec!["vim.x86_64  2:9.2".into()],
+                }],
+            ));
+        }
+
+        super::invalidate_update_cache();
+        assert!(
+            super::update_cache().lock().unwrap().is_none(),
+            "the stale pending list is dropped"
+        );
+        assert!(
+            super::LAST_UPDATE_DONE.load(Ordering::SeqCst) > 0,
+            "the run moment is remembered"
+        );
+
+        // A check that started after the run is trusted…
+        assert!(!super::check_is_stale(super::now_millis() + 60_000));
+        // …one that started before it is not.
+        assert!(super::check_is_stale(1));
+
+        super::LAST_UPDATE_DONE.store(0, Ordering::SeqCst);
+    }
+
+    #[test]
+    fn icons_tell_pending_from_nothing_to_update() {
+        let _g = cache_guard();
+        {
+            let mut c = super::update_cache().lock().unwrap();
+            *c = Some((
+                std::time::Instant::now(),
+                vec![super::UpdateInfo {
+                    source: "dnf".into(),
+                    app_id: None,
+                    name: "vim.x86_64  2:9.2".into(),
+                    details: vec!["vim.x86_64  2:9.2".into()],
+                }],
+            ));
+        }
+        let cfg = crate::config::Config::default();
+        let rows = super::update_results("", &cfg);
+        let pending = rows
+            .iter()
+            .find(|r| r.title == "Update system packages")
+            .expect("pending system scope");
+        assert_eq!(
+            pending.icon.as_deref(),
+            Some("software-update-available-symbolic"),
+            "pending keeps the update glyph"
+        );
+        let idle = rows
+            .iter()
+            .find(|r| r.title == "Update flatpak packages")
+            .expect("idle flatpak scope");
+        assert_eq!(
+            idle.icon.as_deref(),
+            Some("object-select-symbolic"),
+            "idle shows the checkmark: {:?}",
+            idle.icon
+        );
+    }
+
+    #[test]
+    fn disabled_updates_offer_only_the_enable_row() {
+        let _g = cache_guard();
+        {
+            let mut c = super::update_cache().lock().unwrap();
+            *c = Some((
+                std::time::Instant::now(),
+                vec![super::UpdateInfo {
+                    source: "dnf".into(),
+                    app_id: None,
+                    name: "vim.x86_64  2:9.2".into(),
+                    details: vec!["vim.x86_64  2:9.2".into()],
+                }],
+            ));
+        }
+        let mut cfg = crate::config::Config::default();
+        cfg.enable_updates = false;
+
+        // Everything else disappears — even with updates pending…
+        for rows in [
+            super::update_results("", &cfg),
+            super::update_verb_rows("update", &cfg).expect("verb rows"),
+        ] {
+            assert_eq!(
+                rows.len(),
+                1,
+                "{:?}",
+                rows.iter().map(|r| &r.title).collect::<Vec<_>>()
+            );
+            assert_eq!(rows[0].title, crate::i18n::gettext("Enable update checks"));
+            assert!(
+                matches!(rows[0].action, crate::search::Action::ToggleUpdates),
+                "{:?}",
+                rows[0].action
+            );
+        }
     }
 
     #[test]
@@ -3136,10 +3324,15 @@ mod tests {
         // The Settings status row says "No updates available" — never
         // "0 updates available".
         assert_eq!(
-            super::update_status_text(),
+            super::update_status_text(true),
             crate::i18n::gettext("No updates available")
         );
         assert!(!super::updates_checking());
+        // Switch off: the status says so instead of counting anything.
+        assert_eq!(
+            super::update_status_text(false),
+            crate::i18n::gettext("Update checks are off")
+        );
     }
 
     #[test]
@@ -3214,6 +3407,15 @@ mod tests {
 }
 
 // ── Update notice + reboot state (badge/banner near the orb) ─────────────────
+
+/// Milliseconds since the epoch — finer than [`now_epoch`] so a check can
+/// be ordered precisely against the moment an update run finished.
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 fn now_epoch() -> i64 {
     std::time::SystemTime::now()
@@ -3479,8 +3681,12 @@ pub fn query_for(title: &str) -> Option<String> {
         .and_then(|g| g.get(title).cloned())
 }
 
-/// One-line status for Settings → Updates (and the search rows).
-pub fn update_status_text() -> String {
+/// One-line status for Settings → Updates; with the feature off it says
+/// so instead of a stale count.
+pub fn update_status_text(enabled: bool) -> String {
+    if !enabled {
+        return gettext("Update checks are off");
+    }
     if updates_checking() {
         return gettext("Checking for updates…");
     }

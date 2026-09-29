@@ -16,35 +16,31 @@ msgstr ""
 msgid "    “{ex}”"
 msgstr ""
 
-#: src/preview.rs:486
+#: src/preview.rs:471
 msgid "1 / 1"
 msgstr ""
 
-#: src/ui/settings_window.rs:495
+#: src/ui/settings_window.rs:320
 msgid "About"
 msgstr "Giới thiệu"
 
-#: src/ui/settings_window.rs:498
+#: src/ui/settings_window.rs:323
 msgid "About Spotty"
 msgstr "Giới thiệu Spotty"
 
-#: src/ui/settings_window.rs:1216
+#: src/ui/settings_window.rs:1577
 msgid "Add Trigger"
 msgstr "Thêm trigger"
 
-#: src/ui/settings_window.rs:941
+#: src/ui/settings_window.rs:1302
 msgid "Add Trigger Word"
 msgstr "Thêm từ trigger"
 
-#: src/ui/settings_window.rs:1616
+#: src/ui/settings_window.rs:1977
 msgid "Add a local trigger"
 msgstr "Thêm trigger cục bộ"
 
-#: src/search/cmd.rs:2112
-msgid "All packages are up to date"
-msgstr "Tất cả gói đều đã cập nhật"
-
-#: src/ui/settings_window.rs:2127
+#: src/ui/settings_window.rs:2488
 msgid "Allow typing / or ~/ to browse the filesystem directly"
 msgstr "Cho phép gõ / hoặc ~/ để duyệt hệ thống tệp trực tiếp"
 
@@ -52,33 +48,38 @@ msgstr "Cho phép gõ / hoặc ~/ để duyệt hệ thống tệp trực tiếp
 msgid "Already {language}"
 msgstr "Đã là {language}"
 
-#: src/ui/settings_window.rs:94
+#: src/ui/settings_window.rs:121
 msgid "Also suggest installable apps as you type"
 msgstr "Gợi ý cả ứng dụng có thể cài đặt khi gõ"
 
-#: src/ui/settings_window.rs:137
+#: src/ui/settings_window.rs:175
 msgid "Always show web search row"
 msgstr "Luôn hiển thị dòng tìm kiếm web"
 
-#: src/ui/settings_window.rs:87
+#: src/ui/settings_window.rs:99
+#: src/ui/settings_window.rs:416
 msgid "Applications"
 msgstr "Ứng dụng"
 
-#: src/ui/search_window.rs:2185
-#: src/ui/search_window.rs:3171
+#: src/ui/search_window.rs:2151
+#: src/ui/search_window.rs:3100
 msgid "Are you sure you want to install {name}?"
 msgstr "Bạn có chắc muốn cài {name} không?"
 
-#: src/ui/search_window.rs:2189
-#: src/ui/search_window.rs:3175
+#: src/ui/search_window.rs:2155
+#: src/ui/search_window.rs:3104
 msgid "Are you sure you want to uninstall {name}?"
 msgstr "Bạn có chắc muốn gỡ {name} không?"
 
-#: src/ui/search_window.rs:2200
-#: src/ui/search_window.rs:3215
-#: src/ui/settings_window.rs:420
+#: src/ui/search_window.rs:2166
+#: src/ui/search_window.rs:3144
+#: src/ui/settings_window.rs:826
 msgid "Are you sure?"
 msgstr "Bạn chắc chứ?"
+
+#: src/ui/settings_window.rs:142
+msgid "Arithmetic, units, currency and number bases"
+msgstr "Toán học, đơn vị, tiền tệ và cơ số"
 
 #: src/search/translate.rs:579
 #: src/search/translate.rs:665
@@ -95,124 +96,142 @@ msgstr "Quay lại Tự động (ngôn ngữ hệ thống)"
 msgid "Bluetooth devices"
 msgstr "Thiết bị Bluetooth"
 
-#: src/ui/settings_window.rs:706
+#: src/ui/settings_window.rs:1067
 msgid "Browse and install triggers"
 msgstr "Duyệt và cài trigger"
 
-#: src/ui/settings_window.rs:99
-msgid "Calculator"
-msgstr "Máy tính"
+#: src/ui/settings_window.rs:141
+#: src/ui/settings_window.rs:456
+msgid "Calculator & Conversions"
+msgstr "Máy tính và chuyển đổi"
 
 #: src/ui/result_row.rs:301
 #: src/ui/search_window.rs:529
 #: src/ui/search_window.rs:754
-#: src/ui/search_window.rs:2202
-#: src/ui/search_window.rs:3217
-#: src/ui/search_window.rs:4765
-#: src/ui/search_window.rs:5221
-#: src/ui/settings_window.rs:422
-#: src/ui/settings_window.rs:1037
-#: src/ui/settings_window.rs:1799
+#: src/ui/search_window.rs:2168
+#: src/ui/search_window.rs:3146
+#: src/ui/search_window.rs:4720
+#: src/ui/search_window.rs:5152
+#: src/ui/settings_window.rs:828
+#: src/ui/settings_window.rs:1398
+#: src/ui/settings_window.rs:2160
 msgid "Cancel"
 msgstr "Hủy"
 
-#: src/ui/settings_window.rs:1572
+#: src/ui/settings_window.rs:1933
 msgid "Cannot save the manifest: {e}"
 msgstr "Không thể lưu manifest: {e}"
 
-#: src/ui/settings_window.rs:1364
+#: src/ui/settings_window.rs:1725
 msgid "Cannot save the trigger: {e}"
 msgstr "Không thể lưu trigger: {e}"
 
-#: src/ui/settings_window.rs:330
+#: src/ui/settings_window.rs:731
 msgid "Check every"
 msgstr "Tần suất kiểm tra"
 
-#: src/ui/settings_window.rs:260
-msgid "Check for updates"
-msgstr "Kiểm tra cập nhật"
-
-#: src/ui/settings_window.rs:272
+#: src/ui/settings_window.rs:683
+#: src/ui/settings_window.rs:691
 msgid "Check now"
 msgstr "Kiểm tra ngay"
 
-#: src/search/cmd.rs:1854
+#: src/search/cmd.rs:1853
 msgid "Check spelling or try a different name"
 msgstr "Kiểm tra chính tả hoặc thử tên khác"
 
-#: src/search/cmd.rs:2008
+#: src/search/cmd.rs:2007
 msgid "Check spelling or try fewer characters"
 msgstr "Kiểm tra chính tả hoặc thử ít ký tự hơn"
 
-#: src/search/cmd.rs:2045
-#: src/search/cmd.rs:3485
-#: src/search/cmd.rs:3495
+#: src/search/cmd.rs:2049
+#: src/search/cmd.rs:3691
+#: src/search/cmd.rs:3701
 msgid "Checking for updates…"
 msgstr "Đang kiểm tra cập nhật…"
 
-#: src/ui/settings_window.rs:82
+#: src/ui/settings_window.rs:92
 msgid "Choose what types of results appear"
 msgstr "Chọn loại kết quả sẽ hiển thị"
 
-#: src/ui/settings_window.rs:2026
+#: src/ui/settings_window.rs:2387
 msgid "Clipboard"
 msgstr "Bảng tạm"
 
-#: src/preview.rs:619
+#: src/preview.rs:602
 msgid "Clipped {time}"
 msgstr "Đã sao chép {time}"
 
-#: src/ui/settings_window.rs:1263
+#: src/ui/settings_window.rs:1624
 msgid "Command"
 msgstr "Lệnh"
 
-#: src/ui/settings_window.rs:1269
+#: src/ui/settings_window.rs:1630
 msgid "Command line"
 msgstr "Dòng lệnh"
 
-#: src/ui/search_window.rs:2203
-#: src/ui/search_window.rs:3218
-#: src/ui/settings_window.rs:423
+#: src/ui/search_window.rs:2169
+#: src/ui/search_window.rs:3147
+#: src/ui/settings_window.rs:829
 msgid "Confirm"
 msgstr "Xác nhận"
 
-#: src/ui/search_window.rs:4058
+#: src/ui/settings_window.rs:525
+msgid "Conversions"
+msgstr "Chuyển đổi"
+
+#: src/ui/settings_window.rs:599
+msgid "Copy"
+msgstr "Sao chép"
+
+#: src/ui/search_window.rs:4013
 msgid "Couldn't delete \"{name}\": {e}"
 msgstr "Không thể xóa \\\"{name}\\\": {e}"
 
-#: src/ui/settings_window.rs:1390
+#: src/ui/settings_window.rs:1751
 msgid "Couldn't install"
 msgstr "Không thể cài đặt"
 
-#: src/ui/settings_window.rs:1679
+#: src/ui/settings_window.rs:2040
 msgid "Couldn't load the trigger repository"
 msgstr "Không thể tải kho trigger"
 
-#: src/ui/settings_window.rs:1769
+#: src/ui/settings_window.rs:2130
 msgid "Couldn't load {url}: {e}"
 msgstr "Không thể tải {url}: {e}"
 
-#: src/ui/settings_window.rs:1514
+#: src/ui/settings_window.rs:1875
 msgid "Couldn't uninstall: {e}"
 msgstr "Không thể gỡ cài đặt: {e}"
 
-#: src/ui/settings_window.rs:1201
+#: src/ui/settings_window.rs:1562
 msgid "Create a Trigger"
 msgstr "Tạo trigger"
 
-#: src/ui/settings_window.rs:122
+#: src/ui/settings_window.rs:545
+msgid "Currency conversion"
+msgstr "Chuyển đổi tiền tệ"
+
+#: src/ui/settings_window.rs:160
 msgid "Custom Search URL"
 msgstr "URL tìm kiếm tùy chỉnh"
 
-#: src/ui/settings_window.rs:339
+#: src/ui/settings_window.rs:600
+msgid "Cut"
+msgstr "Cắt"
+
+#: src/ui/settings_window.rs:740
 msgid "Daily"
 msgstr "Hàng ngày"
 
-#: src/ui/search_window.rs:4023
+#: src/ui/settings_window.rs:468
+msgid "Decimal places"
+msgstr "Số thập phân"
+
+#: src/ui/search_window.rs:3967
 msgid "Delete"
 msgstr "Xóa"
 
-#: src/ui/settings_window.rs:2076
+#: src/ui/settings_window.rs:2437
 msgid "Delete clipboard entries older than this (pinned items are exempt)"
 msgstr "Xóa các mục bảng tạm cũ hơn (mục đã ghim được miễn trừ)"
 
@@ -220,11 +239,19 @@ msgstr "Xóa các mục bảng tạm cũ hơn (mục đã ghim được miễn t
 msgid "Delete file"
 msgstr "Xóa tệp"
 
+#: src/ui/settings_window.rs:610
+msgid "Delete file / folder"
+msgstr "Xóa tệp / thư mục"
+
 #: src/ui/search_window.rs:1100
 msgid "Delete folder"
 msgstr "Xóa thư mục"
 
-#: src/ui/settings_window.rs:1251
+#: src/ui/settings_window.rs:605
+msgid "Delete word"
+msgstr "Xóa từ"
+
+#: src/ui/settings_window.rs:1612
 msgid "Description (optional)"
 msgstr "Mô tả (tuỳ chọn)"
 
@@ -236,33 +263,33 @@ msgstr "Tự động nhận diện — nhấn Enter để chọn"
 msgid "Dictionary: {query}"
 msgstr "Từ điển: {query}"
 
-#: src/search/cmd.rs:2187
+#: src/search/cmd.rs:2183
 msgid "Disable update checks"
 msgstr "Tắt kiểm tra cập nhật"
 
-#: src/ui/settings_window.rs:538
+#: src/ui/settings_window.rs:899
 msgid "Disabled · {base}"
 msgstr "Đã tắt · {base}"
 
-#: src/search/cmd.rs:2137
-#: src/ui/settings_window.rs:373
+#: src/search/cmd.rs:2133
+#: src/ui/settings_window.rs:778
 msgid "Dismiss update notice"
 msgstr "Ẩn thông báo cập nhật"
 
-#: src/ui/settings_window.rs:2095
+#: src/ui/settings_window.rs:2456
 msgid "Display a hint bar in the clipboard manager"
 msgstr "Hiển thị thanh gợi ý trong trình quản lý bảng tạm"
 
-#: src/ui/search_window.rs:4004
+#: src/ui/search_window.rs:3948
 msgid "Do you want to delete \"{name}\"?"
 msgstr "Bạn có muốn xóa \\\"{name}\\\" không?"
 
-#: src/ui/search_window.rs:2182
-#: src/ui/search_window.rs:3167
+#: src/ui/search_window.rs:2148
+#: src/ui/search_window.rs:3096
 msgid "Do you want to update {name}?"
 msgstr "Bạn có muốn cập nhật {name} không?"
 
-#: src/ui/search_window.rs:2191
+#: src/ui/search_window.rs:2157
 msgid "Do you want to {action}?"
 msgstr "Bạn có muốn {action} không?"
 
@@ -270,36 +297,37 @@ msgstr "Bạn có muốn {action} không?"
 msgid "Done"
 msgstr "Xong"
 
-#: src/ui/settings_window.rs:1576
+#: src/ui/settings_window.rs:1937
 msgid "Download failed: {e}"
 msgstr "Tải xuống thất bại: {e}"
 
-#: src/ui/settings_window.rs:553
+#: src/ui/settings_window.rs:914
 msgid "Edit \"Open Spotty\" shortcut"
 msgstr "Sửa phím tắt \\\"Mở Spotty\\\""
 
-#: src/ui/settings_window.rs:1880
-#: src/ui/settings_window.rs:1887
+#: src/ui/settings_window.rs:2241
+#: src/ui/settings_window.rs:2248
 msgid "Edit \"{name}\" trigger"
 msgstr "Sửa trigger \\\"{name}\\\""
 
-#: src/ui/settings_window.rs:677
+#: src/ui/settings_window.rs:1038
 msgid "Edit trigger words, import a manifest with +, or delete installed triggers."
 msgstr "Sửa từ trigger, nhập manifest bằng + hoặc xóa trigger đã cài."
 
-#: src/search/cmd.rs:2189
+#: src/search/cmd.rs:2185
+#: src/search/cmd.rs:3308
 msgid "Enable update checks"
 msgstr "Bật kiểm tra cập nhật"
 
-#: src/ui/settings_window.rs:1923
+#: src/ui/settings_window.rs:2284
 msgid "Enabled"
 msgstr "Đã bật"
 
-#: src/ui/settings_window.rs:338
+#: src/ui/settings_window.rs:739
 msgid "Every 12 hours"
 msgstr "Mỗi 12 giờ"
 
-#: src/ui/settings_window.rs:337
+#: src/ui/settings_window.rs:738
 msgid "Every 6 hours"
 msgstr "Mỗi 6 giờ"
 
@@ -307,67 +335,59 @@ msgstr "Mỗi 6 giờ"
 msgid "Fetching the definition"
 msgstr "Đang lấy định nghĩa"
 
-#: src/ui/settings_window.rs:1669
+#: src/ui/settings_window.rs:2030
 msgid "Fetching triggers…"
 msgstr "Đang lấy trigger…"
 
-#: src/ui/settings_window.rs:2122
+#: src/ui/settings_window.rs:2483
 msgid "Find"
 msgstr "Tìm"
 
-#: src/ui/settings_window.rs:256
-msgid "Find package updates in the background"
-msgstr "Tìm bản cập nhật gói trong nền"
-
-#: src/ui/settings_window.rs:74
+#: src/ui/settings_window.rs:84
 msgid "General"
 msgstr "Chung"
 
-#: src/search/cmd.rs:2138
-#: src/ui/settings_window.rs:374
+#: src/search/cmd.rs:2134
+#: src/ui/settings_window.rs:779
 msgid "Hidden until a new update appears"
 msgstr "Ẩn cho đến khi có bản cập nhật mới"
 
-#: src/search/cmd.rs:2130
-#: src/ui/settings_window.rs:365
+#: src/search/cmd.rs:2126
+#: src/ui/settings_window.rs:770
 msgid "Hide the update notice for 24 hours"
 msgstr "Ẩn thông báo cập nhật trong 24 giờ"
 
-#: src/preview.rs:212
+#: src/preview.rs:209
 msgid "Highlight a result\nto preview"
 msgstr "Đánh dấu một kết quả\\nđể xem trước"
 
-#: src/ui/settings_window.rs:2060
+#: src/ui/settings_window.rs:2421
 msgid "History Limit"
 msgstr "Giới hạn lịch sử"
 
-#: src/ui/settings_window.rs:336
+#: src/ui/settings_window.rs:737
 msgid "Hourly"
 msgstr "Hàng giờ"
 
-#: src/ui/settings_window.rs:1254
+#: src/ui/settings_window.rs:1615
 msgid "Icon name (optional)"
 msgstr "Tên biểu tượng (tuỳ chọn)"
 
-#: src/ui/settings_window.rs:100
-msgid "Inline arithmetic"
-msgstr "Tính toán trực tiếp"
-
-#: src/search/cmd.rs:1552
-#: src/ui/settings_window.rs:1038
-#: src/ui/settings_window.rs:1520
+#: src/search/cmd.rs:1551
+#: src/ui/settings_window.rs:1399
+#: src/ui/settings_window.rs:1881
 msgid "Install"
 msgstr "Cài đặt"
 
-#: src/ui/settings_window.rs:1123
+#: src/ui/settings_window.rs:1484
 msgid "Install failed"
 msgstr "Cài đặt thất bại"
 
-#: src/search/cmd.rs:2159
+#: src/search/cmd.rs:2155
 msgid "Install the updates, then restart"
 msgstr "Cài đặt bản cập nhật rồi khởi động lại"
 
-#: src/ui/settings_window.rs:1034
+#: src/ui/settings_window.rs:1395
 msgid "Install {name}?"
 msgstr "Cài {name}?"
 
@@ -375,81 +395,91 @@ msgstr "Cài {name}?"
 msgid "Install, uninstall, and manage apps"
 msgstr "Cài, gỡ và quản lý ứng dụng"
 
-#: src/search/cmd.rs:2532
-#: src/search/cmd.rs:2626
-#: src/search/cmd.rs:2645
-#: src/search/cmd.rs:2732
+#: src/search/cmd.rs:2564
+#: src/search/cmd.rs:2658
+#: src/search/cmd.rs:2677
+#: src/search/cmd.rs:2764
 msgid "Install: {name}"
 msgstr "Cài: {name}"
 
-#: src/ui/settings_window.rs:1117
+#: src/ui/settings_window.rs:1478
 msgid "Installed \"{name}\""
 msgstr "Đã cài \\\"{name}\\\""
 
-#: src/search/cmd.rs:2538
+#: src/search/cmd.rs:2570
 msgid "Installing {name}"
 msgstr "Đang cài {name}"
 
-#: src/ui/search_window.rs:4011
+#: src/ui/search_window.rs:3955
 msgid "It will be moved to the Trash."
 msgstr "Nó sẽ được đưa vào Thùng rác."
 
-#: src/ui/search_window.rs:1439
+#: src/ui/search_window.rs:1416
 msgid "Item deleted"
 msgstr "Đã xóa mục"
 
-#: src/ui/search_window.rs:1480
+#: src/ui/search_window.rs:1457
 msgid "Item unpinned — Press Ctrl+Z to undo"
 msgstr "Đã bỏ ghim mục — Nhấn Ctrl+Z để hoàn tác"
 
-#: src/ui/settings_window.rs:1797
+#: src/ui/settings_window.rs:2158
 msgid "Its trigger word and shortcut will be removed."
 msgstr "Từ trigger và phím tắt của nó sẽ bị xóa."
 
-#: src/ui/settings_window.rs:2075
+#: src/ui/settings_window.rs:2436
 msgid "Keep history"
 msgstr "Giữ lịch sử"
 
-#: src/preview.rs:439
-#: src/ui/settings_window.rs:450
+#: src/ui/settings_window.rs:304
 msgid "Keyboard"
 msgstr "Bàn phím"
 
-#: src/ui/settings_window.rs:581
-#: src/ui/settings_window.rs:1275
-#: src/ui/settings_window.rs:2006
+#: src/ui/settings_window.rs:942
+#: src/ui/settings_window.rs:1636
+#: src/ui/settings_window.rs:2367
 msgid "Keyboard Shortcut"
 msgstr "Phím tắt"
 
-#: src/ui/search_window.rs:1143
+#: src/ui/search_window.rs:1120
+#: src/ui/settings_window.rs:308
+#: src/ui/settings_window.rs:421
+#: src/ui/settings_window.rs:589
 msgid "Keyboard Shortcuts"
 msgstr "Phím tắt"
 
-#: src/ui/settings_window.rs:615
+#: src/ui/settings_window.rs:607
+msgid "Keyboard shortcuts"
+msgstr "Phím tắt bàn phím"
+
+#: src/ui/settings_window.rs:309
+#: src/ui/settings_window.rs:596
+#: src/ui/settings_window.rs:976
 msgid "Keyboard shortcuts used inside the search window"
 msgstr "Phím tắt dùng trong cửa sổ tìm kiếm"
 
-#: src/ui/settings_window.rs:1249
+#: src/ui/settings_window.rs:1610
 msgid "Keyword"
 msgstr "Từ khoá"
 
-#: src/ui/settings_window.rs:1331
+#: src/ui/settings_window.rs:1692
 msgid "Keyword: letters, digits, -, _ and . only."
 msgstr "Từ khoá: chỉ chữ cái, chữ số, -, _ và ."
 
-#: src/search/cmd.rs:1544
+#: src/search/cmd.rs:1543
 msgid "Kill"
 msgstr "Kết thúc"
 
 #: src/ui/search_window.rs:1050
+#: src/ui/settings_window.rs:426
+#: src/ui/settings_window.rs:609
 msgid "Kill app"
 msgstr "Kết thúc ứng dụng"
 
-#: src/ui/search_window.rs:2419
+#: src/ui/search_window.rs:2385
 msgid "Kill {name}?"
 msgstr "Kết thúc {name}?"
 
-#: src/search/cmd.rs:2489
+#: src/search/cmd.rs:2521
 msgid "Kill: {name}"
 msgstr "Kết thúc: {name}"
 
@@ -461,32 +491,32 @@ msgstr "Không kết nối được động cơ dịch thuật cục bộ"
 msgid "Looking up \"{word}\"…"
 msgstr "Đang tra \\\"{word}\\\"…"
 
-#: src/ui/settings_window.rs:2061
+#: src/ui/settings_window.rs:2422
 msgid "Maximum number of clipboard entries to keep"
 msgstr "Số mục bảng tạm tối đa cần giữ"
 
-#: src/ui/settings_window.rs:1248
+#: src/ui/settings_window.rs:1609
 msgid "Name"
 msgstr "Tên"
 
-#: src/ui/settings_window.rs:1323
+#: src/ui/settings_window.rs:1684
 msgid "Name, keyword and command are required."
 msgstr "Tên, từ khoá và lệnh là bắt buộc."
 
-#: src/ui/search_window.rs:3908
-#: src/ui/search_window.rs:4027
+#: src/ui/search_window.rs:3837
+#: src/ui/search_window.rs:3971
 msgid "No"
 msgstr "Không"
 
-#: src/search/cmd.rs:1853
+#: src/search/cmd.rs:1852
 msgid "No apps found for \"{query}\""
 msgstr "Không tìm thấy ứng dụng cho \\\"{query}\\\""
 
-#: src/search/cmd.rs:2007
+#: src/search/cmd.rs:2006
 msgid "No installed app matching \"{query}\""
 msgstr "Không có ứng dụng đã cài khớp \\\"{query}\\\""
 
-#: src/search/cmd.rs:2097
+#: src/search/cmd.rs:2105
 msgid "No matching updates"
 msgstr "Không có cập nhật phù hợp"
 
@@ -494,44 +524,57 @@ msgstr "Không có cập nhật phù hợp"
 msgid "No operations yet"
 msgstr "Chưa có thao tác nào"
 
-#: src/search/cmd.rs:1686
+#: src/search/cmd.rs:1685
 msgid "No running app matching \"{query}\""
 msgstr "Không có ứng dụng đang chạy khớp \\\"{query}\\\""
 
-#: src/ui/settings_window.rs:1675
+#: src/ui/settings_window.rs:2036
 msgid "No triggers found"
 msgstr "Không tìm thấy trigger"
 
-#: src/ui/settings_window.rs:1434
+#: src/ui/settings_window.rs:1795
 msgid "No triggers match \"{q}\"."
 msgstr "Không có trigger nào khớp \\\"{q}\\\"."
 
-#: src/search/cmd.rs:2109
-#: src/search/cmd.rs:3140
-#: src/search/cmd.rs:3492
+#: src/search/cmd.rs:2338
+#: src/search/cmd.rs:3061
+#: src/search/cmd.rs:3328
+#: src/search/cmd.rs:3698
 msgid "No updates available"
 msgstr "Không có bản cập nhật"
 
-#: src/ui/settings_window.rs:1126
-#: src/ui/settings_window.rs:1393
+#: src/search/cmd.rs:2340
+#: src/search/cmd.rs:3062
+#: src/search/cmd.rs:3063
+msgid "Nothing pending"
+msgstr "Không có gì chờ cập nhật"
+
+#: src/ui/settings_window.rs:540
+msgid "Number base conversions"
+msgstr "Chuyển đổi cơ số"
+
+#: src/ui/settings_window.rs:1487
+#: src/ui/settings_window.rs:1754
 msgid "OK"
 msgstr "OK"
 
-#: src/search/cmd.rs:3126
-#: src/search/cmd.rs:3493
-#: src/ui/search_window.rs:3513
+#: src/search/cmd.rs:3202
+#: src/search/cmd.rs:3699
+#: src/ui/search_window.rs:3442
 msgid "One update available"
 msgstr "Có 1 bản cập nhật"
 
-#: src/search/cmd.rs:1687
+#: src/search/cmd.rs:1686
 msgid "Only running apps can be killed"
 msgstr "Chỉ có ứng dụng đang chạy mới kết thúc được"
 
-#: src/ui/settings_window.rs:684
+#: src/ui/settings_window.rs:640
+#: src/ui/settings_window.rs:1045
 msgid "Open Spotty"
 msgstr "Mở Spotty"
 
 #: src/ui/search_window.rs:1089
+#: src/ui/settings_window.rs:612
 msgid "Open folder in terminal"
 msgstr "Mở thư mục trong terminal"
 
@@ -544,19 +587,29 @@ msgid "Open in GNOME Settings"
 msgstr "Mở trong cài đặt GNOME"
 
 #: src/ui/search_window.rs:1114
+#: src/ui/settings_window.rs:611
 msgid "Open location in file manager"
 msgstr "Mở vị trí trong trình quản lý tệp"
 
 #: src/ui/search_window.rs:593
+#: src/ui/settings_window.rs:606
 msgid "Operations"
 msgstr "Thao tác"
 
-#: src/ui/settings_window.rs:214
-#: src/ui/settings_window.rs:218
+#: src/ui/settings_window.rs:371
+#: src/ui/settings_window.rs:375
 msgid "Package Manager"
 msgstr "Trình quản lý gói"
 
-#: src/ui/settings_window.rs:1924
+#: src/ui/settings_window.rs:601
+msgid "Paste"
+msgstr "Dán"
+
+#: src/ui/settings_window.rs:507
+msgid "Paste the result automatically"
+msgstr "Dán kết quả tự động"
+
+#: src/ui/settings_window.rs:2285
 msgid "Pause this trigger without uninstalling it"
 msgstr "Tạm dừng trigger này mà không gỡ cài đặt"
 
@@ -564,12 +617,12 @@ msgstr "Tạm dừng trigger này mà không gỡ cài đặt"
 msgid "Pin / Unpin selected"
 msgstr "Ghim/Bỏ ghim mục đã chọn"
 
-#: src/search/cmd.rs:1582
+#: src/search/cmd.rs:1581
 msgid "Please wait…"
 msgstr "Vui lòng chờ…"
 
-#: src/search/cmd.rs:2046
-#: src/search/cmd.rs:2113
+#: src/search/cmd.rs:2050
+#: src/search/cmd.rs:2343
 msgid "Press Enter to check again"
 msgstr "Nhấn Enter để kiểm tra lại"
 
@@ -581,16 +634,24 @@ msgstr "Nhấn Enter để chọn ngôn ngữ khác"
 msgid "Press Enter to detect automatically"
 msgstr "Nhấn Enter để tự động nhận diện"
 
-#: src/ui/search_window.rs:4936
+#: src/ui/search_window.rs:4859
 msgid "Press Enter to restart"
 msgstr "Nhấn Enter để khởi động lại"
 
-#: src/ui/settings_window.rs:2141
+#: src/ui/settings_window.rs:526
+msgid "Rates are fetched from a free public API when you convert"
+msgstr "Tỷ giá được lấy từ API công khai miễn phí khi bạn chuyển đổi"
+
+#: src/ui/settings_window.rs:2502
 msgid "Recent File/Folder Searches"
 msgstr "Tìm kiếm Tệp/Thư mục gần đây"
 
-#: src/search/cmd.rs:2129
-#: src/ui/settings_window.rs:364
+#: src/ui/settings_window.rs:604
+msgid "Redo"
+msgstr "Làm lại"
+
+#: src/search/cmd.rs:2125
+#: src/ui/settings_window.rs:769
 msgid "Remind tomorrow"
 msgstr "Nhắc tôi vào ngày mai"
 
@@ -598,30 +659,31 @@ msgstr "Nhắc tôi vào ngày mai"
 msgid "Remove from history"
 msgstr "Xóa khỏi lịch sử"
 
-#: src/ui/settings_window.rs:1510
+#: src/ui/settings_window.rs:1871
 msgid "Removed \"{name}\""
 msgstr "Đã xóa \\\"{name}\\\""
 
-#: src/ui/settings_window.rs:2178
-#: src/ui/settings_window.rs:2420
+#: src/ui/settings_window.rs:2539
+#: src/ui/settings_window.rs:2775
 msgid "Reset"
 msgstr "Đặt lại"
 
-#: src/ui/settings_window.rs:731
+#: src/ui/settings_window.rs:1092
 msgid "Reset trigger words and shortcuts to defaults"
 msgstr "Đặt lại từ trigger và phím tắt về mặc định"
 
-#: src/ui/settings_window.rs:393
+#: src/ui/settings_window.rs:801
 msgid "Restart"
 msgstr "Khởi động lại"
 
-#: src/search/cmd.rs:2172
-#: src/ui/search_window.rs:4935
-#: src/ui/settings_window.rs:388
+#: src/search/cmd.rs:2168
+#: src/ui/search_window.rs:4858
+#: src/ui/settings_window.rs:796
 msgid "Restart required to finish the update"
 msgstr "Cần khởi động lại để hoàn tất cập nhật"
 
-#: src/ui/settings_window.rs:81
+#: src/ui/settings_window.rs:91
+#: src/ui/settings_window.rs:463
 msgid "Results"
 msgstr "Kết quả"
 
@@ -629,7 +691,7 @@ msgstr "Kết quả"
 msgid "Retry"
 msgstr "Thử lại"
 
-#: src/ui/settings_window.rs:2126
+#: src/ui/settings_window.rs:2487
 msgid "Root Path Browsing"
 msgstr "Duyệt đường dẫn tuyệt đối"
 
@@ -637,7 +699,7 @@ msgstr "Duyệt đường dẫn tuyệt đối"
 msgid "Run a command"
 msgstr "Chạy một lệnh"
 
-#: src/search/mod.rs:428
+#: src/search/mod.rs:493
 msgid "Run {name}"
 msgstr "Chạy {name}"
 
@@ -653,23 +715,28 @@ msgstr "Đang chạy…"
 msgid "Runs through your shell, output shown here"
 msgstr "Chạy trong shell của bạn, xuất hiện tại đây"
 
-#: src/search/cmd.rs:2001
+#: src/search/cmd.rs:2000
 msgid "Scanning installed apps…"
 msgstr "Đang quét ứng dụng đã cài…"
 
-#: src/search/cmd.rs:1663
+#: src/search/cmd.rs:1662
 msgid "Scanning running processes…"
 msgstr "Đang quét tiến trình đang chạy…"
+
+#: src/ui/settings_window.rs:512
+msgid "Scientific notation"
+msgstr "Ký hiệu khoa học"
 
 #: src/ui/search_window.rs:221
 msgid "Search"
 msgstr "Tìm kiếm"
 
-#: src/ui/settings_window.rs:149
+#: src/ui/settings_window.rs:187
 msgid "Search Engine"
 msgstr "Công cụ tìm kiếm"
 
-#: src/ui/settings_window.rs:614
+#: src/ui/settings_window.rs:595
+#: src/ui/settings_window.rs:975
 msgid "Search Window"
 msgstr "Cửa sổ tìm kiếm"
 
@@ -678,7 +745,7 @@ msgid "Search all files and folders"
 msgstr "Tìm trong tất cả tệp và thư mục"
 
 #: src/config.rs:164
-#: src/ui/search_window.rs:3391
+#: src/ui/search_window.rs:3320
 msgid "Search clipboard history"
 msgstr "Tìm trong lịch sử bảng tạm"
 
@@ -686,27 +753,32 @@ msgstr "Tìm trong lịch sử bảng tạm"
 msgid "Search emoji"
 msgstr "Tìm emoji"
 
-#: src/ui/settings_window.rs:93
+#: src/ui/settings_window.rs:120
+#: src/ui/settings_window.rs:366
 msgid "Search for new Apps"
 msgstr "Cũng tìm ứng dụng mới"
 
-#: src/ui/settings_window.rs:1640
+#: src/ui/settings_window.rs:2001
 msgid "Search triggers"
 msgstr "Tìm trigger"
 
-#: src/ui/search_window.rs:1577
+#: src/ui/search_window.rs:1554
 msgid "Searching for Bluetooth device{dots}"
 msgstr "Đang tìm thiết bị Bluetooth{dots}"
 
-#: src/search/cmd.rs:1847
+#: src/search/cmd.rs:1846
 msgid "Searching for \"{query}\"…"
 msgstr "Đang tìm \\\"{query}\\\"…"
 
-#: src/ui/settings_window.rs:2441
+#: src/ui/settings_window.rs:602
+msgid "Select all"
+msgstr "Chọn tất cả"
+
+#: src/ui/settings_window.rs:2796
 msgid "Set shortcut…"
 msgstr "Đặt phím tắt…"
 
-#: src/ui/settings_window.rs:1736
+#: src/ui/settings_window.rs:2097
 msgid "Set the trigger repository URL in the Trigger Repository row."
 msgstr "Đặt URL kho trigger trong dòng kho trigger."
 
@@ -718,21 +790,33 @@ msgstr "Cài đặt"
 msgid "Settings: {title}"
 msgstr "Cài đặt: {title}"
 
-#: src/ui/settings_window.rs:582
+#: src/ui/settings_window.rs:943
 msgid "Shortcut to focus the Spotty launcher"
 msgstr "Phím tắt để lấy focus cho trình khởi chạy Spotty"
 
-#: src/ui/settings_window.rs:2094
+#: src/ui/settings_window.rs:2455
 msgid "Show Keyboard Shortcuts"
 msgstr "Hiển thị phím tắt"
 
-#: src/ui/settings_window.rs:316
+#: src/ui/settings_window.rs:719
 msgid "Show a badge and a desktop notification when updates exist"
 msgstr "Hiển thị huy hiệu và thông báo khi có cập nhật"
 
-#: src/ui/settings_window.rs:2142
+#: src/ui/settings_window.rs:535
+msgid "Show equivalents when no target unit is given"
+msgstr "Hiển thị giá trị tương đương khi không cho đơn vị đích"
+
+#: src/ui/settings_window.rs:497
+msgid "Show hex, octal and binary"
+msgstr "Hiển thị thập lục phân, bát phân và nhị phân"
+
+#: src/ui/settings_window.rs:2503
 msgid "Show recently opened files and folders"
 msgstr "Hiển thị tệp và thư mục vừa mở"
+
+#: src/ui/settings_window.rs:502
+msgid "Show the expression"
+msgstr "Hiển thị biểu thức"
 
 #: src/search/translate.rs:658
 #: src/search/translate.rs:665
@@ -748,16 +832,16 @@ msgstr ""
 msgid "Spotty Settings"
 msgstr "Cài đặt Spotty"
 
-#: src/preview.rs:2875
-#: src/preview.rs:4737
+#: src/preview.rs:2831
+#: src/preview.rs:4693
 msgid "Spreadsheet"
 msgstr "Bảng tính"
 
-#: src/ui/settings_window.rs:705
+#: src/ui/settings_window.rs:1066
 msgid "Store"
 msgstr "Cửa hàng"
 
-#: src/ui/settings_window.rs:88
+#: src/ui/settings_window.rs:100
 msgid "System, Flatpak and Snap apps"
 msgstr "Ứng dụng hệ thống, Flatpak và Snap"
 
@@ -769,17 +853,21 @@ msgstr "Đích: {name}"
 msgid "Text match: {snippet}"
 msgstr "Khớp văn bản: {snippet}"
 
-#: src/ui/settings_window.rs:1336
+#: src/ui/settings_window.rs:1697
 msgid "The keyword \"{word}\" is already taken."
 msgstr "Từ khoá \\\"{word}\\\" đã được dùng."
 
-#: src/ui/settings_window.rs:1432
+#: src/ui/settings_window.rs:1793
 msgid "The repository has no triggers yet."
 msgstr "Kho chưa có trigger nào."
 
-#: src/ui/search_window.rs:5219
+#: src/ui/search_window.rs:5150
 msgid "The trigger word and its files will be removed."
 msgstr "Từ trigger và các tệp của nó sẽ bị xóa."
+
+#: src/ui/settings_window.rs:492
+msgid "Thousands separators"
+msgstr "Dấu phân cách hàng nghìn"
 
 #: src/search/translate.rs:632
 msgid "Translate to {name}"
@@ -793,27 +881,28 @@ msgstr "Đang dịch…"
 msgid "Translation unavailable"
 msgstr "Không dịch được"
 
-#: src/ui/settings_window.rs:1245
+#: src/ui/settings_window.rs:1606
 msgid "Trigger"
 msgstr "Trigger"
 
-#: src/ui/settings_window.rs:1601
+#: src/ui/settings_window.rs:1962
 msgid "Trigger Store"
 msgstr "Cửa hàng trigger"
 
-#: src/ui/settings_window.rs:1929
+#: src/ui/settings_window.rs:2290
 msgid "Trigger word"
 msgstr "Từ trigger"
 
-#: src/ui/settings_window.rs:2232
+#: src/ui/settings_window.rs:2593
 msgid "Trigger word \"{word}\" is already in use"
 msgstr "Từ trigger \\\"{word}\\\" đang được dùng"
 
-#: src/ui/settings_window.rs:2227
+#: src/ui/settings_window.rs:2588
 msgid "Trigger word cannot be empty"
 msgstr "Từ trigger không được để trống"
 
-#: src/ui/settings_window.rs:671
+#: src/ui/settings_window.rs:637
+#: src/ui/settings_window.rs:1032
 msgid "Triggers"
 msgstr "Trình kích hoạt"
 
@@ -821,7 +910,7 @@ msgstr "Trình kích hoạt"
 msgid "Type a command to run"
 msgstr "Gõ lệnh cần chạy"
 
-#: src/search/mod.rs:416
+#: src/search/mod.rs:481
 msgid "Type a command to run with {name}"
 msgstr "Gõ lệnh cần chạy với {name}"
 
@@ -833,11 +922,11 @@ msgstr "Gõ một từ khoá"
 msgid "Type a word to look up"
 msgstr "Gõ từ cần tra"
 
-#: src/search/cmd.rs:2099
+#: src/search/cmd.rs:2107
 msgid "Type all, flatpak, distro or a package name"
 msgstr "Gõ all, flatpak, distro hoặc tên gói"
 
-#: src/search/mod.rs:394
+#: src/search/mod.rs:459
 msgid "Type something to search with {name}"
 msgstr "Gõ thứ cần tìm với {name}"
 
@@ -845,146 +934,132 @@ msgstr "Gõ thứ cần tìm với {name}"
 msgid "Type text to translate"
 msgstr "Gõ văn bản cần dịch"
 
-#: src/ui/search_window.rs:1445
-#: src/ui/search_window.rs:4795
+#: src/ui/search_window.rs:1422
+#: src/ui/search_window.rs:4750
+#: src/ui/settings_window.rs:603
 msgid "Undo"
 msgstr "Hoàn tác"
 
-#: src/search/cmd.rs:1560
-#: src/ui/search_window.rs:5222
-#: src/ui/settings_window.rs:1493
-#: src/ui/settings_window.rs:1800
+#: src/search/cmd.rs:1559
+#: src/ui/search_window.rs:5153
+#: src/ui/settings_window.rs:1854
+#: src/ui/settings_window.rs:2161
 msgid "Uninstall"
 msgstr "Gỡ cài đặt"
 
-#: src/ui/settings_window.rs:1796
+#: src/ui/settings_window.rs:2157
 msgid "Uninstall \"{id}\"?"
 msgstr "Gỡ \\\"{id}\\\" không?"
 
 #: src/ui/search_window.rs:1041
+#: src/ui/settings_window.rs:425
+#: src/ui/settings_window.rs:608
 msgid "Uninstall app"
 msgstr "Gỡ ứng dụng"
 
-#: src/ui/settings_window.rs:860
+#: src/ui/settings_window.rs:1221
 msgid "Uninstall trigger"
 msgstr "Gỡ trigger"
 
-#: src/ui/search_window.rs:2390
-#: src/ui/search_window.rs:5218
+#: src/ui/search_window.rs:2356
+#: src/ui/search_window.rs:5149
 msgid "Uninstall {name}?"
 msgstr "Gỡ {name} không?"
 
-#: src/search/cmd.rs:2555
+#: src/search/cmd.rs:2587
 msgid "Uninstall: {name}"
 msgstr "Gỡ: {name}"
 
-#: src/search/cmd.rs:2559
+#: src/search/cmd.rs:2591
 msgid "Uninstalling {name}"
 msgstr "Đang gỡ {name}"
 
-#: src/search/cmd.rs:1568
+#: src/ui/settings_window.rs:530
+msgid "Unit conversions"
+msgstr "Chuyển đổi đơn vị"
+
+#: src/search/cmd.rs:1567
 msgid "Update"
 msgstr "Cập nhật"
 
-#: src/search/cmd.rs:2154
-#: src/ui/settings_window.rs:386
-#: src/ui/settings_window.rs:391
-#: src/ui/settings_window.rs:410
+#: src/search/cmd.rs:2150
+#: src/ui/settings_window.rs:794
+#: src/ui/settings_window.rs:799
+#: src/ui/settings_window.rs:816
 msgid "Update & Restart"
 msgstr "Cập nhật và khởi động lại"
 
-#: src/ui/search_window.rs:4857
+#: src/search/cmd.rs:2397
 msgid "Update all packages"
 msgstr "Cập nhật tất cả gói"
 
-#: src/ui/search_window.rs:1127
-#: src/ui/search_window.rs:4885
-#: src/ui/settings_window.rs:462
-msgid "Update everything"
-msgstr "Cập nhật tất cả"
+#: src/search/cmd.rs:3334
+#: src/search/cmd.rs:3688
+msgid "Update checks are off"
+msgstr "Kiểm tra cập nhật đã tắt"
 
-#: src/ui/search_window.rs:4858
+#: src/search/cmd.rs:2409
 msgid "Update flatpak packages"
 msgstr "Cập nhật gói Flatpak"
 
-#: src/ui/search_window.rs:1135
-#: src/ui/search_window.rs:4887
-#: src/ui/settings_window.rs:469
-msgid "Update flatpak packages only"
-msgstr "Chỉ cập nhật gói Flatpak"
-
-#: src/ui/settings_window.rs:315
+#: src/ui/settings_window.rs:718
 msgid "Update notification"
 msgstr "Thông báo cập nhật"
 
-#: src/ui/search_window.rs:4884
-msgid "Update now"
-msgstr "Cập nhật ngay"
-
-#: src/ui/search_window.rs:4859
+#: src/search/cmd.rs:2444
 msgid "Update snap packages"
 msgstr "Cập nhật gói Snap"
 
-#: src/ui/search_window.rs:4860
+#: src/search/cmd.rs:2431
 msgid "Update system packages"
 msgstr "Cập nhật gói hệ thống"
 
-#: src/ui/search_window.rs:1131
-#: src/ui/search_window.rs:4886
-#: src/ui/settings_window.rs:464
-msgid "Update system packages only"
-msgstr "Chỉ cập nhật gói hệ thống"
-
-#: src/search/cmd.rs:2263
-#: src/search/cmd.rs:2308
+#: src/search/cmd.rs:2259
 msgid "Update: {name}"
 msgstr "Cập nhật: {name}"
 
-#: src/ui/settings_window.rs:255
+#: src/ui/settings_window.rs:257
+#: src/ui/settings_window.rs:675
 msgid "Updates"
 msgstr "Cập nhật"
 
-#: src/ui/settings_window.rs:219
+#: src/ui/settings_window.rs:376
 msgid "Used for app search, install, and uninstall via the cmd trigger"
 msgstr "Dùng để tìm, cài và gỡ ứng dụng qua trigger cmd"
 
-#: src/ui/settings_window.rs:150
+#: src/ui/settings_window.rs:188
 msgid "Used for web search results"
 msgstr "Dùng cho kết quả tìm kiếm web"
 
-#: src/ui/settings_window.rs:167
-#: src/ui/settings_window.rs:192
+#: src/ui/settings_window.rs:205
+#: src/ui/settings_window.rs:230
 msgid "Uses {name} (detected from your default browser)"
 msgstr "Dùng {name} (phát hiện từ trình duyệt mặc định)"
 
-#: src/ui/settings_window.rs:130
-#: src/ui/settings_window.rs:136
+#: src/ui/settings_window.rs:168
+#: src/ui/settings_window.rs:174
 msgid "Web Search"
 msgstr "Tìm kiếm web"
 
-#: src/ui/settings_window.rs:340
+#: src/ui/settings_window.rs:741
 msgid "Weekly"
 msgstr "Hàng tuần"
 
-#: src/ui/settings_window.rs:1246
+#: src/ui/settings_window.rs:1607
 msgid "What you type to open it."
 msgstr "Bạn gõ gì để mở nó."
 
-#: src/ui/settings_window.rs:531
+#: src/ui/settings_window.rs:892
 msgid "Word: {word} · No shortcut"
 msgstr "Từ: {word} · Không phím tắt"
 
-#: src/ui/settings_window.rs:533
+#: src/ui/settings_window.rs:894
 msgid "Word: {word} · {shortcut}"
 msgstr "Từ: {word} · {shortcut}"
 
-#: src/ui/search_window.rs:3912
+#: src/ui/search_window.rs:3841
 msgid "Yes"
 msgstr "Có"
-
-#: src/search/cmd.rs:2367
-msgid "all packages ({sources})"
-msgstr "tất cả gói ({sources})"
 
 #: src/triggers.rs:346
 msgid "curl exited with {status}"
@@ -1001,7 +1076,7 @@ msgstr "phản hồi rỗng"
 msgid "id '{id}' is a built-in trigger"
 msgstr "id '{id}' là trigger tích hợp"
 
-#: src/search/cmd.rs:1553
+#: src/search/cmd.rs:1552
 msgid "install <app>  —  install from Flatpak, distro, or Snap"
 msgstr "install <app>  —  cài từ Flatpak, bản phân phối hoặc Snap"
 
@@ -1013,7 +1088,7 @@ msgstr "id không hợp lệ '{id}': chỉ dùng chữ cái, chữ số, '_', '-
 msgid "just now"
 msgstr "vừa xong"
 
-#: src/search/cmd.rs:1545
+#: src/search/cmd.rs:1544
 msgid "kill <app-name>  —  stop a running process"
 msgstr "kill <app-name>  —  dừng tiến trình đang chạy"
 
@@ -1037,20 +1112,20 @@ msgstr "trigger '{id}' chưa được cài"
 msgid "trigger word '{word}' is already in use"
 msgstr "từ trigger '{word}' đang được dùng"
 
-#: src/search/cmd.rs:1561
+#: src/search/cmd.rs:1560
 msgid "uninstall <app>  —  remove an installed app"
 msgstr "uninstall <app>  —  gỡ ứng dụng đã cài"
 
-#: src/search/cmd.rs:1569
+#: src/search/cmd.rs:1568
 msgid "update  —  update installed packages"
 msgstr "update  —  cập nhật gói đã cài"
 
-#: src/search/cmd.rs:2521
-#: src/search/cmd.rs:2556
+#: src/search/cmd.rs:2553
+#: src/search/cmd.rs:2588
 msgid "via Flatpak ({app})"
 msgstr ""
 
-#: src/search/cmd.rs:2754
+#: src/search/cmd.rs:2786
 msgid "via snap"
 msgstr ""
 
@@ -1058,12 +1133,12 @@ msgstr ""
 msgid "web action needs a 'url' template"
 msgstr "hành động web cần mẫu 'url'"
 
-#: src/search/cmd.rs:2523
+#: src/search/cmd.rs:2555
 msgid "{description} — via Flatpak ({app})"
 msgstr ""
 
-#: src/search/mod.rs:405
-#: src/search/mod.rs:432
+#: src/search/mod.rs:470
+#: src/search/mod.rs:497
 msgid "{name}: {query}"
 msgstr ""
 
@@ -1071,21 +1146,9 @@ msgstr ""
 msgid "{noun} {target} {suffix}"
 msgstr ""
 
-#: src/search/cmd.rs:2379
-msgid "{n} flatpak packages"
-msgstr "{n} gói flatpak"
-
-#: src/search/cmd.rs:2412
-msgid "{n} snap packages"
-msgstr "{n} gói snap"
-
-#: src/search/cmd.rs:2398
-msgid "{n} system packages ({pm})"
-msgstr "{n} gói hệ thống ({pm})"
-
-#: src/search/cmd.rs:3401
-#: src/search/cmd.rs:3494
-#: src/ui/search_window.rs:3515
+#: src/search/cmd.rs:3603
+#: src/search/cmd.rs:3700
+#: src/ui/search_window.rs:3444
 msgid "{n} updates available"
 msgstr "Có {n} bản cập nhật"
 
@@ -1106,17 +1169,16 @@ msgstr "{n} phút trước"
 msgid "{pos} — {text}"
 msgstr ""
 
-#: src/search/cmd.rs:2274
-#: src/search/cmd.rs:2320
-#: src/ui/search_window.rs:4864
+#: src/search/cmd.rs:2270
+#: src/search/cmd.rs:2329
 msgid "{source} Update"
 msgstr "Cập nhật {source}"
 
 #: src/operations.rs:175
 #: src/operations.rs:195
-#: src/operations.rs:846
-#: src/operations.rs:872
-#: src/operations.rs:897
+#: src/operations.rs:849
+#: src/operations.rs:875
+#: src/operations.rs:900
 msgid "{source} · {status}"
 msgstr ""
 
@@ -1130,7 +1192,7 @@ msgstr "{src} → {tgt}"
 msgid "{title} {suffix}"
 msgstr ""
 
-#: src/ui/search_window.rs:3664
+#: src/ui/search_window.rs:3593
 msgid "{title} — {detail}"
 msgstr ""
 
@@ -1138,7 +1200,7 @@ msgstr ""
 msgid "{word} — complete the word with Tab"
 msgstr "{word} — hoàn tất từ bằng Tab"
 
-#: src/ui/settings_window.rs:1480
+#: src/ui/settings_window.rs:1841
 msgid "{word} — {description}"
 msgstr ""
 
@@ -1146,14 +1208,14 @@ msgstr ""
 msgid "• {text}"
 msgstr ""
 
-#: src/preview.rs:675
+#: src/preview.rs:651
 msgid "…and {n} more"
 msgstr "…và {n} mục nữa"
 
-#: src/preview.rs:491
+#: src/preview.rs:476
 msgid "▶"
 msgstr ""
 
-#: src/preview.rs:481
+#: src/preview.rs:466
 msgid "◀"
 msgstr ""

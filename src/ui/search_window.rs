@@ -1116,29 +1116,6 @@ impl SearchWindow {
                     }
                 }
 
-                // Update shortcuts — while an update query or update row
-                // is on screen (Ctrl+Enter also works from the badge).
-                if mode_is_none {
-                    let ctx = crate::search::cmd::in_update_context(&entry.text())
-                        || selected.as_ref().map(is_update_row).unwrap_or(false);
-                    if ctx {
-                        let cfg = config.borrow();
-                        entries.push((
-                            gettext("Update everything"),
-                            to_gtk_accel(&cfg.update_all_shortcut),
-                        ));
-                        entries.push((
-                            gettext("Update system packages only"),
-                            to_gtk_accel(&cfg.update_system_shortcut),
-                        ));
-                        entries.push((
-                            gettext("Update flatpak packages only"),
-                            to_gtk_accel(&cfg.update_flatpak_shortcut),
-                        ));
-                        drop(cfg);
-                    }
-                }
-
                 if !entries.is_empty() {
                     content.append(&header(&gettext("Keyboard Shortcuts")));
                     for (label, accel) in &entries {
@@ -1958,18 +1935,7 @@ impl SearchWindow {
                 let recent_file_mode = active_kw
                     .as_ref()
                     .is_some_and(|kw| kw.all_files && q.is_empty());
-                let has_files = new.iter().any(|r| {
-                    matches!(
-                        &r.action,
-                        Action::OpenPath(_)
-                            | Action::BrowseInto(_)
-                            | Action::OpenInFileManager(_)
-                            | Action::CopyImageToClipboard(_)
-                            | Action::CopyFileToClipboard(_)
-                            | Action::CopyToClipboard(_)
-                    )
-                });
-                preview_box.set_visible(has_files);
+                preview_box.set_visible(new.iter().any(previewable));
                 for r in &new {
                     let is_clip = matches!(r.kind, crate::search::ResultKind::Clipboard);
                     let is_recent_file = recent_file_mode
@@ -2572,43 +2538,6 @@ impl SearchWindow {
                                 }
                             }
                         }
-                    }
-                }
-
-                // ── Update shortcuts (universal mode): Ctrl+Enter = check
-                // for updates and upgrade everything, Ctrl+D = system
-                // packages only, Ctrl+F = flatpak only. They act while an
-                // update query or update row is on screen; Ctrl+Enter also
-                // works while the update badge is showing. Shortcuts run
-                // immediately — activating a row still asks first.
-                if mode_kc.borrow().is_none() {
-                    let typed_ctx = current_typed(&e, &typed_len_c);
-                    let ctx = crate::search::cmd::in_update_context(&typed_ctx)
-                        || l
-                            .selected_row()
-                            .and_then(|row| {
-                                r.borrow().get(row.index() as usize).map(is_update_row)
-                            })
-                            .unwrap_or(false);
-                    let badge = {
-                        let cfg = cfg_kc.borrow();
-                        crate::search::cmd::update_notice(&cfg).is_some()
-                    };
-                    let all_hit = hit(|c| c.update_all_shortcut.as_str(), key, state, false);
-                    let sys_hit = hit(|c| c.update_system_shortcut.as_str(), key, state, false);
-                    let fp_hit = hit(|c| c.update_flatpak_shortcut.as_str(), key, state, false);
-                    let run = if all_hit && (ctx || badge) {
-                        Some("all")
-                    } else if sys_hit && ctx {
-                        Some("distro")
-                    } else if fp_hit && ctx {
-                        Some("flatpak")
-                    } else {
-                        None
-                    };
-                    if let Some(scope) = run {
-                        run_update_scope(scope);
-                        return glib::Propagation::Stop;
                     }
                 }
 
@@ -3970,6 +3899,21 @@ fn show_confirm_dialog(
 /// button, default widget, and Escape all cancel). On confirm the item goes
 /// to the Trash — never a permanent delete — and the search re-runs; failures
 /// surface as a desktop notification, like the app's other confirm dialogs.
+/// Drop a trashed (or already gone) path — and everything indexed under
+/// it — from the search index, so its row disappears immediately. The
+/// change watcher only re-indexes the priority folders, so locations like
+/// ~/.config would keep a stale row (and fail on every further delete).
+fn forget_indexed(path: &std::path::Path) {
+    crate::app::with_state(|st| {
+        let snap = st.indexer.snapshot();
+        {
+            let mut s = snap.write().unwrap();
+            crate::index::prune_indexed_path(&mut s, path);
+        }
+        crate::index::persist_files_async(&snap);
+    });
+}
+
 fn confirm_delete_path(
     window: &gtk::Window,
     popover_open: &Rc<Cell<bool>>,
@@ -4047,8 +3991,19 @@ fn confirm_delete_path(
                 match crate::fileops::trash_path(&path) {
                     Ok(()) => {
                         log::info!("fileops: trashed {}", path.display());
-                        // Re-run the search; the indexer's change watcher
-                        // also drops the path from the snapshot shortly.
+                        forget_indexed(&path);
+                        // Re-run the search so the row disappears right away.
+                        entry.emit_by_name::<()>("changed", &[]);
+                    }
+                    // Already gone: a stale row an earlier delete left
+                    // behind (the watcher never re-indexes non-priority
+                    // folders). Drop it instead of failing again.
+                    Err(e) if !path.exists() => {
+                        log::info!(
+                            "fileops: {} already gone ({e}), dropping the stale row",
+                            path.display()
+                        );
+                        forget_indexed(&path);
                         entry.emit_by_name::<()>("changed", &[]);
                     }
                     Err(e) => {
@@ -4831,66 +4786,30 @@ fn build_ops_pending_bar(it: &crate::operations::OpItem) -> gtk::Revealer {
 }
 
 
-/// True when a result belongs to the update feature — the context the
-/// update shortcuts (Ctrl+Enter / Ctrl+D / Ctrl+F) act in.
-fn is_update_row(r: &SearchResult) -> bool {
-    match &r.action {
-        Action::StartOperation { args, title, .. } => {
-            crate::search::cmd::is_update_run(title, args)
-        }
-        Action::CheckUpdates
-        | Action::ToggleUpdates
-        | Action::SnoozeUpdates
-        | Action::DismissUpdates(_) => true,
-        Action::ConfirmRunCommand(cmd) => *cmd == crate::search::system::reboot_command(),
-        _ => false,
-    }
-}
-
-/// Run a shortcut-driven update scope: force a fresh check first, then
-/// upgrade that scope when it has something pending — an empty scope never
-/// fires a pkexec prompt, it just re-checks and shows the result.
-fn run_update_scope(scope: &str) {
-    crate::search::cmd::check_updates_now();
-    if let Some(args) = crate::search::cmd::update_scope_args(scope) {
-        let title = match scope {
-            "all" => gettext("Update all packages"),
-            "flatpak" => gettext("Update flatpak packages"),
-            "snap" => gettext("Update snap packages"),
-            _ => gettext("Update system packages"),
-        };
-        crate::operations::start(
-            title,
-            gettext("{source} Update").replace("{source}", scope),
-            "software-update-available-symbolic".into(),
-            args,
-        );
-    }
-    crate::app::refresh_search_window();
-}
-
-/// The keyboard section of the update preview: what Enter runs plus the
-/// three scoped update shortcuts (configurable in Settings → Updates).
-fn update_shortcut_hints() -> Vec<(String, String)> {
-    let (all, sys, fp) = crate::app::with_state(|st| {
-        let c = st.config.borrow();
-        (
-            c.update_all_shortcut.clone(),
-            c.update_system_shortcut.clone(),
-            c.update_flatpak_shortcut.clone(),
-        )
-    });
-    vec![
-        (gettext("Update now"), "Return".to_string()),
-        (gettext("Update everything"), to_gtk_accel(&all)),
-        (gettext("Update system packages only"), to_gtk_accel(&sys)),
-        (gettext("Update flatpak packages only"), to_gtk_accel(&fp)),
-    ]
-}
-
 /// When a clipboard entry was captured (unix seconds), from the live history.
 fn clip_time(entry: &crate::clipboard::ClipboardEntry) -> Option<u64> {
     crate::app::with_state(|st| st.clipboard.borrow().time_of(entry))
+}
+
+/// Whether a result deserves the right-hand preview pane: files and
+/// clipboard entries, plus the update rows — whose pane carries the
+/// boxed list of packages an update would touch (typing "update" shows
+/// what can be updated).
+fn previewable(r: &SearchResult) -> bool {
+    match &r.action {
+        Action::OpenPath(_)
+        | Action::BrowseInto(_)
+        | Action::OpenInFileManager(_)
+        | Action::CopyImageToClipboard(_)
+        | Action::CopyFileToClipboard(_)
+        | Action::CopyToClipboard(_) => true,
+        Action::StartOperation { args, title, .. } => {
+            crate::search::cmd::is_update_run(title, args)
+        }
+        Action::CheckUpdates => true,
+        Action::ConfirmRunCommand(cmd) => *cmd == crate::search::system::reboot_command(),
+        _ => false,
+    }
 }
 
 fn upd_preview(row: &gtk::ListBoxRow, rs: &[SearchResult], p: &PreviewPane) {
@@ -4920,21 +4839,24 @@ fn upd_preview(row: &gtk::ListBoxRow, rs: &[SearchResult], p: &PreviewPane) {
         Action::CopyFileToClipboard(pa) => p.show_path(pa),
         // Clipboard text entries: show the full text, scrollable.
         Action::CopyToClipboard(t) => p.show_text(t),
-        // Update rows: the package list this run will touch, plus the
-        // scoped keyboard shortcuts (libadwaita list, not a text blob).
+        // Update rows: the package list this run will touch.
         Action::StartOperation { args, title, .. }
             if crate::search::cmd::is_update_run(title, args) =>
         {
             let details = crate::search::cmd::details_for(title);
             let sub = r.subtitle.clone().unwrap_or_default();
-            p.show_update(title, &sub, &details, &update_shortcut_hints());
+            p.show_update(title, &sub, &details);
+        }
+        // An idle scope recommendation ("Nothing pending — press Enter to
+        // check again"): same page, nothing to list.
+        Action::CheckUpdates => {
+            p.show_update(&r.title, r.subtitle.as_deref().unwrap_or(""), &[]);
         }
         // The restart row: say why it's there and what pressing Enter does.
         Action::ConfirmRunCommand(cmd) if *cmd == crate::search::system::reboot_command() => {
             p.show_update(
                 &gettext("Restart required to finish the update"),
                 &gettext("Press Enter to restart"),
-                &[],
                 &[],
             );
         }
@@ -5123,6 +5045,15 @@ fn activate(
         Action::InsertCalculatorResult(t) => {
             crate::clipboard::set_text(t);
             dismiss(window, shown, false);
+            // Optional auto-paste (calculator settings): the same 75 ms +
+            // Ctrl+V dance as the copy actions, so Spotty is gone by then.
+            let paste = crate::app::with_state(|st| st.config.borrow().calc_paste);
+            if paste {
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(75));
+                    let _ = crate::keysynth::do_keybinding("Ctrl+V");
+                });
+            }
         }
         Action::RunCommand(cmd) => {
             let _ = crate::app::spawn_host_shell_command(cmd);
@@ -5420,5 +5351,60 @@ fn op_actions_equal(a: &crate::search::Action, b: &crate::search::Action) -> boo
             ps.eq(pt)
         }
         _ => a == b,
+    }
+}
+
+#[cfg(test)]
+mod previewable_tests {
+    use super::previewable;
+    use crate::search::{Action, ResultKind, SearchResult};
+
+    fn row(action: Action) -> SearchResult {
+        SearchResult {
+            kind: ResultKind::System,
+            title: "row".into(),
+            subtitle: None,
+            icon: None,
+            action,
+            score: 0,
+        }
+    }
+
+    #[test]
+    fn update_rows_open_the_preview_pane() {
+        // The scope / package rows list what can be updated.
+        assert!(previewable(&row(Action::StartOperation {
+            title: "Update: vim.x86_64".into(),
+            source: "dnf Update".into(),
+            icon: "software-update-available-symbolic".into(),
+            args: vec![
+                "pkexec".into(),
+                "dnf".into(),
+                "upgrade".into(),
+                "-y".into(),
+                "vim.x86_64".into()
+            ],
+        })));
+        // …idle recommendations and the checking row do too.
+        assert!(previewable(&row(Action::CheckUpdates)));
+        // The restart row (reboot) previews its own page.
+        assert!(previewable(&row(Action::ConfirmRunCommand(
+            crate::search::system::reboot_command()
+        ))));
+    }
+
+    #[test]
+    fn files_and_clipboard_still_preview_and_installs_stay_out() {
+        assert!(previewable(&row(Action::CopyToClipboard("hi".into()))));
+        assert!(previewable(&row(Action::OpenPath("/tmp/x".into()))));
+        // Install/uninstall runs have no update list to show.
+        assert!(!previewable(&row(Action::StartOperation {
+            title: "Install: Firefox".into(),
+            source: "flatpak".into(),
+            icon: "org.mozilla.firefox".into(),
+            args: vec!["flatpak".into(), "install".into(), "org.mozilla.firefox".into()],
+        })));
+        assert!(!previewable(&row(Action::EnterMode("files".into()))));
+        assert!(!previewable(&row(Action::ToggleUpdates)));
     }
 }

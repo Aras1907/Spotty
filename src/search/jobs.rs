@@ -152,8 +152,11 @@ fn compute(
     r.extend(crate::search::system::search(query, config));
     r.extend(crate::search::settings_panels::search(query));
     if config.enable_calculator {
-        if let Some(calc) = crate::search::calculator::evaluate(query) {
+        if let Some(calc) = crate::search::calculator::evaluate(query, config) {
             r.push(calc);
+        }
+        if let Some(conv) = crate::search::convert::convert(query, config) {
+            r.push(conv);
         }
     }
     if config.enable_apps {
