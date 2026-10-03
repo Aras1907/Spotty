@@ -574,6 +574,9 @@ pub fn on_startup(app: &adw::Application) {
     // are built while the user types, and they need that answer (which update
     // path to use) on the very first keystroke.
     crate::dnf5daemon::warmup();
+    // Same for the browser's search engine: the first web-search row should
+    // already know its name and icon rather than filling in a moment later.
+    crate::search::browser_engine::warmup();
     // Backfill OCR text for pre-existing clipboard images: capture-time OCR
     // only covers new copies, and the background indexer skips ~/.cache.
     // Delayed so startup indexing finishes first; nudges the UI when done.

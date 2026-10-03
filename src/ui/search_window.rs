@@ -2178,6 +2178,37 @@ impl SearchWindow {
                     );
                 }
 
+                // A web result: the configured key opens the search in a private
+                // window of the default browser (default Ctrl+Enter). Checked
+                // before everything else because plain Enter would otherwise
+                // open the same search normally.
+                if hit(|c| c.private_search_shortcut.as_str(), key, state, false) {
+                    let web_url = l.selected_row().and_then(|row| {
+                        r.borrow()
+                            .get(row.index() as usize)
+                            .filter(|res| res.kind == crate::search::ResultKind::Web)
+                            .and_then(|res| match &res.action {
+                                Action::OpenUrl(u) => Some(u.clone()),
+                                _ => None,
+                            })
+                    });
+                    if let Some(url) = web_url {
+                        if let Some(argv) =
+                            crate::search::browser_launch::private_window_argv(&url)
+                        {
+                            crate::search::browser_launch::spawn_private_window(&argv);
+                            dismiss(&w, &shown_kc, false);
+                        } else {
+                            log::info!(
+                                "private search: the default browser has no known private mode"
+                            );
+                        }
+                        // Either way the key is ours: falling through would open
+                        // the very window the shortcut promises to keep private.
+                        return glib::Propagation::Stop;
+                    }
+                }
+
                 // Select all text in the search entry, regardless of trigger mode.
                 if select_all_hit {
                     let len = char_count(&e.text()) as i32;
@@ -5632,6 +5663,17 @@ fn activate(
             let _ = gio::AppInfo::launch_default_for_uri(u, gio::AppLaunchContext::NONE);
             dismiss(window, shown, false);
         }
+        Action::OpenUrlPrivate(u) => {
+            // Private or nothing: if this browser has no private window we know
+            // how to ask for, the search does not open at all rather than in a
+            // window that quietly isn't private.
+            if let Some(argv) = crate::search::browser_launch::private_window_argv(&u) {
+                crate::search::browser_launch::spawn_private_window(&argv);
+                dismiss(window, shown, false);
+            } else {
+                log::info!("private window: no private mode known for this browser");
+            }
+        }
         Action::CopyToClipboard(t) => {
             crate::clipboard::set_text(t);
             dismiss(window, shown, false);
@@ -5994,6 +6036,38 @@ fn op_actions_equal(a: &crate::search::Action, b: &crate::search::Action) -> boo
             ps.eq(pt)
         }
         _ => a == b,
+    }
+}
+
+#[cfg(test)]
+mod private_search_tests {
+    use crate::config::Config;
+    use crate::search::Action;
+
+    #[test]
+    fn the_private_search_shortcut_defaults_to_ctrl_enter() {
+        // In the same GTK accelerator form as every other shortcut, so it is
+        // matched by the same code path as open-location — which it shares the
+        // combination with, deliberately: that one only acts on file rows.
+        let cfg = Config::default();
+        assert_eq!(cfg.private_search_shortcut, "<Control>Return");
+        assert_eq!(cfg.open_location_shortcut, "<Control>Return");
+        // …and an already-GTK value survives normalisation untouched.
+        assert_eq!(
+            crate::ui::settings_window::normalize_accel(&cfg.private_search_shortcut),
+            "<Control>Return"
+        );
+    }
+
+    #[test]
+    fn a_private_web_action_is_its_own_action() {
+        // Distinct from OpenUrl so the row, the action handler and the tests
+        // can tell "open privately" from "open".
+        let web = Action::OpenUrl("https://kagi.com/?q=x".into());
+        let private = Action::OpenUrlPrivate("https://kagi.com/?q=x".into());
+        assert!(matches!(web, Action::OpenUrl(_)));
+        assert!(!matches!(private, Action::OpenUrl(_)));
+        assert!(matches!(private, Action::OpenUrlPrivate(_)));
     }
 }
 

@@ -28,19 +28,19 @@ msgstr "เกี่ยวกับ"
 msgid "About Spotty"
 msgstr "เกี่ยวกับ Spotty"
 
-#: src/ui/settings_window.rs:1800
+#: src/ui/settings_window.rs:1850
 msgid "Add Trigger"
 msgstr "เพิ่มทริกเกอร์"
 
-#: src/ui/settings_window.rs:1525
+#: src/ui/settings_window.rs:1575
 msgid "Add Trigger Word"
 msgstr "เพิ่มคำทริกเกอร์"
 
-#: src/ui/settings_window.rs:2203
+#: src/ui/settings_window.rs:2253
 msgid "Add a local trigger"
 msgstr "เพิ่มทริกเกอร์ในเครื่อง"
 
-#: src/ui/settings_window.rs:2725
+#: src/ui/settings_window.rs:2775
 msgid "Allow typing / or ~/ to browse the filesystem directly"
 msgstr "อนุญาตให้พิมพ์ / หรือ ~/ เพื่อเรียกดูระบบไฟล์โดยตรง"
 
@@ -56,7 +56,7 @@ msgstr "แนะนำแอปที่ติดตั้งได้ขณะ
 msgid "Always show web search row"
 msgstr "แสดงแถวเว็บค้นหาเสมอ"
 
-#: src/ui/settings_window.rs:858
+#: src/ui/settings_window.rs:908
 msgid "Angle"
 msgstr ""
 
@@ -77,31 +77,31 @@ msgid "AppImages"
 msgstr ""
 
 #: src/ui/settings_window.rs:99
-#: src/ui/settings_window.rs:554
+#: src/ui/settings_window.rs:604
 msgid "Applications"
 msgstr "แอปพลิเคชัน"
 
 #: src/ui/search_window.rs:2001
-#: src/ui/search_window.rs:2972
+#: src/ui/search_window.rs:3003
 msgid "Are you sure you want to install {name}?"
 msgstr "คุณแน่ใจว่าต้องการติดตั้ง {name} หรือไม่?"
 
 #: src/ui/search_window.rs:2005
-#: src/ui/search_window.rs:2976
+#: src/ui/search_window.rs:3007
 msgid "Are you sure you want to uninstall {name}?"
 msgstr "คุณแน่ใจว่าต้องการลบ {name} หรือไม่?"
 
 #: src/ui/search_window.rs:2016
-#: src/ui/search_window.rs:3016
-#: src/ui/settings_window.rs:1083
+#: src/ui/search_window.rs:3047
+#: src/ui/settings_window.rs:1133
 msgid "Are you sure?"
 msgstr "คุณแน่ใจหรือไม่?"
 
-#: src/ui/settings_window.rs:850
+#: src/ui/settings_window.rs:900
 msgid "Area"
 msgstr ""
 
-#: src/ui/settings_window.rs:602
+#: src/ui/settings_window.rs:652
 msgid "Arithmetic"
 msgstr "การคำนวณ"
 
@@ -113,7 +113,7 @@ msgstr "การคำนวณ หน่วย สกุลเงิน แล
 #: src/search/translate.rs:665
 #: src/search/translate.rs:721
 #: src/search/translate.rs:772
-#: src/ui/settings_window.rs:862
+#: src/ui/settings_window.rs:912
 msgid "Auto"
 msgstr "อัตโนมัติ"
 
@@ -125,42 +125,43 @@ msgstr "กลับเป็นอัตโนมัติ (ภาษาขอ�
 msgid "Bluetooth devices"
 msgstr "อุปกรณ์ Bluetooth"
 
-#: src/ui/settings_window.rs:1287
+#: src/ui/settings_window.rs:1337
 msgid "Browse and install triggers"
 msgstr "เรียกดูและติดตั้งทริกเกอร์"
 
 #: src/ui/settings_window.rs:162
-#: src/ui/settings_window.rs:594
+#: src/ui/settings_window.rs:644
 msgid "Calculator & Converter"
 msgstr "เครื่องคิดเลขและตัวแปลง"
 
-#: src/ui/result_row.rs:301
+#: src/ui/result_row.rs:312
 #: src/ui/search_window.rs:558
 #: src/ui/search_window.rs:2018
-#: src/ui/search_window.rs:3018
-#: src/ui/search_window.rs:4906
-#: src/ui/search_window.rs:5328
-#: src/ui/search_window.rs:5795
-#: src/ui/settings_window.rs:1085
-#: src/ui/settings_window.rs:1621
-#: src/ui/settings_window.rs:2386
+#: src/ui/search_window.rs:3049
+#: src/ui/search_window.rs:4937
+#: src/ui/search_window.rs:5359
+#: src/ui/search_window.rs:5837
+#: src/ui/settings_window.rs:1135
+#: src/ui/settings_window.rs:1671
+#: src/ui/settings_window.rs:2436
+#: src/ui/settings_window.rs:3183
 msgid "Cancel"
 msgstr "ยกเลิก"
 
-#: src/ui/settings_window.rs:2159
+#: src/ui/settings_window.rs:2209
 msgid "Cannot save the manifest: {e}"
 msgstr "ไม่สามารถบันทึก manifest: {e}"
 
-#: src/ui/settings_window.rs:1950
+#: src/ui/settings_window.rs:2000
 msgid "Cannot save the trigger: {e}"
 msgstr "ไม่สามารถบันทึกทริกเกอร์: {e}"
 
-#: src/ui/settings_window.rs:998
+#: src/ui/settings_window.rs:1048
 msgid "Check every"
 msgstr "ความถี่ในการตรวจสอบ"
 
-#: src/ui/settings_window.rs:948
-#: src/ui/settings_window.rs:957
+#: src/ui/settings_window.rs:998
+#: src/ui/settings_window.rs:1007
 msgid "Check now"
 msgstr "ตรวจสอบตอนนี้"
 
@@ -187,7 +188,7 @@ msgstr ""
 msgid "Choose what types of results appear"
 msgstr "เลือกประเภทผลลัพธ์ที่จะแสดง"
 
-#: src/ui/settings_window.rs:2621
+#: src/ui/settings_window.rs:2671
 msgid "Clipboard"
 msgstr "คลิปบอร์ด"
 
@@ -195,57 +196,57 @@ msgstr "คลิปบอร์ด"
 msgid "Clipped {time}"
 msgstr "คัดลอกแล้ว {time}"
 
-#: src/ui/settings_window.rs:707
+#: src/ui/settings_window.rs:757
 msgid "Comma"
 msgstr ""
 
-#: src/ui/settings_window.rs:1849
+#: src/ui/settings_window.rs:1899
 msgid "Command"
 msgstr "คำสั่ง"
 
-#: src/ui/settings_window.rs:1855
+#: src/ui/settings_window.rs:1905
 msgid "Command line"
 msgstr "บรรทัดคำสั่ง"
 
 #: src/ui/search_window.rs:2019
-#: src/ui/search_window.rs:3019
-#: src/ui/settings_window.rs:1086
+#: src/ui/search_window.rs:3050
+#: src/ui/settings_window.rs:1136
 msgid "Confirm"
 msgstr "ยืนยัน"
 
-#: src/ui/settings_window.rs:698
+#: src/ui/settings_window.rs:748
 msgid "Conversion wording"
 msgstr ""
 
-#: src/ui/settings_window.rs:666
+#: src/ui/settings_window.rs:716
 msgid "Conversions"
 msgstr "การแปลง"
 
-#: src/ui/search_window.rs:3922
+#: src/ui/search_window.rs:3953
 msgid "Couldn't delete \"{name}\": {e}"
 msgstr "ไม่สามารถลบ \\\"{name}\\\" ได้: {e}"
 
-#: src/ui/settings_window.rs:1976
+#: src/ui/settings_window.rs:2026
 msgid "Couldn't install"
 msgstr "ไม่สามารถติดตั้งได้"
 
-#: src/ui/settings_window.rs:2266
+#: src/ui/settings_window.rs:2316
 msgid "Couldn't load the trigger repository"
 msgstr "ไม่สามารถโหลดคลังทริกเกอร์ได้"
 
-#: src/ui/settings_window.rs:2356
+#: src/ui/settings_window.rs:2406
 msgid "Couldn't load {url}: {e}"
 msgstr "ไม่สามารถโหลด {url}: {e}"
 
-#: src/ui/settings_window.rs:2101
+#: src/ui/settings_window.rs:2151
 msgid "Couldn't uninstall: {e}"
 msgstr "ไม่สามารถลบได้: {e}"
 
-#: src/ui/settings_window.rs:1785
+#: src/ui/settings_window.rs:1835
 msgid "Create a Trigger"
 msgstr "สร้างทริกเกอร์"
 
-#: src/ui/settings_window.rs:686
+#: src/ui/settings_window.rs:736
 msgid "Currency conversion"
 msgstr "การแปลงสกุลเงิน"
 
@@ -253,39 +254,39 @@ msgstr "การแปลงสกุลเงิน"
 msgid "Custom Search URL"
 msgstr "URL ค้นหาที่กำหนดเอง"
 
-#: src/ui/settings_window.rs:752
+#: src/ui/settings_window.rs:802
 msgid "Custom wording"
 msgstr ""
 
-#: src/ui/settings_window.rs:709
+#: src/ui/settings_window.rs:759
 msgid "Custom…"
 msgstr ""
 
-#: src/ui/settings_window.rs:1008
+#: src/ui/settings_window.rs:1058
 msgid "Daily"
 msgstr "ทุกวัน"
 
-#: src/ui/settings_window.rs:853
+#: src/ui/settings_window.rs:903
 msgid "Data"
 msgstr ""
 
-#: src/ui/settings_window.rs:608
+#: src/ui/settings_window.rs:658
 msgid "Decimal places"
 msgstr "ตำแหน่งทศนิยม"
 
-#: src/ui/settings_window.rs:805
+#: src/ui/settings_window.rs:855
 msgid "Default currency"
 msgstr ""
 
-#: src/ui/settings_window.rs:842
+#: src/ui/settings_window.rs:892
 msgid "Default targets"
 msgstr ""
 
-#: src/ui/search_window.rs:3876
+#: src/ui/search_window.rs:3907
 msgid "Delete"
 msgstr "ลบ"
 
-#: src/ui/settings_window.rs:2672
+#: src/ui/settings_window.rs:2722
 msgid "Delete clipboard entries older than this (pinned items are exempt)"
 msgstr "ลบรายการคลิปบอร์ดที่เก่ากว่านี้ (รายการที่ปักหมุดยกเว้น)"
 
@@ -293,7 +294,7 @@ msgstr "ลบรายการคลิปบอร์ดที่เก่า
 msgid "Delete file"
 msgstr "ลบไฟล์"
 
-#: src/ui/settings_window.rs:2759
+#: src/ui/settings_window.rs:2809
 msgid "Delete file / folder"
 msgstr "ลบไฟล์ / โฟลเดอร์"
 
@@ -301,13 +302,17 @@ msgstr "ลบไฟล์ / โฟลเดอร์"
 msgid "Delete folder"
 msgstr "ลบโฟลเดอร์"
 
-#: src/ui/settings_window.rs:1835
+#: src/ui/settings_window.rs:1885
 msgid "Description (optional)"
 msgstr "คำอธิบาย (ไม่บังคับ)"
 
 #: src/search/translate.rs:666
 msgid "Detected automatically — press Enter to choose"
 msgstr "ตรวจพบอัตโนมัติ — กด Enter เพื่อเลือก"
+
+#: src/ui/settings_window.rs:513
+msgid "Detected search engine"
+msgstr ""
 
 #: src/search/dictionary.rs:188
 msgid "Dictionary: {query}"
@@ -317,30 +322,30 @@ msgstr "พจนานุกรม: {query}"
 msgid "Disable update checks"
 msgstr "ปิดการตรวจสอบการอัปเดต"
 
-#: src/ui/settings_window.rs:1156
+#: src/ui/settings_window.rs:1206
 msgid "Disabled · {base}"
 msgstr "ปิดใช้งาน · {base}"
 
-#: src/ui/search_window.rs:4922
-#: src/ui/search_window.rs:5344
+#: src/ui/search_window.rs:4953
+#: src/ui/search_window.rs:5375
 msgid "Dismiss"
 msgstr "ซ่อน"
 
 #: src/search/cmd.rs:2334
-#: src/ui/settings_window.rs:1047
+#: src/ui/settings_window.rs:1097
 msgid "Dismiss update notice"
 msgstr "ซ่อนการแจ้งเตือนอัปเดต"
 
-#: src/ui/settings_window.rs:2692
+#: src/ui/settings_window.rs:2742
 msgid "Display a hint bar in the clipboard manager"
 msgstr "แสดงแถบคำแนะนำในตัวจัดการคลิปบอร์ด"
 
-#: src/ui/search_window.rs:3857
+#: src/ui/search_window.rs:3888
 msgid "Do you want to delete \"{name}\"?"
 msgstr "คุณต้องการลบ \\\"{name}\\\" หรือไม่?"
 
 #: src/ui/search_window.rs:1998
-#: src/ui/search_window.rs:2968
+#: src/ui/search_window.rs:2999
 msgid "Do you want to update {name}?"
 msgstr "คุณต้องการอัปเดต {name} หรือไม่?"
 
@@ -352,7 +357,7 @@ msgstr "คุณต้องการ {action} หรือไม่?"
 msgid "Done"
 msgstr "เสร็จสิ้น"
 
-#: src/ui/settings_window.rs:2163
+#: src/ui/settings_window.rs:2213
 msgid "Download failed: {e}"
 msgstr "การดาวน์โหลดล้มเหลว: {e}"
 
@@ -368,16 +373,16 @@ msgstr ""
 msgid "Downloaded — restart to install them"
 msgstr ""
 
-#: src/ui/settings_window.rs:1171
+#: src/ui/settings_window.rs:1221
 msgid "Edit \"Open Spotty\" shortcut"
 msgstr "แก้ไขปุ่มลัด \\\"เปิด Spotty\\\""
 
-#: src/ui/settings_window.rs:2467
-#: src/ui/settings_window.rs:2474
+#: src/ui/settings_window.rs:2517
+#: src/ui/settings_window.rs:2524
 msgid "Edit \"{name}\" trigger"
 msgstr "แก้ไขทริกเกอร์ \\\"{name}\\\""
 
-#: src/ui/settings_window.rs:1257
+#: src/ui/settings_window.rs:1307
 msgid "Edit trigger words, import a manifest with +, or delete installed triggers."
 msgstr "แก้ไขคำทริกเกอร์ นำเข้า manifest ด้วย + หรือลบทริกเกอร์ที่ติดตั้งแล้ว"
 
@@ -386,26 +391,26 @@ msgstr "แก้ไขคำทริกเกอร์ นำเข้า mani
 msgid "Enable update checks"
 msgstr "เปิดการตรวจสอบการอัปเดต"
 
-#: src/ui/settings_window.rs:2510
+#: src/ui/settings_window.rs:2560
 msgid "Enabled"
 msgstr "เปิดใช้งาน"
 
-#: src/ui/settings_window.rs:855
+#: src/ui/settings_window.rs:905
 msgid "Energy"
 msgstr ""
 
-#: src/ui/settings_window.rs:1007
+#: src/ui/settings_window.rs:1057
 msgid "Every 12 hours"
 msgstr "ทุก 12 ชั่วโมง"
 
-#: src/ui/settings_window.rs:1006
+#: src/ui/settings_window.rs:1056
 msgid "Every 6 hours"
 msgstr "ทุก 6 ชั่วโมง"
 
-#: src/ui/settings_window.rs:749
-#: src/ui/settings_window.rs:774
-#: src/ui/settings_window.rs:787
-#: src/ui/settings_window.rs:814
+#: src/ui/settings_window.rs:799
+#: src/ui/settings_window.rs:824
+#: src/ui/settings_window.rs:837
+#: src/ui/settings_window.rs:864
 msgid "Example: {example}"
 msgstr ""
 
@@ -413,11 +418,11 @@ msgstr ""
 msgid "Fetching the definition"
 msgstr "กำลังดึงคำจำกัดความ"
 
-#: src/ui/settings_window.rs:2256
+#: src/ui/settings_window.rs:2306
 msgid "Fetching triggers…"
 msgstr "กำลังดึงทริกเกอร์…"
 
-#: src/ui/settings_window.rs:2720
+#: src/ui/settings_window.rs:2770
 msgid "Find"
 msgstr "ค้นหา"
 
@@ -425,15 +430,15 @@ msgstr "ค้นหา"
 msgid "Flatpak"
 msgstr ""
 
-#: src/ui/settings_window.rs:857
+#: src/ui/settings_window.rs:907
 msgid "Force"
 msgstr ""
 
-#: src/ui/settings_window.rs:859
+#: src/ui/settings_window.rs:909
 msgid "Frequency"
 msgstr ""
 
-#: src/ui/settings_window.rs:860
+#: src/ui/settings_window.rs:910
 msgid "Fuel economy"
 msgstr ""
 
@@ -442,16 +447,16 @@ msgid "General"
 msgstr "ทั่วไป"
 
 #: src/search/cmd.rs:2335
-#: src/ui/settings_window.rs:1048
+#: src/ui/settings_window.rs:1098
 msgid "Hidden until a new update appears"
 msgstr "ซ่อนจนกว่าจะมีการอัปเดตใหม่"
 
-#: src/ui/search_window.rs:4721
+#: src/ui/search_window.rs:4752
 msgid "Hidden — swipe back to restore"
 msgstr ""
 
 #: src/search/cmd.rs:2327
-#: src/ui/settings_window.rs:1038
+#: src/ui/settings_window.rs:1088
 msgid "Hide the update notice for 24 hours"
 msgstr "ซ่อนการแจ้งเตือนอัปเดต 24 ชั่วโมง"
 
@@ -459,29 +464,29 @@ msgstr "ซ่อนการแจ้งเตือนอัปเดต 24 �
 msgid "Highlight a result\nto preview"
 msgstr "ไฮไลต์ผลลัพธ์\\nเพื่อดูตัวอย่าง"
 
-#: src/ui/settings_window.rs:2655
+#: src/ui/settings_window.rs:2705
 msgid "History Limit"
 msgstr "ขีดจำกัดประวัติ"
 
-#: src/ui/settings_window.rs:1005
+#: src/ui/settings_window.rs:1055
 msgid "Hourly"
 msgstr "ทุกชั่วโมง"
 
-#: src/ui/settings_window.rs:1839
+#: src/ui/settings_window.rs:1889
 msgid "Icon name (optional)"
 msgstr "ชื่อไอคอน (ไม่บังคับ)"
 
 #: src/search/cmd.rs:1717
-#: src/ui/settings_window.rs:1622
-#: src/ui/settings_window.rs:2107
+#: src/ui/settings_window.rs:1672
+#: src/ui/settings_window.rs:2157
 msgid "Install"
 msgstr "ติดตั้ง"
 
-#: src/ui/settings_window.rs:1707
+#: src/ui/settings_window.rs:1757
 msgid "Install failed"
 msgstr "การติดตั้งล้มเหลว"
 
-#: src/ui/settings_window.rs:1618
+#: src/ui/settings_window.rs:1668
 msgid "Install {name}?"
 msgstr "ติดตั้ง {name} หรือไม่?"
 
@@ -496,7 +501,7 @@ msgstr "ติดตั้ง ลบ และจัดการแอป"
 msgid "Install: {name}"
 msgstr "ติดตั้ง: {name}"
 
-#: src/ui/settings_window.rs:1701
+#: src/ui/settings_window.rs:1751
 msgid "Installed \"{name}\""
 msgstr "ติดตั้ง \\\"{name}\\\" แล้ว"
 
@@ -508,7 +513,7 @@ msgstr ""
 msgid "Installing {name}"
 msgstr "กำลังติดตั้ง {name}"
 
-#: src/ui/search_window.rs:3864
+#: src/ui/search_window.rs:3895
 msgid "It will be moved to the Trash."
 msgstr "จะถูกย้ายไปที่ถังรีไซเคิล"
 
@@ -520,30 +525,31 @@ msgstr "ลบรายการแล้ว"
 msgid "Item unpinned — Press Ctrl+Z to undo"
 msgstr "เลิกปักหมุดรายการแล้ว — กด Ctrl+Z เพื่อเลิกทำ"
 
-#: src/ui/settings_window.rs:2384
+#: src/ui/settings_window.rs:2434
 msgid "Its trigger word and shortcut will be removed."
 msgstr "คำทริกเกอร์และปุ่มลัดจะถูกลบออก"
 
-#: src/ui/settings_window.rs:2671
+#: src/ui/settings_window.rs:2721
 msgid "Keep history"
 msgstr "เก็บประวัติ"
 
-#: src/ui/settings_window.rs:1199
-#: src/ui/settings_window.rs:1861
-#: src/ui/settings_window.rs:2601
+#: src/ui/settings_window.rs:1249
+#: src/ui/settings_window.rs:1911
+#: src/ui/settings_window.rs:2651
 msgid "Keyboard Shortcut"
 msgstr "ปุ่มลัด"
 
 #: src/ui/search_window.rs:966
-#: src/ui/settings_window.rs:559
+#: src/ui/settings_window.rs:569
+#: src/ui/settings_window.rs:609
 msgid "Keyboard Shortcuts"
 msgstr "ปุ่มลัด"
 
-#: src/ui/settings_window.rs:1833
+#: src/ui/settings_window.rs:1883
 msgid "Keyword"
 msgstr "คีย์เวิร์ด"
 
-#: src/ui/settings_window.rs:1917
+#: src/ui/settings_window.rs:1967
 msgid "Keyword: letters, digits, -, _ and . only."
 msgstr "คีย์เวิร์ด: ใช้เฉพาะตัวอักษร ตัวเลข - _ และ . เท่านั้น"
 
@@ -552,11 +558,11 @@ msgid "Kill"
 msgstr "จบการทำงาน"
 
 #: src/ui/search_window.rs:886
-#: src/ui/settings_window.rs:564
+#: src/ui/settings_window.rs:614
 msgid "Kill app"
 msgstr "จบการทำงานแอป"
 
-#: src/ui/search_window.rs:2249
+#: src/ui/search_window.rs:2280
 msgid "Kill {name}?"
 msgstr "จบการทำงาน {name} หรือไม่?"
 
@@ -564,7 +570,7 @@ msgstr "จบการทำงาน {name} หรือไม่?"
 msgid "Kill: {name}"
 msgstr "จบการทำงาน: {name}"
 
-#: src/ui/settings_window.rs:846
+#: src/ui/settings_window.rs:896
 msgid "Length"
 msgstr ""
 
@@ -576,24 +582,24 @@ msgstr "เชื่อมต่อเครื่องยนต์แปลภ
 msgid "Looking up \"{word}\"…"
 msgstr "กำลังค้นหา \\\"{word}\\\"…"
 
-#: src/ui/settings_window.rs:847
+#: src/ui/settings_window.rs:897
 msgid "Mass"
 msgstr ""
 
-#: src/ui/settings_window.rs:2656
+#: src/ui/settings_window.rs:2706
 msgid "Maximum number of clipboard entries to keep"
 msgstr "จำนวนรายการคลิปบอร์ดสูงสุดที่จะเก็บไว้"
 
-#: src/ui/settings_window.rs:1832
+#: src/ui/settings_window.rs:1882
 msgid "Name"
 msgstr "ชื่อ"
 
-#: src/ui/settings_window.rs:1909
+#: src/ui/settings_window.rs:1959
 msgid "Name, keyword and command are required."
 msgstr "ชื่อ คีย์เวิร์ด และคำสั่งเป็นข้อมูลที่จำเป็น"
 
-#: src/ui/search_window.rs:3746
-#: src/ui/search_window.rs:3880
+#: src/ui/search_window.rs:3777
+#: src/ui/search_window.rs:3911
 msgid "No"
 msgstr "ไม่"
 
@@ -617,7 +623,7 @@ msgstr "ไม่มีแอปที่ติดตั้งแล้วตร
 msgid "No matching updates"
 msgstr "ไม่มีการอัปเดตที่ตรงกัน"
 
-#: src/ui/search_window.rs:4659
+#: src/ui/search_window.rs:4690
 msgid "No operations yet"
 msgstr "ยังไม่มีการทำงาน"
 
@@ -625,11 +631,15 @@ msgstr "ยังไม่มีการทำงาน"
 msgid "No running app matching \"{query}\""
 msgstr "ไม่มีแอปที่กำลังทำงานตรงกับ \\\"{query}\\\""
 
-#: src/ui/settings_window.rs:2262
+#: src/ui/settings_window.rs:3141
+msgid "No shortcut"
+msgstr ""
+
+#: src/ui/settings_window.rs:2312
 msgid "No triggers found"
 msgstr "ไม่พบทริกเกอร์"
 
-#: src/ui/settings_window.rs:2020
+#: src/ui/settings_window.rs:2070
 msgid "No triggers match \"{q}\"."
 msgstr "ไม่มีทริกเกอร์ตรงกับ \\\"{q}\\\""
 
@@ -641,7 +651,7 @@ msgstr "ไม่มีทริกเกอร์ตรงกับ \\\"{q}\\\"
 msgid "No updates available"
 msgstr "ไม่มีการอัปเดต"
 
-#: src/ui/settings_window.rs:708
+#: src/ui/settings_window.rs:758
 msgid "None (space only)"
 msgstr ""
 
@@ -651,18 +661,18 @@ msgstr ""
 msgid "Nothing pending"
 msgstr "ไม่มีรายการที่รออัปเดต"
 
-#: src/ui/settings_window.rs:681
+#: src/ui/settings_window.rs:731
 msgid "Number base conversions"
 msgstr "การแปลงฐานจำนวน"
 
-#: src/ui/settings_window.rs:1710
-#: src/ui/settings_window.rs:1979
+#: src/ui/settings_window.rs:1760
+#: src/ui/settings_window.rs:2029
 msgid "OK"
 msgstr "ตกลง"
 
 #: src/search/cmd.rs:3984
 #: src/search/cmd.rs:4701
-#: src/ui/search_window.rs:3351
+#: src/ui/search_window.rs:3382
 msgid "One update available"
 msgstr "มีการอัปเดต 1 รายการ"
 
@@ -670,12 +680,12 @@ msgstr "มีการอัปเดต 1 รายการ"
 msgid "Only running apps can be killed"
 msgstr "จบการทำงานได้เฉพาะแอปที่กำลังทำงาน"
 
-#: src/ui/settings_window.rs:1264
+#: src/ui/settings_window.rs:1314
 msgid "Open Spotty"
 msgstr "เปิด Spotty"
 
 #: src/ui/search_window.rs:935
-#: src/ui/settings_window.rs:2780
+#: src/ui/settings_window.rs:2830
 msgid "Open folder in terminal"
 msgstr "เปิดโฟลเดอร์ในเทอร์มินัล"
 
@@ -688,19 +698,19 @@ msgid "Open in GNOME Settings"
 msgstr "เปิดในการตั้งค่า GNOME"
 
 #: src/ui/search_window.rs:960
-#: src/ui/settings_window.rs:2769
+#: src/ui/settings_window.rs:2819
 msgid "Open location in file manager"
 msgstr "เปิดตำแหน่งในไฟล์แมนเนเจอร์"
 
-#: src/ui/search_window.rs:4642
+#: src/ui/search_window.rs:4673
 msgid "Operations"
 msgstr "การทำงาน"
 
-#: src/ui/settings_window.rs:648
+#: src/ui/settings_window.rs:698
 msgid "Paste the result automatically"
 msgstr "วางผลลัพธ์อัตโนมัติ"
 
-#: src/ui/settings_window.rs:2511
+#: src/ui/settings_window.rs:2561
 msgid "Pause this trigger without uninstalling it"
 msgstr "หยุดชั่วคราวทริกเกอร์นี้โดยไม่ติดตั้งออก"
 
@@ -712,7 +722,7 @@ msgstr "ปักหมุด/เลิกปักหมุดที่เล�
 msgid "Please wait…"
 msgstr "โปรดรอ…"
 
-#: src/ui/settings_window.rs:856
+#: src/ui/settings_window.rs:906
 msgid "Power"
 msgstr ""
 
@@ -729,24 +739,28 @@ msgstr "กด Enter เพื่อเลือกภาษาอื่น"
 msgid "Press Enter to detect automatically"
 msgstr "กด Enter เพื่อตรวจพบอัตโนมัติ"
 
-#: src/ui/search_window.rs:5495
+#: src/ui/search_window.rs:5526
 msgid "Press Enter to restart"
 msgstr "กด Enter เพื่อเริ่มใหม่"
 
-#: src/ui/settings_window.rs:854
+#: src/ui/settings_window.rs:3209
+msgid "Press Esc to cancel or Backspace to disable"
+msgstr ""
+
+#: src/ui/settings_window.rs:904
 msgid "Pressure"
 msgstr ""
 
-#: src/ui/settings_window.rs:667
+#: src/ui/settings_window.rs:717
 msgid "Rates are fetched from a free public API when you convert"
 msgstr "อัตราแลกเปลี่ยนจะถูกดึงจาก API สาธารณะฟรีเมื่อคุณแปลง"
 
-#: src/ui/settings_window.rs:2740
+#: src/ui/settings_window.rs:2790
 msgid "Recent File/Folder Searches"
 msgstr "การค้นหาไฟล์/โฟลเดอร์ล่าสุด"
 
 #: src/search/cmd.rs:2326
-#: src/ui/settings_window.rs:1037
+#: src/ui/settings_window.rs:1087
 msgid "Remind tomorrow"
 msgstr "เตือนฉันพรุ่งนี้"
 
@@ -758,25 +772,29 @@ msgstr ""
 msgid "Remove AppImage: {name}"
 msgstr ""
 
-#: src/ui/result_row.rs:179
+#: src/ui/result_row.rs:190
 msgid "Remove from history"
 msgstr "นำออกจากประวัติ"
 
-#: src/ui/settings_window.rs:2097
+#: src/ui/settings_window.rs:2147
 msgid "Removed \"{name}\""
 msgstr "ลบ \\\"{name}\\\" แล้ว"
 
-#: src/ui/settings_window.rs:2800
-#: src/ui/settings_window.rs:3037
+#: src/ui/settings_window.rs:3315
+msgid "Replace shortcut"
+msgstr ""
+
+#: src/ui/settings_window.rs:2850
+#: src/ui/settings_window.rs:3092
 msgid "Reset"
 msgstr "รีเซ็ต"
 
-#: src/ui/settings_window.rs:1313
+#: src/ui/settings_window.rs:1363
 msgid "Reset trigger words and shortcuts to defaults"
 msgstr "รีเซ็ตคำทริกเกอร์และปุ่มลัดเป็นค่าเริ่มต้น"
 
-#: src/ui/search_window.rs:5493
-#: src/ui/settings_window.rs:1074
+#: src/ui/search_window.rs:5524
+#: src/ui/settings_window.rs:1124
 msgid "Restart"
 msgstr "รีสตาร์ท"
 
@@ -785,7 +803,7 @@ msgstr "รีสตาร์ท"
 #: src/search/cmd.rs:3677
 #: src/search/cmd.rs:4503
 #: src/search/system.rs:373
-#: src/ui/search_window.rs:5491
+#: src/ui/search_window.rs:5522
 msgid "Restart required to finish the update"
 msgstr "ต้องรีสตาร์ทเพื่อให้การอัปเดตเสร็จสมบูรณ์"
 
@@ -798,11 +816,11 @@ msgstr ""
 msgid "Results"
 msgstr "ผลลัพธ์"
 
-#: src/ui/result_row.rs:317
+#: src/ui/result_row.rs:328
 msgid "Retry"
 msgstr "ลองอีกครั้ง"
 
-#: src/ui/settings_window.rs:2724
+#: src/ui/settings_window.rs:2774
 msgid "Root Path Browsing"
 msgstr "การเรียกดูพาธแบบสัมบูรณ์"
 
@@ -810,7 +828,7 @@ msgstr "การเรียกดูพาธแบบสัมบูรณ์
 msgid "Run a command"
 msgstr "รันคำสั่ง"
 
-#: src/search/mod.rs:549
+#: src/search/mod.rs:554
 msgid "Run {name}"
 msgstr "รัน {name}"
 
@@ -834,7 +852,7 @@ msgstr "กำลังสแกนแอปที่ติดตั้งแล
 msgid "Scanning running processes…"
 msgstr "กำลังสแกนกระบวนการที่ทำงานอยู่…"
 
-#: src/ui/settings_window.rs:653
+#: src/ui/settings_window.rs:703
 msgid "Scientific notation"
 msgstr "สัญกรณ์วิทยาศาสตร์"
 
@@ -867,7 +885,7 @@ msgid "Search and install system packages ({pm})"
 msgstr ""
 
 #: src/config.rs:202
-#: src/ui/search_window.rs:3205
+#: src/ui/search_window.rs:3236
 msgid "Search clipboard history"
 msgstr "ค้นหาในประวัติคลิปบอร์ด"
 
@@ -880,7 +898,11 @@ msgstr "ค้นหาอิโมจิ"
 msgid "Search for new Apps"
 msgstr "ค้นหาแอปใหม่ด้วย"
 
-#: src/ui/settings_window.rs:2227
+#: src/ui/settings_window.rs:580
+msgid "Search privately"
+msgstr ""
+
+#: src/ui/settings_window.rs:2277
 msgid "Search triggers"
 msgstr "ค้นหาทริกเกอร์"
 
@@ -897,11 +919,16 @@ msgstr "กำลังค้นหาอุปกรณ์ Bluetooth{dots}"
 msgid "Searching for \"{query}\"…"
 msgstr "กำลังค้นหา \\\"{query}\\\"…"
 
-#: src/ui/settings_window.rs:3058
+#: src/ui/settings_window.rs:3187
+#: src/ui/settings_window.rs:3313
+msgid "Set shortcut"
+msgstr ""
+
+#: src/ui/settings_window.rs:3113
 msgid "Set shortcut…"
 msgstr "ตั้งค่าปุ่มลัด…"
 
-#: src/ui/settings_window.rs:2323
+#: src/ui/settings_window.rs:2373
 msgid "Set the trigger repository URL in the Trigger Repository row."
 msgstr "ตั้งค่า URL ของคลังทริกเกอร์ในแถวคลังทริกเกอร์"
 
@@ -913,31 +940,31 @@ msgstr "การตั้งค่า"
 msgid "Settings: {title}"
 msgstr "การตั้งค่า: {title}"
 
-#: src/ui/settings_window.rs:1200
+#: src/ui/settings_window.rs:1250
 msgid "Shortcut to focus the Spotty launcher"
 msgstr "ปุ่มลัดเพื่อโฟกัสตัวเรียกใช้ Spotty"
 
-#: src/ui/settings_window.rs:2691
+#: src/ui/settings_window.rs:2741
 msgid "Show Keyboard Shortcuts"
 msgstr "แสดงปุ่มลัด"
 
-#: src/ui/settings_window.rs:985
+#: src/ui/settings_window.rs:1035
 msgid "Show a badge and a desktop notification when updates exist"
 msgstr "แสดงป้ายและการแจ้งเตือนบนเดสก์ท็อปเมื่อมีการอัปเดต"
 
-#: src/ui/settings_window.rs:676
+#: src/ui/settings_window.rs:726
 msgid "Show equivalents when no target unit is given"
 msgstr "แสดงค่าที่เทียบเท่าเมื่อไม่ได้ระบุหน่วยปลายทาง"
 
-#: src/ui/settings_window.rs:638
+#: src/ui/settings_window.rs:688
 msgid "Show hex, octal and binary"
 msgstr "แสดงเลขฐานสิบหก ฐานแปด และฐานสอง"
 
-#: src/ui/settings_window.rs:2741
+#: src/ui/settings_window.rs:2791
 msgid "Show recently opened files and folders"
 msgstr "แสดงไฟล์และโฟลเดอร์ที่เปิดล่าสุด"
 
-#: src/ui/settings_window.rs:643
+#: src/ui/settings_window.rs:693
 msgid "Show the expression"
 msgstr "แสดงนิพจน์"
 
@@ -951,7 +978,7 @@ msgstr ""
 msgid "Source: {name}"
 msgstr "ต้นทาง: {name}"
 
-#: src/ui/settings_window.rs:851
+#: src/ui/settings_window.rs:901
 msgid "Speed"
 msgstr ""
 
@@ -968,7 +995,7 @@ msgstr "การตั้งค่า Spotty"
 msgid "Spreadsheet"
 msgstr "สเปรดชีต"
 
-#: src/ui/settings_window.rs:1286
+#: src/ui/settings_window.rs:1336
 msgid "Store"
 msgstr "ร้านค้า"
 
@@ -984,7 +1011,7 @@ msgstr ""
 msgid "Target: {name}"
 msgstr "เป้าหมาย: {name}"
 
-#: src/ui/settings_window.rs:848
+#: src/ui/settings_window.rs:898
 msgid "Temperature"
 msgstr ""
 
@@ -992,23 +1019,23 @@ msgstr ""
 msgid "Text match: {snippet}"
 msgstr "การจับคู่ข้อความ: {snippet}"
 
-#: src/ui/settings_window.rs:1922
+#: src/ui/settings_window.rs:1972
 msgid "The keyword \"{word}\" is already taken."
 msgstr "คีย์เวิร์ด \\\"{word}\\\" ถูกใช้แล้ว"
 
-#: src/ui/settings_window.rs:2018
+#: src/ui/settings_window.rs:2068
 msgid "The repository has no triggers yet."
 msgstr "คลังยังไม่มีทริกเกอร์"
 
-#: src/ui/search_window.rs:5793
+#: src/ui/search_window.rs:5835
 msgid "The trigger word and its files will be removed."
 msgstr "คำทริกเกอร์และไฟล์ของมันจะถูกลบ"
 
-#: src/ui/settings_window.rs:633
+#: src/ui/settings_window.rs:683
 msgid "Thousands separators"
 msgstr "ตัวคั่นหลักพัน"
 
-#: src/ui/settings_window.rs:852
+#: src/ui/settings_window.rs:902
 msgid "Time"
 msgstr ""
 
@@ -1024,27 +1051,27 @@ msgstr "กำลังแปล…"
 msgid "Translation unavailable"
 msgstr "แปลไม่ได้"
 
-#: src/ui/settings_window.rs:1829
+#: src/ui/settings_window.rs:1879
 msgid "Trigger"
 msgstr "ทริกเกอร์"
 
-#: src/ui/settings_window.rs:2188
+#: src/ui/settings_window.rs:2238
 msgid "Trigger Store"
 msgstr "ร้านค้าทริกเกอร์"
 
-#: src/ui/settings_window.rs:2517
+#: src/ui/settings_window.rs:2567
 msgid "Trigger word"
 msgstr "คำทริกเกอร์"
 
-#: src/ui/settings_window.rs:2854
+#: src/ui/settings_window.rs:2904
 msgid "Trigger word \"{word}\" is already in use"
 msgstr "คำทริกเกอร์ \\\"{word}\\\" ถูกใช้อยู่"
 
-#: src/ui/settings_window.rs:2849
+#: src/ui/settings_window.rs:2899
 msgid "Trigger word cannot be empty"
 msgstr "คำทริกเกอร์ต้องไม่ว่าง"
 
-#: src/ui/settings_window.rs:1251
+#: src/ui/settings_window.rs:1301
 msgid "Triggers"
 msgstr "ทริกเกอร์"
 
@@ -1052,7 +1079,7 @@ msgstr "ทริกเกอร์"
 msgid "Type a command to run"
 msgstr "พิมพ์คำสั่งที่จะรัน"
 
-#: src/search/mod.rs:537
+#: src/search/mod.rs:542
 msgid "Type a command to run with {name}"
 msgstr "พิมพ์คำสั่งที่จะรันด้วย {name}"
 
@@ -1068,7 +1095,7 @@ msgstr "พิมพ์คำที่จะค้นหา"
 msgid "Type all, flatpak, distro or a package name"
 msgstr "พิมพ์ all, flatpak, distro หรือชื่อแพ็กเกจ"
 
-#: src/search/mod.rs:515
+#: src/search/mod.rs:520
 msgid "Type something to search with {name}"
 msgstr "พิมพ์สิ่งที่จะค้นหาด้วย {name}"
 
@@ -1077,32 +1104,32 @@ msgid "Type text to translate"
 msgstr "พิมพ์ข้อความที่จะแปล"
 
 #: src/ui/search_window.rs:1268
-#: src/ui/search_window.rs:4729
+#: src/ui/search_window.rs:4760
 msgid "Undo"
 msgstr "เลิกทำ"
 
 #: src/search/cmd.rs:1725
-#: src/ui/search_window.rs:5796
-#: src/ui/settings_window.rs:2080
-#: src/ui/settings_window.rs:2387
+#: src/ui/search_window.rs:5838
+#: src/ui/settings_window.rs:2130
+#: src/ui/settings_window.rs:2437
 msgid "Uninstall"
 msgstr "ถอนการติดตั้ง"
 
-#: src/ui/settings_window.rs:2383
+#: src/ui/settings_window.rs:2433
 msgid "Uninstall \"{id}\"?"
 msgstr "ถอนการติดตั้ง \\\"{id}\\\" หรือไม่?"
 
 #: src/ui/search_window.rs:877
-#: src/ui/settings_window.rs:563
+#: src/ui/settings_window.rs:613
 msgid "Uninstall app"
 msgstr "ถอนการติดตั้งแอป"
 
-#: src/ui/settings_window.rs:1444
+#: src/ui/settings_window.rs:1494
 msgid "Uninstall trigger"
 msgstr "ถอนการติดตั้งทริกเกอร์"
 
-#: src/ui/search_window.rs:2214
-#: src/ui/search_window.rs:5792
+#: src/ui/search_window.rs:2245
+#: src/ui/search_window.rs:5834
 msgid "Uninstall {name}?"
 msgstr "ถอนการติดตั้ง {name} หรือไม่?"
 
@@ -1115,7 +1142,7 @@ msgstr "ถอนการติดตั้ง: {name}"
 msgid "Uninstalling {name}"
 msgstr "กำลังถอนการติดตั้ง {name}"
 
-#: src/ui/settings_window.rs:671
+#: src/ui/settings_window.rs:721
 msgid "Unit conversions"
 msgstr "การแปลงหน่วย"
 
@@ -1142,7 +1169,7 @@ msgstr "การตรวจสอบการอัปเดตปิดอย
 msgid "Update flatpak packages"
 msgstr "อัปเดตแพ็กเกจ Flatpak"
 
-#: src/ui/settings_window.rs:984
+#: src/ui/settings_window.rs:1034
 msgid "Update notification"
 msgstr "การแจ้งเตือนอัปเดต"
 
@@ -1164,7 +1191,7 @@ msgid "Update: {name}"
 msgstr "อัปเดต: {name}"
 
 #: src/ui/settings_window.rs:186
-#: src/ui/settings_window.rs:940
+#: src/ui/settings_window.rs:990
 msgid "Updates"
 msgstr "การอัปเดต"
 
@@ -1172,12 +1199,12 @@ msgstr "การอัปเดต"
 msgid "Used for web search results"
 msgstr "ใช้สำหรับผลการค้นหาบนเว็บ"
 
-#: src/ui/settings_window.rs:508
-#: src/ui/settings_window.rs:531
+#: src/ui/settings_window.rs:529
+#: src/ui/settings_window.rs:552
 msgid "Uses {name} (detected from your default browser)"
 msgstr "ใช้ {name} (ตรวจพบจากเบราว์เซอร์เริ่มต้น)"
 
-#: src/ui/settings_window.rs:849
+#: src/ui/settings_window.rs:899
 msgid "Volume"
 msgstr ""
 
@@ -1186,27 +1213,27 @@ msgstr ""
 msgid "Web Search"
 msgstr "การค้นหาบนเว็บ"
 
-#: src/ui/settings_window.rs:1009
+#: src/ui/settings_window.rs:1059
 msgid "Weekly"
 msgstr "ทุกสัปดาห์"
 
-#: src/ui/settings_window.rs:843
+#: src/ui/settings_window.rs:893
 msgid "What a value converts to when you don't name a target"
 msgstr ""
 
-#: src/ui/settings_window.rs:1830
+#: src/ui/settings_window.rs:1880
 msgid "What you type to open it."
 msgstr "สิ่งที่คุณพิมพ์เพื่อเปิดมัน"
 
-#: src/ui/settings_window.rs:1149
+#: src/ui/settings_window.rs:1199
 msgid "Word: {word} · No shortcut"
 msgstr "คำ: {word} · ไม่มีปุ่มลัด"
 
-#: src/ui/settings_window.rs:1151
+#: src/ui/settings_window.rs:1201
 msgid "Word: {word} · {shortcut}"
 msgstr "คำ: {word} · {shortcut}"
 
-#: src/ui/search_window.rs:3750
+#: src/ui/search_window.rs:3781
 msgid "Yes"
 msgstr "ใช่"
 
@@ -1225,7 +1252,7 @@ msgstr "การตอบกลับว่างเปล่า"
 msgid "id '{id}' is a built-in trigger"
 msgstr "id '{id}' เป็นทริกเกอร์ในตัว"
 
-#: src/ui/settings_window.rs:704
+#: src/ui/settings_window.rs:754
 msgid "in"
 msgstr ""
 
@@ -1253,11 +1280,11 @@ msgstr "ขาด 'word' (ข้อความของทริกเกอร
 msgid "shell action needs a 'command' template"
 msgstr "การกระทำ shell ต้องมีเทมเพลต 'command'"
 
-#: src/ui/settings_window.rs:702
+#: src/ui/settings_window.rs:752
 msgid "to"
 msgstr ""
 
-#: src/ui/settings_window.rs:703
+#: src/ui/settings_window.rs:753
 msgid "to or in"
 msgstr ""
 
@@ -1298,8 +1325,8 @@ msgstr "การกระทำ web ต้องมีเทมเพลต 'ur
 msgid "{description} — via Flatpak ({app})"
 msgstr ""
 
-#: src/search/mod.rs:526
-#: src/search/mod.rs:553
+#: src/search/mod.rs:531
+#: src/search/mod.rs:558
 msgid "{name}: {query}"
 msgstr ""
 
@@ -1309,7 +1336,7 @@ msgstr ""
 
 #: src/search/cmd.rs:4605
 #: src/search/cmd.rs:4702
-#: src/ui/search_window.rs:3353
+#: src/ui/search_window.rs:3384
 msgid "{n} updates available"
 msgstr "มีการอัปเดต {n} รายการ"
 
@@ -1353,7 +1380,7 @@ msgstr "{src} → {tgt}"
 msgid "{title} {suffix}"
 msgstr ""
 
-#: src/ui/search_window.rs:3502
+#: src/ui/search_window.rs:3533
 msgid "{title} — {detail}"
 msgstr ""
 
@@ -1361,7 +1388,7 @@ msgstr ""
 msgid "{word} — complete the word with Tab"
 msgstr "{word} — เสร็จสิ้นคำด้วย Tab"
 
-#: src/ui/settings_window.rs:2066
+#: src/ui/settings_window.rs:2116
 msgid "{word} — {description}"
 msgstr ""
 

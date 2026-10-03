@@ -32,7 +32,7 @@ pub fn record(command: &str) {
     r.truncate(20);
 }
 
-fn is_sandbox() -> bool {
+pub(crate) fn is_sandbox() -> bool {
     std::env::var("FLATPAK_ID").is_ok()
 }
 

@@ -28,19 +28,19 @@ msgstr "Tentang"
 msgid "About Spotty"
 msgstr "Tentang Spotty"
 
-#: src/ui/settings_window.rs:1800
+#: src/ui/settings_window.rs:1850
 msgid "Add Trigger"
 msgstr "Tambah pemicu"
 
-#: src/ui/settings_window.rs:1525
+#: src/ui/settings_window.rs:1575
 msgid "Add Trigger Word"
 msgstr "Tambah kata pemicu"
 
-#: src/ui/settings_window.rs:2203
+#: src/ui/settings_window.rs:2253
 msgid "Add a local trigger"
 msgstr "Tambah pemicu lokal"
 
-#: src/ui/settings_window.rs:2725
+#: src/ui/settings_window.rs:2775
 msgid "Allow typing / or ~/ to browse the filesystem directly"
 msgstr "Mengizinkan mengetik / atau ~/ untuk menelusuri sistem berkas secara langsung"
 
@@ -56,7 +56,7 @@ msgstr "Sarankan juga aplikasi yang dapat diinstal saat mengetik"
 msgid "Always show web search row"
 msgstr "Selalu tampilkan baris pencarian web"
 
-#: src/ui/settings_window.rs:858
+#: src/ui/settings_window.rs:908
 msgid "Angle"
 msgstr ""
 
@@ -77,31 +77,31 @@ msgid "AppImages"
 msgstr ""
 
 #: src/ui/settings_window.rs:99
-#: src/ui/settings_window.rs:554
+#: src/ui/settings_window.rs:604
 msgid "Applications"
 msgstr "Aplikasi"
 
 #: src/ui/search_window.rs:2001
-#: src/ui/search_window.rs:2972
+#: src/ui/search_window.rs:3003
 msgid "Are you sure you want to install {name}?"
 msgstr "Yakin ingin memasang {name}?"
 
 #: src/ui/search_window.rs:2005
-#: src/ui/search_window.rs:2976
+#: src/ui/search_window.rs:3007
 msgid "Are you sure you want to uninstall {name}?"
 msgstr "Yakin ingin menghapus {name}?"
 
 #: src/ui/search_window.rs:2016
-#: src/ui/search_window.rs:3016
-#: src/ui/settings_window.rs:1083
+#: src/ui/search_window.rs:3047
+#: src/ui/settings_window.rs:1133
 msgid "Are you sure?"
 msgstr "Yakin?"
 
-#: src/ui/settings_window.rs:850
+#: src/ui/settings_window.rs:900
 msgid "Area"
 msgstr ""
 
-#: src/ui/settings_window.rs:602
+#: src/ui/settings_window.rs:652
 msgid "Arithmetic"
 msgstr "Aritmetika"
 
@@ -113,7 +113,7 @@ msgstr "Aritmetika, satuan, mata uang, dan basis bilangan"
 #: src/search/translate.rs:665
 #: src/search/translate.rs:721
 #: src/search/translate.rs:772
-#: src/ui/settings_window.rs:862
+#: src/ui/settings_window.rs:912
 msgid "Auto"
 msgstr "Otomatis"
 
@@ -125,42 +125,43 @@ msgstr "Kembali ke Otomatis (bahasa sistem)"
 msgid "Bluetooth devices"
 msgstr "Perangkat Bluetooth"
 
-#: src/ui/settings_window.rs:1287
+#: src/ui/settings_window.rs:1337
 msgid "Browse and install triggers"
 msgstr "Jelajahi dan pasang pemicu"
 
 #: src/ui/settings_window.rs:162
-#: src/ui/settings_window.rs:594
+#: src/ui/settings_window.rs:644
 msgid "Calculator & Converter"
 msgstr "Kalkulator & konverter"
 
-#: src/ui/result_row.rs:301
+#: src/ui/result_row.rs:312
 #: src/ui/search_window.rs:558
 #: src/ui/search_window.rs:2018
-#: src/ui/search_window.rs:3018
-#: src/ui/search_window.rs:4906
-#: src/ui/search_window.rs:5328
-#: src/ui/search_window.rs:5795
-#: src/ui/settings_window.rs:1085
-#: src/ui/settings_window.rs:1621
-#: src/ui/settings_window.rs:2386
+#: src/ui/search_window.rs:3049
+#: src/ui/search_window.rs:4937
+#: src/ui/search_window.rs:5359
+#: src/ui/search_window.rs:5837
+#: src/ui/settings_window.rs:1135
+#: src/ui/settings_window.rs:1671
+#: src/ui/settings_window.rs:2436
+#: src/ui/settings_window.rs:3183
 msgid "Cancel"
 msgstr "Batal"
 
-#: src/ui/settings_window.rs:2159
+#: src/ui/settings_window.rs:2209
 msgid "Cannot save the manifest: {e}"
 msgstr "Tidak dapat menyimpan manifest: {e}"
 
-#: src/ui/settings_window.rs:1950
+#: src/ui/settings_window.rs:2000
 msgid "Cannot save the trigger: {e}"
 msgstr "Tidak dapat menyimpan pemicu: {e}"
 
-#: src/ui/settings_window.rs:998
+#: src/ui/settings_window.rs:1048
 msgid "Check every"
 msgstr "Frekuensi pemeriksaan"
 
-#: src/ui/settings_window.rs:948
-#: src/ui/settings_window.rs:957
+#: src/ui/settings_window.rs:998
+#: src/ui/settings_window.rs:1007
 msgid "Check now"
 msgstr "Periksa sekarang"
 
@@ -187,7 +188,7 @@ msgstr ""
 msgid "Choose what types of results appear"
 msgstr "Pilih jenis hasil yang ditampilkan"
 
-#: src/ui/settings_window.rs:2621
+#: src/ui/settings_window.rs:2671
 msgid "Clipboard"
 msgstr "Papan klip"
 
@@ -195,57 +196,57 @@ msgstr "Papan klip"
 msgid "Clipped {time}"
 msgstr "Disalin {time}"
 
-#: src/ui/settings_window.rs:707
+#: src/ui/settings_window.rs:757
 msgid "Comma"
 msgstr ""
 
-#: src/ui/settings_window.rs:1849
+#: src/ui/settings_window.rs:1899
 msgid "Command"
 msgstr "Perintah"
 
-#: src/ui/settings_window.rs:1855
+#: src/ui/settings_window.rs:1905
 msgid "Command line"
 msgstr "Baris perintah"
 
 #: src/ui/search_window.rs:2019
-#: src/ui/search_window.rs:3019
-#: src/ui/settings_window.rs:1086
+#: src/ui/search_window.rs:3050
+#: src/ui/settings_window.rs:1136
 msgid "Confirm"
 msgstr "Konfirmasi"
 
-#: src/ui/settings_window.rs:698
+#: src/ui/settings_window.rs:748
 msgid "Conversion wording"
 msgstr ""
 
-#: src/ui/settings_window.rs:666
+#: src/ui/settings_window.rs:716
 msgid "Conversions"
 msgstr "Konversi"
 
-#: src/ui/search_window.rs:3922
+#: src/ui/search_window.rs:3953
 msgid "Couldn't delete \"{name}\": {e}"
 msgstr "Tidak dapat menghapus \\\"{name}\\\": {e}"
 
-#: src/ui/settings_window.rs:1976
+#: src/ui/settings_window.rs:2026
 msgid "Couldn't install"
 msgstr "Tidak dapat memasang"
 
-#: src/ui/settings_window.rs:2266
+#: src/ui/settings_window.rs:2316
 msgid "Couldn't load the trigger repository"
 msgstr "Tidak dapat memuat repositori pemicu"
 
-#: src/ui/settings_window.rs:2356
+#: src/ui/settings_window.rs:2406
 msgid "Couldn't load {url}: {e}"
 msgstr "Tidak dapat memuat {url}: {e}"
 
-#: src/ui/settings_window.rs:2101
+#: src/ui/settings_window.rs:2151
 msgid "Couldn't uninstall: {e}"
 msgstr "Tidak dapat menghapus: {e}"
 
-#: src/ui/settings_window.rs:1785
+#: src/ui/settings_window.rs:1835
 msgid "Create a Trigger"
 msgstr "Buat pemicu"
 
-#: src/ui/settings_window.rs:686
+#: src/ui/settings_window.rs:736
 msgid "Currency conversion"
 msgstr "Konversi mata uang"
 
@@ -253,39 +254,39 @@ msgstr "Konversi mata uang"
 msgid "Custom Search URL"
 msgstr "URL pencarian kustom"
 
-#: src/ui/settings_window.rs:752
+#: src/ui/settings_window.rs:802
 msgid "Custom wording"
 msgstr ""
 
-#: src/ui/settings_window.rs:709
+#: src/ui/settings_window.rs:759
 msgid "Custom…"
 msgstr ""
 
-#: src/ui/settings_window.rs:1008
+#: src/ui/settings_window.rs:1058
 msgid "Daily"
 msgstr "Harian"
 
-#: src/ui/settings_window.rs:853
+#: src/ui/settings_window.rs:903
 msgid "Data"
 msgstr ""
 
-#: src/ui/settings_window.rs:608
+#: src/ui/settings_window.rs:658
 msgid "Decimal places"
 msgstr "Tempat desimal"
 
-#: src/ui/settings_window.rs:805
+#: src/ui/settings_window.rs:855
 msgid "Default currency"
 msgstr ""
 
-#: src/ui/settings_window.rs:842
+#: src/ui/settings_window.rs:892
 msgid "Default targets"
 msgstr ""
 
-#: src/ui/search_window.rs:3876
+#: src/ui/search_window.rs:3907
 msgid "Delete"
 msgstr "Hapus"
 
-#: src/ui/settings_window.rs:2672
+#: src/ui/settings_window.rs:2722
 msgid "Delete clipboard entries older than this (pinned items are exempt)"
 msgstr "Menghapus entri papan klip yang lebih lama (yang disematkan dikecualikan)"
 
@@ -293,7 +294,7 @@ msgstr "Menghapus entri papan klip yang lebih lama (yang disematkan dikecualikan
 msgid "Delete file"
 msgstr "Hapus berkas"
 
-#: src/ui/settings_window.rs:2759
+#: src/ui/settings_window.rs:2809
 msgid "Delete file / folder"
 msgstr "Hapus file / folder"
 
@@ -301,13 +302,17 @@ msgstr "Hapus file / folder"
 msgid "Delete folder"
 msgstr "Hapus folder"
 
-#: src/ui/settings_window.rs:1835
+#: src/ui/settings_window.rs:1885
 msgid "Description (optional)"
 msgstr "Deskripsi (opsional)"
 
 #: src/search/translate.rs:666
 msgid "Detected automatically — press Enter to choose"
 msgstr "Dideteksi otomatis — tekan Enter untuk memilih"
+
+#: src/ui/settings_window.rs:513
+msgid "Detected search engine"
+msgstr ""
 
 #: src/search/dictionary.rs:188
 msgid "Dictionary: {query}"
@@ -317,30 +322,30 @@ msgstr "Kamus: {query}"
 msgid "Disable update checks"
 msgstr "Nonaktifkan pemeriksaan pembaruan"
 
-#: src/ui/settings_window.rs:1156
+#: src/ui/settings_window.rs:1206
 msgid "Disabled · {base}"
 msgstr "Nonaktif · {base}"
 
-#: src/ui/search_window.rs:4922
-#: src/ui/search_window.rs:5344
+#: src/ui/search_window.rs:4953
+#: src/ui/search_window.rs:5375
 msgid "Dismiss"
 msgstr "Sembunyikan"
 
 #: src/search/cmd.rs:2334
-#: src/ui/settings_window.rs:1047
+#: src/ui/settings_window.rs:1097
 msgid "Dismiss update notice"
 msgstr "Sembunyikan notifikasi pembaruan"
 
-#: src/ui/settings_window.rs:2692
+#: src/ui/settings_window.rs:2742
 msgid "Display a hint bar in the clipboard manager"
 msgstr "Menampilkan bilah petunjuk di pengelola papan klip"
 
-#: src/ui/search_window.rs:3857
+#: src/ui/search_window.rs:3888
 msgid "Do you want to delete \"{name}\"?"
 msgstr "Apakah kamu ingin menghapus \\\"{name}\\\"?"
 
 #: src/ui/search_window.rs:1998
-#: src/ui/search_window.rs:2968
+#: src/ui/search_window.rs:2999
 msgid "Do you want to update {name}?"
 msgstr "Apakah kamu ingin memperbarui {name}?"
 
@@ -352,7 +357,7 @@ msgstr "Apakah kamu ingin {action}?"
 msgid "Done"
 msgstr "Selesai"
 
-#: src/ui/settings_window.rs:2163
+#: src/ui/settings_window.rs:2213
 msgid "Download failed: {e}"
 msgstr "Unduhan gagal: {e}"
 
@@ -368,16 +373,16 @@ msgstr ""
 msgid "Downloaded — restart to install them"
 msgstr ""
 
-#: src/ui/settings_window.rs:1171
+#: src/ui/settings_window.rs:1221
 msgid "Edit \"Open Spotty\" shortcut"
 msgstr "Edit pintasan \\\"Buka Spotty\\\""
 
-#: src/ui/settings_window.rs:2467
-#: src/ui/settings_window.rs:2474
+#: src/ui/settings_window.rs:2517
+#: src/ui/settings_window.rs:2524
 msgid "Edit \"{name}\" trigger"
 msgstr "Edit pemicu \\\"{name}\\\""
 
-#: src/ui/settings_window.rs:1257
+#: src/ui/settings_window.rs:1307
 msgid "Edit trigger words, import a manifest with +, or delete installed triggers."
 msgstr "Edit kata pemicu, impor manifest dengan +, atau hapus pemicu yang terpasang."
 
@@ -386,26 +391,26 @@ msgstr "Edit kata pemicu, impor manifest dengan +, atau hapus pemicu yang terpas
 msgid "Enable update checks"
 msgstr "Aktifkan pemeriksaan pembaruan"
 
-#: src/ui/settings_window.rs:2510
+#: src/ui/settings_window.rs:2560
 msgid "Enabled"
 msgstr "Aktif"
 
-#: src/ui/settings_window.rs:855
+#: src/ui/settings_window.rs:905
 msgid "Energy"
 msgstr ""
 
-#: src/ui/settings_window.rs:1007
+#: src/ui/settings_window.rs:1057
 msgid "Every 12 hours"
 msgstr "Setiap 12 jam"
 
-#: src/ui/settings_window.rs:1006
+#: src/ui/settings_window.rs:1056
 msgid "Every 6 hours"
 msgstr "Setiap 6 jam"
 
-#: src/ui/settings_window.rs:749
-#: src/ui/settings_window.rs:774
-#: src/ui/settings_window.rs:787
-#: src/ui/settings_window.rs:814
+#: src/ui/settings_window.rs:799
+#: src/ui/settings_window.rs:824
+#: src/ui/settings_window.rs:837
+#: src/ui/settings_window.rs:864
 msgid "Example: {example}"
 msgstr ""
 
@@ -413,11 +418,11 @@ msgstr ""
 msgid "Fetching the definition"
 msgstr "Mengambil definisi"
 
-#: src/ui/settings_window.rs:2256
+#: src/ui/settings_window.rs:2306
 msgid "Fetching triggers…"
 msgstr "Mengambil pemicu…"
 
-#: src/ui/settings_window.rs:2720
+#: src/ui/settings_window.rs:2770
 msgid "Find"
 msgstr "Cari"
 
@@ -425,15 +430,15 @@ msgstr "Cari"
 msgid "Flatpak"
 msgstr ""
 
-#: src/ui/settings_window.rs:857
+#: src/ui/settings_window.rs:907
 msgid "Force"
 msgstr ""
 
-#: src/ui/settings_window.rs:859
+#: src/ui/settings_window.rs:909
 msgid "Frequency"
 msgstr ""
 
-#: src/ui/settings_window.rs:860
+#: src/ui/settings_window.rs:910
 msgid "Fuel economy"
 msgstr ""
 
@@ -442,16 +447,16 @@ msgid "General"
 msgstr "Umum"
 
 #: src/search/cmd.rs:2335
-#: src/ui/settings_window.rs:1048
+#: src/ui/settings_window.rs:1098
 msgid "Hidden until a new update appears"
 msgstr "Disembunyikan sampai pembaruan baru muncul"
 
-#: src/ui/search_window.rs:4721
+#: src/ui/search_window.rs:4752
 msgid "Hidden — swipe back to restore"
 msgstr ""
 
 #: src/search/cmd.rs:2327
-#: src/ui/settings_window.rs:1038
+#: src/ui/settings_window.rs:1088
 msgid "Hide the update notice for 24 hours"
 msgstr "Sembunyikan notifikasi pembaruan selama 24 jam"
 
@@ -459,29 +464,29 @@ msgstr "Sembunyikan notifikasi pembaruan selama 24 jam"
 msgid "Highlight a result\nto preview"
 msgstr "Sorot hasil\\nuntuk pratinjau"
 
-#: src/ui/settings_window.rs:2655
+#: src/ui/settings_window.rs:2705
 msgid "History Limit"
 msgstr "Batas riwayat"
 
-#: src/ui/settings_window.rs:1005
+#: src/ui/settings_window.rs:1055
 msgid "Hourly"
 msgstr "Setiap jam"
 
-#: src/ui/settings_window.rs:1839
+#: src/ui/settings_window.rs:1889
 msgid "Icon name (optional)"
 msgstr "Nama ikon (opsional)"
 
 #: src/search/cmd.rs:1717
-#: src/ui/settings_window.rs:1622
-#: src/ui/settings_window.rs:2107
+#: src/ui/settings_window.rs:1672
+#: src/ui/settings_window.rs:2157
 msgid "Install"
 msgstr "Pasang"
 
-#: src/ui/settings_window.rs:1707
+#: src/ui/settings_window.rs:1757
 msgid "Install failed"
 msgstr "Pemasangan gagal"
 
-#: src/ui/settings_window.rs:1618
+#: src/ui/settings_window.rs:1668
 msgid "Install {name}?"
 msgstr "Pasang {name}?"
 
@@ -496,7 +501,7 @@ msgstr "Memasang, menghapus, dan mengelola aplikasi"
 msgid "Install: {name}"
 msgstr "Pasang: {name}"
 
-#: src/ui/settings_window.rs:1701
+#: src/ui/settings_window.rs:1751
 msgid "Installed \"{name}\""
 msgstr "\\\"{name}\\\" terpasang"
 
@@ -508,7 +513,7 @@ msgstr ""
 msgid "Installing {name}"
 msgstr "Memasang {name}"
 
-#: src/ui/search_window.rs:3864
+#: src/ui/search_window.rs:3895
 msgid "It will be moved to the Trash."
 msgstr "Akan dipindahkan ke Tong Sampah."
 
@@ -520,30 +525,31 @@ msgstr "Item dihapus"
 msgid "Item unpinned — Press Ctrl+Z to undo"
 msgstr "Item dilepas — Tekan Ctrl+Z untuk mengurungkan"
 
-#: src/ui/settings_window.rs:2384
+#: src/ui/settings_window.rs:2434
 msgid "Its trigger word and shortcut will be removed."
 msgstr "Kata pemicu dan pintasannya akan dihapus."
 
-#: src/ui/settings_window.rs:2671
+#: src/ui/settings_window.rs:2721
 msgid "Keep history"
 msgstr "Simpan riwayat"
 
-#: src/ui/settings_window.rs:1199
-#: src/ui/settings_window.rs:1861
-#: src/ui/settings_window.rs:2601
+#: src/ui/settings_window.rs:1249
+#: src/ui/settings_window.rs:1911
+#: src/ui/settings_window.rs:2651
 msgid "Keyboard Shortcut"
 msgstr "Pintasan papan tik"
 
 #: src/ui/search_window.rs:966
-#: src/ui/settings_window.rs:559
+#: src/ui/settings_window.rs:569
+#: src/ui/settings_window.rs:609
 msgid "Keyboard Shortcuts"
 msgstr "Pintasan papan tik"
 
-#: src/ui/settings_window.rs:1833
+#: src/ui/settings_window.rs:1883
 msgid "Keyword"
 msgstr "Kata kunci"
 
-#: src/ui/settings_window.rs:1917
+#: src/ui/settings_window.rs:1967
 msgid "Keyword: letters, digits, -, _ and . only."
 msgstr "Kata kunci: hanya huruf, angka, -, _ dan ."
 
@@ -552,11 +558,11 @@ msgid "Kill"
 msgstr "Akhiri"
 
 #: src/ui/search_window.rs:886
-#: src/ui/settings_window.rs:564
+#: src/ui/settings_window.rs:614
 msgid "Kill app"
 msgstr "Akhiri aplikasi"
 
-#: src/ui/search_window.rs:2249
+#: src/ui/search_window.rs:2280
 msgid "Kill {name}?"
 msgstr "Akhiri {name}?"
 
@@ -564,7 +570,7 @@ msgstr "Akhiri {name}?"
 msgid "Kill: {name}"
 msgstr "Akhiri: {name}"
 
-#: src/ui/settings_window.rs:846
+#: src/ui/settings_window.rs:896
 msgid "Length"
 msgstr ""
 
@@ -576,24 +582,24 @@ msgstr "Mesin penerjemahan lokal tidak terjangkau"
 msgid "Looking up \"{word}\"…"
 msgstr "Mencari \\\"{word}\\\"…"
 
-#: src/ui/settings_window.rs:847
+#: src/ui/settings_window.rs:897
 msgid "Mass"
 msgstr ""
 
-#: src/ui/settings_window.rs:2656
+#: src/ui/settings_window.rs:2706
 msgid "Maximum number of clipboard entries to keep"
 msgstr "Jumlah maksimum entri papan klip yang disimpan"
 
-#: src/ui/settings_window.rs:1832
+#: src/ui/settings_window.rs:1882
 msgid "Name"
 msgstr "Nama"
 
-#: src/ui/settings_window.rs:1909
+#: src/ui/settings_window.rs:1959
 msgid "Name, keyword and command are required."
 msgstr "Nama, kata kunci, dan perintah wajib diisi."
 
-#: src/ui/search_window.rs:3746
-#: src/ui/search_window.rs:3880
+#: src/ui/search_window.rs:3777
+#: src/ui/search_window.rs:3911
 msgid "No"
 msgstr "Tidak"
 
@@ -617,7 +623,7 @@ msgstr "Tidak ada aplikasi terpasang yang cocok dengan \\\"{query}\\\""
 msgid "No matching updates"
 msgstr "Tidak ada pembaruan yang cocok"
 
-#: src/ui/search_window.rs:4659
+#: src/ui/search_window.rs:4690
 msgid "No operations yet"
 msgstr "Belum ada operasi"
 
@@ -625,11 +631,15 @@ msgstr "Belum ada operasi"
 msgid "No running app matching \"{query}\""
 msgstr "Tidak ada aplikasi berjalan yang cocok dengan \\\"{query}\\\""
 
-#: src/ui/settings_window.rs:2262
+#: src/ui/settings_window.rs:3141
+msgid "No shortcut"
+msgstr ""
+
+#: src/ui/settings_window.rs:2312
 msgid "No triggers found"
 msgstr "Pemicu tidak ditemukan"
 
-#: src/ui/settings_window.rs:2020
+#: src/ui/settings_window.rs:2070
 msgid "No triggers match \"{q}\"."
 msgstr "Tidak ada pemicu yang cocok dengan \\\"{q}\\\"."
 
@@ -641,7 +651,7 @@ msgstr "Tidak ada pemicu yang cocok dengan \\\"{q}\\\"."
 msgid "No updates available"
 msgstr "Tidak ada pembaruan"
 
-#: src/ui/settings_window.rs:708
+#: src/ui/settings_window.rs:758
 msgid "None (space only)"
 msgstr ""
 
@@ -651,18 +661,18 @@ msgstr ""
 msgid "Nothing pending"
 msgstr "Tidak ada yang tertunda"
 
-#: src/ui/settings_window.rs:681
+#: src/ui/settings_window.rs:731
 msgid "Number base conversions"
 msgstr "Konversi basis bilangan"
 
-#: src/ui/settings_window.rs:1710
-#: src/ui/settings_window.rs:1979
+#: src/ui/settings_window.rs:1760
+#: src/ui/settings_window.rs:2029
 msgid "OK"
 msgstr "OK"
 
 #: src/search/cmd.rs:3984
 #: src/search/cmd.rs:4701
-#: src/ui/search_window.rs:3351
+#: src/ui/search_window.rs:3382
 msgid "One update available"
 msgstr "Satu pembaruan tersedia"
 
@@ -670,12 +680,12 @@ msgstr "Satu pembaruan tersedia"
 msgid "Only running apps can be killed"
 msgstr "Hanya aplikasi berjalan yang bisa diakhiri"
 
-#: src/ui/settings_window.rs:1264
+#: src/ui/settings_window.rs:1314
 msgid "Open Spotty"
 msgstr "Buka Spotty"
 
 #: src/ui/search_window.rs:935
-#: src/ui/settings_window.rs:2780
+#: src/ui/settings_window.rs:2830
 msgid "Open folder in terminal"
 msgstr "Buka folder di terminal"
 
@@ -688,19 +698,19 @@ msgid "Open in GNOME Settings"
 msgstr "Buka di Pengaturan GNOME"
 
 #: src/ui/search_window.rs:960
-#: src/ui/settings_window.rs:2769
+#: src/ui/settings_window.rs:2819
 msgid "Open location in file manager"
 msgstr "Buka lokasi di pengelola berkas"
 
-#: src/ui/search_window.rs:4642
+#: src/ui/search_window.rs:4673
 msgid "Operations"
 msgstr "Operasi"
 
-#: src/ui/settings_window.rs:648
+#: src/ui/settings_window.rs:698
 msgid "Paste the result automatically"
 msgstr "Tempel hasil secara otomatis"
 
-#: src/ui/settings_window.rs:2511
+#: src/ui/settings_window.rs:2561
 msgid "Pause this trigger without uninstalling it"
 msgstr "Menjeda pemicu ini tanpa menghapusnya"
 
@@ -712,7 +722,7 @@ msgstr "Sematkan/Lepaskan yang dipilih"
 msgid "Please wait…"
 msgstr "Mohon tunggu…"
 
-#: src/ui/settings_window.rs:856
+#: src/ui/settings_window.rs:906
 msgid "Power"
 msgstr ""
 
@@ -729,24 +739,28 @@ msgstr "Tekan Enter untuk memilih bahasa lain"
 msgid "Press Enter to detect automatically"
 msgstr "Tekan Enter untuk deteksi otomatis"
 
-#: src/ui/search_window.rs:5495
+#: src/ui/search_window.rs:5526
 msgid "Press Enter to restart"
 msgstr "Tekan Enter untuk memulai ulang"
 
-#: src/ui/settings_window.rs:854
+#: src/ui/settings_window.rs:3209
+msgid "Press Esc to cancel or Backspace to disable"
+msgstr ""
+
+#: src/ui/settings_window.rs:904
 msgid "Pressure"
 msgstr ""
 
-#: src/ui/settings_window.rs:667
+#: src/ui/settings_window.rs:717
 msgid "Rates are fetched from a free public API when you convert"
 msgstr "Kurs diambil dari API publik gratis saat Anda mengonversi"
 
-#: src/ui/settings_window.rs:2740
+#: src/ui/settings_window.rs:2790
 msgid "Recent File/Folder Searches"
 msgstr "Pencarian Berkas/Folder Terbaru"
 
 #: src/search/cmd.rs:2326
-#: src/ui/settings_window.rs:1037
+#: src/ui/settings_window.rs:1087
 msgid "Remind tomorrow"
 msgstr "Ingatkan saya besok"
 
@@ -758,25 +772,29 @@ msgstr ""
 msgid "Remove AppImage: {name}"
 msgstr ""
 
-#: src/ui/result_row.rs:179
+#: src/ui/result_row.rs:190
 msgid "Remove from history"
 msgstr "Hapus dari riwayat"
 
-#: src/ui/settings_window.rs:2097
+#: src/ui/settings_window.rs:2147
 msgid "Removed \"{name}\""
 msgstr "\\\"{name}\\\" dihapus"
 
-#: src/ui/settings_window.rs:2800
-#: src/ui/settings_window.rs:3037
+#: src/ui/settings_window.rs:3315
+msgid "Replace shortcut"
+msgstr ""
+
+#: src/ui/settings_window.rs:2850
+#: src/ui/settings_window.rs:3092
 msgid "Reset"
 msgstr "Atur ulang"
 
-#: src/ui/settings_window.rs:1313
+#: src/ui/settings_window.rs:1363
 msgid "Reset trigger words and shortcuts to defaults"
 msgstr "Mengatur ulang kata pemicu dan pintasan ke bawaan"
 
-#: src/ui/search_window.rs:5493
-#: src/ui/settings_window.rs:1074
+#: src/ui/search_window.rs:5524
+#: src/ui/settings_window.rs:1124
 msgid "Restart"
 msgstr "Mulai ulang"
 
@@ -785,7 +803,7 @@ msgstr "Mulai ulang"
 #: src/search/cmd.rs:3677
 #: src/search/cmd.rs:4503
 #: src/search/system.rs:373
-#: src/ui/search_window.rs:5491
+#: src/ui/search_window.rs:5522
 msgid "Restart required to finish the update"
 msgstr "Perlu mulai ulang untuk menyelesaikan pembaruan"
 
@@ -798,11 +816,11 @@ msgstr ""
 msgid "Results"
 msgstr "Hasil"
 
-#: src/ui/result_row.rs:317
+#: src/ui/result_row.rs:328
 msgid "Retry"
 msgstr "Coba lagi"
 
-#: src/ui/settings_window.rs:2724
+#: src/ui/settings_window.rs:2774
 msgid "Root Path Browsing"
 msgstr "Penelusuran jalur absolut"
 
@@ -810,7 +828,7 @@ msgstr "Penelusuran jalur absolut"
 msgid "Run a command"
 msgstr "Jalankan perintah"
 
-#: src/search/mod.rs:549
+#: src/search/mod.rs:554
 msgid "Run {name}"
 msgstr "Jalankan {name}"
 
@@ -834,7 +852,7 @@ msgstr "Memindai aplikasi terpasang…"
 msgid "Scanning running processes…"
 msgstr "Memindai proses yang berjalan…"
 
-#: src/ui/settings_window.rs:653
+#: src/ui/settings_window.rs:703
 msgid "Scientific notation"
 msgstr "Notasi ilmiah"
 
@@ -867,7 +885,7 @@ msgid "Search and install system packages ({pm})"
 msgstr ""
 
 #: src/config.rs:202
-#: src/ui/search_window.rs:3205
+#: src/ui/search_window.rs:3236
 msgid "Search clipboard history"
 msgstr "Mencari di riwayat papan klip"
 
@@ -880,7 +898,11 @@ msgstr "Cari emoji"
 msgid "Search for new Apps"
 msgstr "Cari juga aplikasi baru"
 
-#: src/ui/settings_window.rs:2227
+#: src/ui/settings_window.rs:580
+msgid "Search privately"
+msgstr ""
+
+#: src/ui/settings_window.rs:2277
 msgid "Search triggers"
 msgstr "Cari pemicu"
 
@@ -897,11 +919,16 @@ msgstr "Mencari perangkat Bluetooth{dots}"
 msgid "Searching for \"{query}\"…"
 msgstr "Mencari \\\"{query}\\\"…"
 
-#: src/ui/settings_window.rs:3058
+#: src/ui/settings_window.rs:3187
+#: src/ui/settings_window.rs:3313
+msgid "Set shortcut"
+msgstr ""
+
+#: src/ui/settings_window.rs:3113
 msgid "Set shortcut…"
 msgstr "Atur pintasan…"
 
-#: src/ui/settings_window.rs:2323
+#: src/ui/settings_window.rs:2373
 msgid "Set the trigger repository URL in the Trigger Repository row."
 msgstr "Atur URL repositori pemicu di baris Repositori Pemicu."
 
@@ -913,31 +940,31 @@ msgstr "Pengaturan"
 msgid "Settings: {title}"
 msgstr "Pengaturan: {title}"
 
-#: src/ui/settings_window.rs:1200
+#: src/ui/settings_window.rs:1250
 msgid "Shortcut to focus the Spotty launcher"
 msgstr "Pintasan untuk memfokuskan peluncur Spotty"
 
-#: src/ui/settings_window.rs:2691
+#: src/ui/settings_window.rs:2741
 msgid "Show Keyboard Shortcuts"
 msgstr "Tampilkan pintasan papan tik"
 
-#: src/ui/settings_window.rs:985
+#: src/ui/settings_window.rs:1035
 msgid "Show a badge and a desktop notification when updates exist"
 msgstr "Tampilkan lencana dan notifikasi desktop saat ada pembaruan"
 
-#: src/ui/settings_window.rs:676
+#: src/ui/settings_window.rs:726
 msgid "Show equivalents when no target unit is given"
 msgstr "Tampilkan ekuivalen saat satuan tujuan tidak diberikan"
 
-#: src/ui/settings_window.rs:638
+#: src/ui/settings_window.rs:688
 msgid "Show hex, octal and binary"
 msgstr "Tampilkan heksadesimal, oktal, dan biner"
 
-#: src/ui/settings_window.rs:2741
+#: src/ui/settings_window.rs:2791
 msgid "Show recently opened files and folders"
 msgstr "Menampilkan berkas dan folder yang baru dibuka"
 
-#: src/ui/settings_window.rs:643
+#: src/ui/settings_window.rs:693
 msgid "Show the expression"
 msgstr "Tampilkan ekspresi"
 
@@ -951,7 +978,7 @@ msgstr ""
 msgid "Source: {name}"
 msgstr "Sumber: {name}"
 
-#: src/ui/settings_window.rs:851
+#: src/ui/settings_window.rs:901
 msgid "Speed"
 msgstr ""
 
@@ -968,7 +995,7 @@ msgstr "Pengaturan Spotty"
 msgid "Spreadsheet"
 msgstr "Lembar kerja"
 
-#: src/ui/settings_window.rs:1286
+#: src/ui/settings_window.rs:1336
 msgid "Store"
 msgstr "Toko"
 
@@ -984,7 +1011,7 @@ msgstr ""
 msgid "Target: {name}"
 msgstr "Tujuan: {name}"
 
-#: src/ui/settings_window.rs:848
+#: src/ui/settings_window.rs:898
 msgid "Temperature"
 msgstr ""
 
@@ -992,23 +1019,23 @@ msgstr ""
 msgid "Text match: {snippet}"
 msgstr "Kecocokan teks: {snippet}"
 
-#: src/ui/settings_window.rs:1922
+#: src/ui/settings_window.rs:1972
 msgid "The keyword \"{word}\" is already taken."
 msgstr "Kata kunci \\\"{word}\\\" sudah dipakai."
 
-#: src/ui/settings_window.rs:2018
+#: src/ui/settings_window.rs:2068
 msgid "The repository has no triggers yet."
 msgstr "Repositori belum punya pemicu."
 
-#: src/ui/search_window.rs:5793
+#: src/ui/search_window.rs:5835
 msgid "The trigger word and its files will be removed."
 msgstr "Kata pemicu dan berkasnya akan dihapus."
 
-#: src/ui/settings_window.rs:633
+#: src/ui/settings_window.rs:683
 msgid "Thousands separators"
 msgstr "Pemisah ribuan"
 
-#: src/ui/settings_window.rs:852
+#: src/ui/settings_window.rs:902
 msgid "Time"
 msgstr ""
 
@@ -1024,27 +1051,27 @@ msgstr "Menerjemahkan…"
 msgid "Translation unavailable"
 msgstr "Terjemahan tidak tersedia"
 
-#: src/ui/settings_window.rs:1829
+#: src/ui/settings_window.rs:1879
 msgid "Trigger"
 msgstr "Pemicu"
 
-#: src/ui/settings_window.rs:2188
+#: src/ui/settings_window.rs:2238
 msgid "Trigger Store"
 msgstr "Toko pemicu"
 
-#: src/ui/settings_window.rs:2517
+#: src/ui/settings_window.rs:2567
 msgid "Trigger word"
 msgstr "Kata pemicu"
 
-#: src/ui/settings_window.rs:2854
+#: src/ui/settings_window.rs:2904
 msgid "Trigger word \"{word}\" is already in use"
 msgstr "Kata pemicu \\\"{word}\\\" sudah dipakai"
 
-#: src/ui/settings_window.rs:2849
+#: src/ui/settings_window.rs:2899
 msgid "Trigger word cannot be empty"
 msgstr "Kata pemicu tidak boleh kosong"
 
-#: src/ui/settings_window.rs:1251
+#: src/ui/settings_window.rs:1301
 msgid "Triggers"
 msgstr "Pemicu"
 
@@ -1052,7 +1079,7 @@ msgstr "Pemicu"
 msgid "Type a command to run"
 msgstr "Ketik perintah untuk dijalankan"
 
-#: src/search/mod.rs:537
+#: src/search/mod.rs:542
 msgid "Type a command to run with {name}"
 msgstr "Ketik perintah untuk dijalankan dengan {name}"
 
@@ -1068,7 +1095,7 @@ msgstr "Ketik kata untuk dicari"
 msgid "Type all, flatpak, distro or a package name"
 msgstr "Ketik all, flatpak, distro, atau nama paket"
 
-#: src/search/mod.rs:515
+#: src/search/mod.rs:520
 msgid "Type something to search with {name}"
 msgstr "Ketik sesuatu untuk dicari dengan {name}"
 
@@ -1077,32 +1104,32 @@ msgid "Type text to translate"
 msgstr "Ketik teks yang akan diterjemahkan"
 
 #: src/ui/search_window.rs:1268
-#: src/ui/search_window.rs:4729
+#: src/ui/search_window.rs:4760
 msgid "Undo"
 msgstr "Urungkan"
 
 #: src/search/cmd.rs:1725
-#: src/ui/search_window.rs:5796
-#: src/ui/settings_window.rs:2080
-#: src/ui/settings_window.rs:2387
+#: src/ui/search_window.rs:5838
+#: src/ui/settings_window.rs:2130
+#: src/ui/settings_window.rs:2437
 msgid "Uninstall"
 msgstr "Hapus"
 
-#: src/ui/settings_window.rs:2383
+#: src/ui/settings_window.rs:2433
 msgid "Uninstall \"{id}\"?"
 msgstr "Hapus \\\"{id}\\\"?"
 
 #: src/ui/search_window.rs:877
-#: src/ui/settings_window.rs:563
+#: src/ui/settings_window.rs:613
 msgid "Uninstall app"
 msgstr "Hapus aplikasi"
 
-#: src/ui/settings_window.rs:1444
+#: src/ui/settings_window.rs:1494
 msgid "Uninstall trigger"
 msgstr "Hapus pemicu"
 
-#: src/ui/search_window.rs:2214
-#: src/ui/search_window.rs:5792
+#: src/ui/search_window.rs:2245
+#: src/ui/search_window.rs:5834
 msgid "Uninstall {name}?"
 msgstr "Hapus {name}?"
 
@@ -1115,7 +1142,7 @@ msgstr "Hapus: {name}"
 msgid "Uninstalling {name}"
 msgstr "Menghapus {name}"
 
-#: src/ui/settings_window.rs:671
+#: src/ui/settings_window.rs:721
 msgid "Unit conversions"
 msgstr "Konversi satuan"
 
@@ -1142,7 +1169,7 @@ msgstr "Pemeriksaan pembaruan dimatikan"
 msgid "Update flatpak packages"
 msgstr "Perbarui paket Flatpak"
 
-#: src/ui/settings_window.rs:984
+#: src/ui/settings_window.rs:1034
 msgid "Update notification"
 msgstr "Notifikasi pembaruan"
 
@@ -1164,7 +1191,7 @@ msgid "Update: {name}"
 msgstr "Perbarui: {name}"
 
 #: src/ui/settings_window.rs:186
-#: src/ui/settings_window.rs:940
+#: src/ui/settings_window.rs:990
 msgid "Updates"
 msgstr "Pembaruan"
 
@@ -1172,12 +1199,12 @@ msgstr "Pembaruan"
 msgid "Used for web search results"
 msgstr "Digunakan untuk hasil pencarian web"
 
-#: src/ui/settings_window.rs:508
-#: src/ui/settings_window.rs:531
+#: src/ui/settings_window.rs:529
+#: src/ui/settings_window.rs:552
 msgid "Uses {name} (detected from your default browser)"
 msgstr "Memakai {name} (terdeteksi dari browser bawaan)"
 
-#: src/ui/settings_window.rs:849
+#: src/ui/settings_window.rs:899
 msgid "Volume"
 msgstr ""
 
@@ -1186,27 +1213,27 @@ msgstr ""
 msgid "Web Search"
 msgstr "Pencarian web"
 
-#: src/ui/settings_window.rs:1009
+#: src/ui/settings_window.rs:1059
 msgid "Weekly"
 msgstr "Mingguan"
 
-#: src/ui/settings_window.rs:843
+#: src/ui/settings_window.rs:893
 msgid "What a value converts to when you don't name a target"
 msgstr ""
 
-#: src/ui/settings_window.rs:1830
+#: src/ui/settings_window.rs:1880
 msgid "What you type to open it."
 msgstr "Yang kamu ketik untuk membukanya."
 
-#: src/ui/settings_window.rs:1149
+#: src/ui/settings_window.rs:1199
 msgid "Word: {word} · No shortcut"
 msgstr "Kata: {word} · Tanpa pintasan"
 
-#: src/ui/settings_window.rs:1151
+#: src/ui/settings_window.rs:1201
 msgid "Word: {word} · {shortcut}"
 msgstr "Kata: {word} · {shortcut}"
 
-#: src/ui/search_window.rs:3750
+#: src/ui/search_window.rs:3781
 msgid "Yes"
 msgstr "Ya"
 
@@ -1225,7 +1252,7 @@ msgstr "respons kosong"
 msgid "id '{id}' is a built-in trigger"
 msgstr "id '{id}' adalah pemicu bawaan"
 
-#: src/ui/settings_window.rs:704
+#: src/ui/settings_window.rs:754
 msgid "in"
 msgstr ""
 
@@ -1253,11 +1280,11 @@ msgstr "'word' tidak ada (teks pemicu)"
 msgid "shell action needs a 'command' template"
 msgstr "aksi shell memerlukan templat 'command'"
 
-#: src/ui/settings_window.rs:702
+#: src/ui/settings_window.rs:752
 msgid "to"
 msgstr ""
 
-#: src/ui/settings_window.rs:703
+#: src/ui/settings_window.rs:753
 msgid "to or in"
 msgstr ""
 
@@ -1298,8 +1325,8 @@ msgstr "aksi web memerlukan templat 'url'"
 msgid "{description} — via Flatpak ({app})"
 msgstr ""
 
-#: src/search/mod.rs:526
-#: src/search/mod.rs:553
+#: src/search/mod.rs:531
+#: src/search/mod.rs:558
 msgid "{name}: {query}"
 msgstr ""
 
@@ -1309,7 +1336,7 @@ msgstr ""
 
 #: src/search/cmd.rs:4605
 #: src/search/cmd.rs:4702
-#: src/ui/search_window.rs:3353
+#: src/ui/search_window.rs:3384
 msgid "{n} updates available"
 msgstr "{n} pembaruan tersedia"
 
@@ -1353,7 +1380,7 @@ msgstr "{src} → {tgt}"
 msgid "{title} {suffix}"
 msgstr ""
 
-#: src/ui/search_window.rs:3502
+#: src/ui/search_window.rs:3533
 msgid "{title} — {detail}"
 msgstr ""
 
@@ -1361,7 +1388,7 @@ msgstr ""
 msgid "{word} — complete the word with Tab"
 msgstr "{word} — selesaikan kata dengan Tab"
 
-#: src/ui/settings_window.rs:2066
+#: src/ui/settings_window.rs:2116
 msgid "{word} — {description}"
 msgstr ""
 

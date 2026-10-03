@@ -13,6 +13,7 @@ pub mod appimage;
 pub mod bluetooth;
 pub mod browse;
 pub mod browser_engine;
+pub mod browser_launch;
 pub mod calculator;
 pub mod clipboard;
 pub mod cmd;
@@ -76,6 +77,10 @@ pub enum Action {
     OpenInFileManager(std::path::PathBuf),
     BrowseInto(std::path::PathBuf),
     OpenUrl(String),
+    /// Open a URL in a *private* window of the default browser (incognito /
+    /// private window). Used by the "search privately" shortcut, so a web
+    /// search never leaves traces in the normal session.
+    OpenUrlPrivate(String),
     CopyToClipboard(String),
     CopyImageToClipboard(std::path::PathBuf),
     /// Re-copy a file/folder onto the clipboard (from the clipboard manager).

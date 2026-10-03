@@ -80,6 +80,17 @@ impl ResultRow {
                     // (works for built-in engines and custom search URLs alike).
                     icon.set_icon_name(Some("web-browser-symbolic"));
                     set_favicon(&icon, domain);
+                } else if let Some(data) = n.strip_prefix("engine-icon-data:") {
+                    // The icon the *browser* keeps for its search engine — a
+                    // data: URI it read out of its own settings, so no
+                    // request is made and no favicon service is involved.
+                    icon.set_icon_name(Some("web-browser-symbolic"));
+                    set_engine_icon_data(&icon, data);
+                } else if let Some(url) = n.strip_prefix("engine-icon:") {
+                    // A remote icon the browser recorded for its engine: fetch
+                    // that exact icon first, then fall back to the site's own.
+                    icon.set_icon_name(Some("web-browser-symbolic"));
+                    set_engine_icon_url(&icon, url);
                 } else if is_app_id(n) {
                     // App-id style icon name (e.g. install results): resolve the
                     // real app icon, falling back to a generic package icon.
@@ -615,24 +626,62 @@ fn set_favicon(icon: &gtk::Image, domain: &str) {
     });
 }
 
-fn resolve_favicon(domain: &str) -> Option<String> {
-    let cache_dir = dirs::cache_dir()?.join("spotty/favicons");
-    let _ = std::fs::create_dir_all(&cache_dir);
-    let hash = crate::md5::hex(domain.as_bytes());
-    for ext in ["png", "jpg", "svg"] {
-        let out = cache_dir.join(format!("{}.{}", hash, ext));
-        if out.exists() {
-            return Some(out.to_string_lossy().to_string());
+/// Apply an icon the browser keeps inline as a `data:` URI — no request at all.
+fn set_engine_icon_data(icon: &gtk::Image, data_uri: &str) {
+    let data_uri = data_uri.to_string();
+    let icon = icon.clone();
+    let (tx, rx) = futures::channel::oneshot::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(cache_data_uri(&data_uri));
+    });
+    glib::MainContext::default().spawn_local(async move {
+        if let Ok(Some(path)) = rx.await {
+            icon.set_from_file(Some(&path));
         }
-    }
+    });
+}
 
-    // Prefer the site's own high-resolution apple-touch-icon (typically
-    // 180x180, transparent PNG) when present, then DuckDuckGo's icon
-    // service, then the domain's own favicon.ico, then Google's favicon
-    // service at a larger size (which almost always returns *something*,
-    // even for completely unknown/custom domains, so the chain ends with a
-    // real icon rather than a blank one).
-    let candidates = [
+/// Apply the icon URL the browser recorded for its engine, falling back to the
+/// search site's own icons when that URL is gone.
+fn set_engine_icon_url(icon: &gtk::Image, url: &str) {
+    let url = url.to_string();
+    let icon = icon.clone();
+    let (tx, rx) = futures::channel::oneshot::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(resolve_engine_icon_url(&url));
+    });
+    glib::MainContext::default().spawn_local(async move {
+        if let Ok(Some(path)) = rx.await {
+            icon.set_from_file(Some(&path));
+        }
+    });
+}
+
+/// Show a search engine's icon on a plain widget (the Settings row), using the
+/// browser's own icon when there is one and the search site's favicon
+/// otherwise. `image` starts on `fallback_icon_name` until an icon arrives.
+pub(crate) fn set_search_engine_icon(
+    image: &gtk::Image,
+    icon: Option<crate::search::browser_engine::EngineIcon>,
+    fallback_domain: Option<&str>,
+    fallback_icon_name: &str,
+) {
+    use crate::search::browser_engine::EngineIcon;
+    match icon {
+        Some(EngineIcon::Data(uri)) => set_engine_icon_data(image, &uri),
+        Some(EngineIcon::Url(url)) => set_engine_icon_url(image, &url),
+        None => match fallback_domain {
+            Some(domain) => {
+                image.set_icon_name(Some(fallback_icon_name));
+                set_favicon(image, domain);
+            }
+            None => image.set_icon_name(Some(fallback_icon_name)),
+        },
+    }
+}
+
+fn resolve_favicon(domain: &str) -> Option<String> {
+    let candidates: Vec<String> = vec![
         format!("https://{}/apple-touch-icon.png", domain),
         format!("https://{}/apple-touch-icon-precomposed.png", domain),
         format!("https://icons.duckduckgo.com/ip3/{}.ico", domain),
@@ -642,23 +691,60 @@ fn resolve_favicon(domain: &str) -> Option<String> {
             domain
         ),
     ];
+    fetch_cached_icon(domain, &candidates)
+}
+
+/// The engine's own icon URL first, then the search site's icons — the URL
+/// lives in the browser's settings and may well be dead by now.
+fn resolve_engine_icon_url(url: &str) -> Option<String> {
+    let mut candidates = vec![url.to_string()];
+    if let Some(domain) = host_of(url) {
+        candidates.push(format!("https://{}/apple-touch-icon.png", domain));
+        candidates.push(format!("https://icons.duckduckgo.com/ip3/{}.ico", domain));
+    }
+    fetch_cached_icon(url, &candidates)
+}
+
+/// Write a `data:` URI into the icon cache and return the file path.
+///
+/// Firefox keeps every engine's icon inline (`iconMapObj`), so this is the
+/// normal case there — and it means the icon works offline and is exactly the
+/// one the browser shows.
+fn cache_data_uri(data_uri: &str) -> Option<String> {
+    let (meta, payload) = data_uri.split_once(',')?;
+    if !meta.starts_with("data:image/") {
+        return None;
+    }
+    let is_base64 = meta.ends_with(";base64");
+    let bytes = if is_base64 {
+        base64_decode(payload)?
+    } else {
+        payload.as_bytes().to_vec()
+    };
+    let cache_dir = dirs::cache_dir()?.join("spotty/favicons");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let hash = crate::md5::hex(data_uri.as_bytes());
+    let ext = image_extension(&bytes)?;
+    let out = cache_dir.join(format!("{hash}.{ext}"));
+    std::fs::write(&out, &bytes).ok()?;
+    Some(out.to_string_lossy().to_string())
+}
+
+/// Look in the cache, then try each candidate URL in turn, storing the first
+/// image that turns out to be one gdk-pixbuf can actually load.
+fn fetch_cached_icon(key: &str, candidates: &[String]) -> Option<String> {
+    let cache_dir = dirs::cache_dir()?.join("spotty/favicons");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let hash = crate::md5::hex(key.as_bytes());
+    for ext in ["png", "jpg", "svg"] {
+        let out = cache_dir.join(format!("{hash}.{ext}"));
+        if out.exists() {
+            return Some(out.to_string_lossy().to_string());
+        }
+    }
+
     for url in candidates {
-        let bytes = std::process::Command::new("flatpak-spawn")
-            .args([
-                "--host",
-                "curl",
-                "-fsSL",
-                "--max-time",
-                "5",
-                "-A",
-                "Mozilla/5.0 (compatible; Spotty)",
-                &url,
-            ])
-            .output();
-        let bytes = match bytes {
-            Ok(b) => b,
-            Err(_) => continue,
-        };
+        let Ok(bytes) = host_curl(url) else { continue };
         if !bytes.status.success() || bytes.stdout.len() <= 100 {
             continue;
         }
@@ -666,22 +752,76 @@ fn resolve_favicon(domain: &str) -> Option<String> {
         // trusting the URL: DuckDuckGo's "icon.ico" endpoint sometimes
         // returns a real multi-res Windows .ico, which gdk-pixbuf can't
         // load — skip those and fall through to a format GTK can render.
-        let data = &bytes.stdout;
-        let ext = if data.starts_with(b"\x89PNG\r\n\x1a\n") {
-            "png"
-        } else if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
-            "jpg"
-        } else if data.starts_with(b"<svg") || data.starts_with(b"<?xml") {
-            "svg"
-        } else {
+        let Some(ext) = image_extension(&bytes.stdout) else {
             continue;
         };
-        let out = cache_dir.join(format!("{}.{}", hash, ext));
-        if std::fs::write(&out, data).is_ok() {
+        let out = cache_dir.join(format!("{hash}.{ext}"));
+        if std::fs::write(&out, &bytes.stdout).is_ok() {
             return Some(out.to_string_lossy().to_string());
         }
     }
     None
+}
+
+/// curl on the host — inside the sandbox the network is the host's, so the
+/// request has to be made there.
+fn host_curl(url: &str) -> std::io::Result<std::process::Output> {
+    let mut cmd = std::process::Command::new("curl");
+    if crate::search::run::is_sandbox() {
+        cmd = std::process::Command::new("flatpak-spawn");
+        cmd.args(["--host", "curl"]);
+    }
+    cmd.args([
+        "-fsSL",
+        "--max-time",
+        "5",
+        "-A",
+        "Mozilla/5.0 (compatible; Spotty)",
+        url,
+    ])
+    .output()
+}
+
+/// The image format from its magic bytes, or `None` for something gdk-pixbuf
+/// won't load (notably Windows .ico).
+fn image_extension(data: &[u8]) -> Option<&'static str> {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("jpg")
+    } else if data.starts_with(b"<svg") || data.starts_with(b"<?xml") {
+        Some("svg")
+    } else {
+        None
+    }
+}
+
+fn host_of(url: &str) -> Option<String> {
+    let rest = url.split_once("://").map(|(_, r)| r).unwrap_or(url);
+    let host = rest.split(['/', '?', '#']).next()?;
+    let host = host.rsplit_once('@').map(|(_, h)| h).unwrap_or(host);
+    (!host.is_empty()).then(|| host.to_string())
+}
+
+/// Standard base64 decode (what the browser's `data:` URIs use).
+fn base64_decode(input: &str) -> Option<Vec<u8>> {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = Vec::with_capacity(input.len() / 4 * 3);
+    let mut acc: u32 = 0;
+    let mut bits = 0u32;
+    for c in input.bytes() {
+        if c == b'=' || c.is_ascii_whitespace() {
+            continue;
+        }
+        let value = TABLE.iter().position(|t| *t == c)? as u32;
+        acc = (acc << 6) | value;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
 }
 
 fn set_app_icon(icon: &gtk::Image, name: &str) {
@@ -907,6 +1047,42 @@ fn resolve_host_app_icon(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decodes_the_data_uris_browsers_store_icons_as() {
+        // What Firefox keeps in `iconMapObj` and Chromium in `favicon_url`.
+        assert_eq!(
+            base64_decode("aGVsbG8=").as_deref(),
+            Some(&b"hello"[..]),
+            "padded base64"
+        );
+        assert_eq!(
+            base64_decode("aGVsbG8").as_deref(),
+            Some(&b"hello"[..]),
+            "unpadded, as some browsers write it"
+        );
+        // A 1x1 PNG is what a browser's inline icon usually decodes to.
+        let png = base64_decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        )
+        .expect("a PNG");
+        assert_eq!(image_extension(&png), Some("png"));
+        // A data: URI is only accepted when it really carries an image…
+        assert!(cache_data_uri("text/plain;base64,aGVsbG8=").is_none());
+        // …and its bytes have to be something gdk-pixbuf can load.
+        assert_eq!(
+            image_extension(&[0x00, 0x00, 0x01, 0x00]),
+            None,
+            "a Windows .ico is not renderable here"
+        );
+    }
+
+    #[test]
+    fn engine_icon_urls_and_hosts_resolve_sensibly() {
+        assert_eq!(host_of("https://kagi.com/favicon.ico").as_deref(), Some("kagi.com"));
+        assert_eq!(host_of("kagi.com/x").as_deref(), Some("kagi.com"));
+        assert_eq!(host_of(""), None);
+    }
 
     #[test]
     fn host_icon_lookup_covers_the_system_flatpak_dirs() {

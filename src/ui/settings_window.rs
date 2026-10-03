@@ -504,6 +504,27 @@ fn open_web_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>
     }
     // Show detected engine name in subtitle when Browser Default is selected.
     if config.borrow().search_engine == SearchEngine::BrowserDefault {
+        // …plus a row with the engine's own icon, so "Browser Default" is a
+        // concrete answer rather than a promise. This is the same detection the
+        // search rows use, so it always agrees with what Enter will do.
+        let engine = crate::search::browser_engine::engine_name();
+        if let Some(name) = &engine {
+            let row = adw::ActionRow::builder()
+                .title(gettext("Detected search engine"))
+                .subtitle(name.clone())
+                .activatable(false)
+                .use_markup(false)
+                .build();
+            let image = gtk::Image::builder().pixel_size(24).build();
+            row.add_prefix(&image);
+            crate::ui::result_row::set_search_engine_icon(
+                &image,
+                crate::search::browser_engine::engine_icon(),
+                crate::search::browser_engine::engine_domain().as_deref(),
+                "web-browser-symbolic",
+            );
+            g.add(&row);
+        }
         if let Some(name) = crate::search::browser_engine::engine_name() {
             er.set_subtitle(&gettext("Uses {name} (detected from your default browser)").replace("{name}", &name));
         } else {
@@ -539,8 +560,37 @@ fn open_web_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>
     });
     g.add(&er);
     g.add(&custom_web);
-
     page.add(&g);
+
+    // Opening the search privately is part of searching, so its shortcut lives
+    // here next to the engine — edited with the same "Set shortcut…" dialog as
+    // every other shortcut.
+    let shortcuts = adw::PreferencesGroup::builder()
+        .title(gettext("Keyboard Shortcuts"))
+        .build();
+    {
+        let default = Config::default().private_search_shortcut;
+        let current = shortcut_value(config, "private_search", &default);
+        let cell: Rc<RefCell<String>> = Rc::new(RefCell::new(current.clone()));
+        let cfg_k = config.clone();
+        let field_k = "private_search".to_string();
+        let cell_k = cell.clone();
+        let (row, _) = capture_shortcut_row(
+            &dlg,
+            &gettext("Search privately"),
+            &display_shortcut(&current),
+            cell,
+            Rc::new(move || {
+                let mut c = cfg_k.borrow_mut();
+                set_shortcut(&mut c, &field_k, &cell_k.borrow());
+                c.save();
+            }),
+            &default,
+        );
+        shortcuts.add(&row);
+        page.add(&shortcuts);
+    }
+
     dlg.add(&page);
     dlg.present(Some(parent));
 }
@@ -2941,6 +2991,7 @@ fn shortcut_value(cfg: &Rc<RefCell<Config>>, field: &str, default: &str) -> Stri
         "paste" => c.paste_shortcut.clone(),
         "terminal" => c.terminal_shortcut.clone(),
         "open_location" => c.open_location_shortcut.clone(),
+        "private_search" => c.private_search_shortcut.clone(),
         "delete_file" => c.delete_file_shortcut.clone(),
         "uninstall" => c.uninstall_shortcut.clone(),
         "kill" => c.kill_shortcut.clone(),
@@ -2971,6 +3022,7 @@ fn set_shortcut(cfg: &mut Config, field: &str, value: &str) {
         "paste" => cfg.paste_shortcut = v,
         "terminal" => cfg.terminal_shortcut = v,
         "open_location" => cfg.open_location_shortcut = v,
+        "private_search" => cfg.private_search_shortcut = v,
         "delete_file" => cfg.delete_file_shortcut = v,
         "uninstall" => cfg.uninstall_shortcut = v,
         "kill" => cfg.kill_shortcut = v,
@@ -2984,8 +3036,11 @@ fn set_shortcut(cfg: &mut Config, field: &str, value: &str) {
 
 /// Human ("Ctrl+Shift+Z") -> GTK ("<Control><Shift>Z") accelerator form;
 /// values already in GTK form pass through unchanged.
-fn normalize_accel(s: &str) -> String {
-    if gtk::accelerator_parse(s).is_some() {
+pub(crate) fn normalize_accel(s: &str) -> String {
+    // Already GTK form ("<Control><Shift>z") — decided by looking at the
+    // string rather than by asking GTK, so this stays usable (and testable)
+    // before/without a display.
+    if s.contains('<') && s.contains('>') {
         return s.to_string();
     }
     let mut out = String::new();
@@ -3061,62 +3116,329 @@ fn capture_shortcut_row(
         .build();
     row.add_suffix(&set_btn);
 
-    // Set → capture the next key combo
-    let parent_w = parent.upcast_ref::<gtk::Widget>().clone();
+    // Set → GNOME's "Set Shortcut" capture dialog.
     {
         let pending_s = pending.clone();
         let row_s = row.clone();
-        let parent_s = parent_w.clone();
+        let parent_s = parent.clone();
         let on_change_s = on_change.clone();
         let reset_s = reset_btn.clone();
         let default_s = default.to_string();
-        set_btn.connect_clicked(move |btn| {
-            btn.set_label("Press keys…");
-            let kc = gtk::EventControllerKey::new();
+        let title_s = title.to_string();
+        let current_s = current.to_string();
+        set_btn.connect_clicked(move |_| {
+            let p = parent_s.clone();
             let pending_k = pending_s.clone();
             let row_k = row_s.clone();
-            let btn_k = btn.clone();
-            let parent_k = parent_s.clone();
-            let on_change_k = on_change_s.clone();
             let reset_k = reset_s.clone();
+            let on_change_k = on_change_s.clone();
             let default_k = default_s.clone();
-            kc.connect_key_pressed(move |ctrl, key, _, state| {
-                use gtk::gdk::Key;
-                if matches!(
-                    key,
-                    Key::Control_L
-                        | Key::Control_R
-                        | Key::Shift_L
-                        | Key::Shift_R
-                        | Key::Alt_L
-                        | Key::Alt_R
-                        | Key::Super_L
-                        | Key::Super_R
-                        | Key::Meta_L
-                        | Key::Meta_R
-                ) {
-                    return glib::Propagation::Stop;
-                }
-                if key == Key::Escape {
-                    btn_k.set_label("Set shortcut…");
-                    parent_k.remove_controller(ctrl);
-                    return glib::Propagation::Stop;
-                }
-                let combo = key_combo_string(key, state);
-                if !combo.is_empty() {
-                    *pending_k.borrow_mut() = combo.clone();
-                    row_k.set_subtitle(&combo);
-                    reset_k.set_visible(combo != default_k);
-                    btn_k.set_label("Set shortcut…");
-                    parent_k.remove_controller(ctrl);
-                    on_change_k();
-                }
-                glib::Propagation::Stop
+            let on_accept: Rc<dyn Fn(Option<String>)> = Rc::new(move |captured| {
+                // `None` is Backspace in the dialog: the shortcut is disabled.
+                let value = captured.unwrap_or_default();
+                *pending_k.borrow_mut() = value.clone();
+                let shown = if value.is_empty() {
+                    gettext("No shortcut")
+                } else {
+                    display_shortcut(&value)
+                };
+                row_k.set_subtitle(&shown);
+                reset_k.set_visible(!value.is_empty() && value != default_k);
+                on_change_k();
             });
-            parent_w.add_controller(kc);
+            shortcut_capture_dialog(&p, &title_s, &current_s, on_accept);
         });
     }
     (row, reset_btn)
+}
+
+/// GNOME's "Set Shortcut" dialog: a modal window that captures the next key
+/// press and shows it as keycaps, exactly like the keyboard-shortcut editors in
+/// GNOME's own apps.
+///
+/// * modifiers alone are shown as they are pressed, but never accepted
+/// * Esc cancels, Backspace disables the shortcut
+/// * a combination is confirmed with Set (or Replace), enabled once a valid one
+///   has been captured
+///
+/// `on_accept` gets `Some(accelerator)` for a new combination and `None` when
+/// the shortcut was disabled. The value is in human form ("Ctrl+Shift+T"), the
+/// same form the rows display — [`set_shortcut`] normalises it for the config.
+fn shortcut_capture_dialog(
+    parent: &impl IsA<gtk::Widget>,
+    title: &str,
+    current: &str,
+    on_accept: Rc<dyn Fn(Option<String>)>,
+) {
+    let mut builder = adw::Window::builder()
+        .modal(true)
+        .resizable(false)
+        .default_width(400);
+    if let Some(host) = parent_window(parent) {
+        builder = builder.transient_for(&host);
+    }
+    let window = builder.build();
+
+    let cancel = gtk::Button::builder()
+        .label(gettext("Cancel"))
+        .css_classes(["flat"])
+        .build();
+    let accept = gtk::Button::builder()
+        .label(gettext("Set shortcut"))
+        .css_classes(["suggested-action"])
+        .sensitive(false)
+        .build();
+    let header = adw::HeaderBar::builder().build();
+    header.pack_start(&cancel);
+    header.pack_end(&accept);
+
+    let heading = gtk::Label::builder()
+        .label(title)
+        .wrap(true)
+        .justify(gtk::Justification::Center)
+        .css_classes(["title-4"])
+        .margin_top(18)
+        .margin_bottom(6)
+        .build();
+    let keycaps = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .halign(gtk::Align::Center)
+        .margin_bottom(12)
+        .build();
+    let hint = gtk::Label::builder()
+        .label(gettext("Press Esc to cancel or Backspace to disable"))
+        .wrap(true)
+        .justify(gtk::Justification::Center)
+        .css_classes(["spotty-shortcut-hint"])
+        .margin_bottom(18)
+        .build();
+    let body = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .halign(gtk::Align::Fill)
+        .build();
+    body.append(&heading);
+    body.append(&keycaps);
+    body.append(&hint);
+    window.set_content(Some(&body));
+
+    // Until something is captured, show what the shortcut is now — dimmed, so
+    // it reads as "this is what you're replacing".
+    render_keycaps(&keycaps, keycap_parts(current), true);
+
+    let current_owned = current.to_string();
+    let captured: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+    {
+        let win = window.clone();
+        cancel.connect_clicked(move |_| win.close());
+    }
+    {
+        let win = window.clone();
+        let captured_k = captured.clone();
+        let on_accept_k = on_accept.clone();
+        accept.connect_clicked(move |_| {
+            let value = captured_k.borrow().clone();
+            on_accept_k(value);
+            win.close();
+        });
+    }
+
+    let kc = gtk::EventControllerKey::new();
+    {
+        let win = window.clone();
+        let captured_k = captured.clone();
+        let keycaps_k = keycaps.clone();
+        let accept_k = accept.clone();
+        let on_accept_k = on_accept.clone();
+        kc.connect_key_pressed(move |_, key, _, state| {
+            use gtk::gdk::{Key, ModifierType};
+            // Esc cancels; Backspace disables — GNOME's two escape hatches.
+            if key == Key::Escape {
+                win.close();
+                return glib::Propagation::Stop;
+            }
+            if key == Key::BackSpace {
+                on_accept_k(None);
+                win.close();
+                return glib::Propagation::Stop;
+            }
+            // Modifiers on their own are not a shortcut: show them, keep
+            // waiting, exactly like GNOME does.
+            let modifier_only = matches!(
+                key,
+                Key::Control_L
+                    | Key::Control_R
+                    | Key::Shift_L
+                    | Key::Shift_R
+                    | Key::Alt_L
+                    | Key::Alt_R
+                    | Key::Super_L
+                    | Key::Super_R
+                    | Key::Meta_L
+                    | Key::Meta_R
+                    | Key::Caps_Lock
+                    | Key::Num_Lock
+                    | Key::Scroll_Lock
+                    | Key::ISO_Level3_Shift
+            );
+            let default_mods = gtk::accelerator_get_default_mod_mask();
+            let mods = default_mods.union(state & default_mods);
+            if modifier_only {
+                let mut parts: Vec<String> = Vec::new();
+                for (mask, label) in [
+                    (ModifierType::CONTROL_MASK, "Ctrl"),
+                    (ModifierType::ALT_MASK, "Alt"),
+                    (ModifierType::SHIFT_MASK, "Shift"),
+                    (ModifierType::SUPER_MASK, "Super"),
+                    (ModifierType::META_MASK, "Meta"),
+                ] {
+                    if state.contains(mask) {
+                        parts.push(label.to_string());
+                    }
+                }
+                render_keycaps(&keycaps_k, parts, true);
+                return glib::Propagation::Stop;
+            }
+            // A bare letter is not a shortcut GTK will ever deliver back as an
+            // accelerator; leave the previous capture alone.
+            if !gtk::accelerator_valid(key, mods) {
+                return glib::Propagation::Stop;
+            }
+            let combo = key_combo_string(key, state);
+            if combo.is_empty() {
+                return glib::Propagation::Stop;
+            }
+            *captured_k.borrow_mut() = Some(combo.clone());
+            render_keycaps(&keycaps_k, keycap_parts(&combo), false);
+            accept_k.set_label(&if current_owned.is_empty() {
+                gettext("Set shortcut")
+            } else {
+                gettext("Replace shortcut")
+            });
+            accept_k.set_sensitive(true);
+            glib::Propagation::Stop
+        });
+    }
+    window.add_controller(kc);
+    window.present();
+}
+
+/// The window a dialog should be transient for, when there is one.
+///
+/// Most parents are windows, but the settings popups are
+/// `adw::PreferencesDialog`s — which are `GtkNativeDialog`s, and carry their
+/// parent window separately.
+fn parent_window(parent: &impl IsA<gtk::Widget>) -> Option<gtk::Window> {
+    let widget = parent.clone().upcast::<gtk::Widget>();
+    if let Some(win) = widget.clone().downcast::<gtk::Window>().ok() {
+        return Some(win);
+    }
+    // A GtkNativeDialog is not a widget, so it cannot be downcast to — but it
+    // exposes its host window through its `parent` property.
+    widget.property_value("parent").get::<gtk::Window>().ok()
+}
+
+/// Replace the keycaps in `box_` with `parts`, one labelled box per key.
+fn render_keycaps(box_: &gtk::Box, parts: Vec<String>, muted: bool) {
+    while let Some(child) = box_.first_child() {
+        box_.remove(&child);
+    }
+    if parts.is_empty() {
+        let dash = gtk::Label::builder()
+            .label("—")
+            .css_classes(["spotty-keycap", "spotty-keycap-muted"])
+            .build();
+        box_.append(&dash);
+        return;
+    }
+    for part in parts {
+        let mut label = gtk::Label::builder()
+            .label(part)
+            .css_classes(["spotty-keycap", "spotty-keycap-label"]);
+        if muted {
+            label = label.css_classes(["spotty-keycap-muted"]);
+        }
+        box_.append(&label.build());
+    }
+}
+
+/// Split an accelerator ("<Control><Shift>t", "Ctrl+Shift+T") into the keycaps
+/// to draw: one per modifier, then the key itself.
+///
+/// Written against the string rather than `gtk::accelerator_parse`, so the
+/// dialog's markup is unit-testable without a display — and so the keycaps read
+/// exactly like the shortcut rows, which show the same human form.
+fn keycap_parts(accel: &str) -> Vec<String> {
+    let accel = accel.trim();
+    if accel.is_empty() {
+        return Vec::new();
+    }
+    let normalized = normalize_accel(accel);
+    let mut parts: Vec<String> = Vec::new();
+    let mut key = String::new();
+    let mut chars = normalized.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '<' => {
+                let mut name = String::new();
+                for c in chars.by_ref() {
+                    if c == '>' {
+                        break;
+                    }
+                    name.push(c);
+                }
+                // Modifiers always come before the key, so anything collected so
+                // far means this was part of the key itself.
+                if key.is_empty() && !name.is_empty() {
+                    parts.push(modifier_label(&name));
+                } else {
+                    key.push('<');
+                    key.push_str(&name);
+                    key.push('>');
+                }
+            }
+            '>' => {}
+            _ => key.push(c),
+        }
+    }
+    if !key.is_empty() {
+        parts.push(key_label(&key));
+    }
+    parts
+}
+
+fn modifier_label(name: &str) -> String {
+    match name.to_ascii_lowercase().as_str() {
+        "control" | "primary" | "ctrl" => "Ctrl".into(),
+        "super" | "meta" | "win" | "logo" => "Super".into(),
+        "shift" => "Shift".into(),
+        "alt" => "Alt".into(),
+        "hyper" => "Hyper".into(),
+        other => {
+            let mut c = other.chars();
+            match (c.next(), c.next()) {
+                (Some(f), None) => f.to_uppercase().collect(),
+                _ => other.to_string(),
+            }
+        }
+    }
+}
+
+/// A key as its keycap reads: single characters upper-case, and the handful of
+/// keysym names shown the way GNOME shows them.
+fn key_label(key: &str) -> String {
+    match key {
+        "Return" | "KP_Enter" | "Enter" | "ISO_Enter" => "Enter".into(),
+        "Escape" => "Esc".into(),
+        "BackSpace" => "Backspace".into(),
+        "space" | "KP_Space" => "Space".into(),
+        "Page_Up" => "Page Up".into(),
+        "Page_Down" => "Page Down".into(),
+        "minus" => "-".into(),
+        "plus" => "+".into(),
+        other if other.chars().count() == 1 => other.to_uppercase(),
+        other if other.contains('_') => other.replace('_', " "),
+        other => other.to_string(),
+    }
 }
 
 /// Build a "Super+Ctrl+T"-style string from a key + modifier state.
@@ -3156,6 +3478,36 @@ fn key_combo_string(key: gtk::gdk::Key, state: gtk::gdk::ModifierType) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keycaps_split_a_shortcut_into_one_box_per_key() {
+        // The capture dialog draws modifiers and the key separately, from
+        // either storage form — GTK accelerators or the human form rows show.
+        assert_eq!(
+            keycap_parts("<Control><Shift>t"),
+            vec!["Ctrl", "Shift", "T"]
+        );
+        assert_eq!(keycap_parts("<Super>r"), vec!["Super", "R"]);
+        assert_eq!(keycap_parts("Ctrl+P"), vec!["Ctrl", "P"]);
+        // An empty shortcut draws the placeholder, not a stray box.
+        assert!(keycap_parts("").is_empty());
+    }
+
+    #[test]
+    fn a_private_search_shortcut_round_trips_through_the_config() {
+        // The row writes what the dialog captured, and the config keeps it in
+        // the form every matcher parses.
+        let mut cfg = Config::default();
+        assert_eq!(cfg.private_search_shortcut, "<Control>Return");
+        set_shortcut(&mut cfg, "private_search", "Ctrl+Shift+P");
+        assert_eq!(cfg.private_search_shortcut, "<Control><Shift>P");
+        // …and reading it back through the row's own accessor agrees.
+        let cfg_rc = Rc::new(RefCell::new(cfg.clone()));
+        assert_eq!(
+            shortcut_value(&cfg_rc, "private_search", "<Control>Return"),
+            "<Control><Shift>P"
+        );
+    }
 
     #[test]
     fn trigger_id_slug_from_name() {

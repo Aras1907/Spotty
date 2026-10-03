@@ -364,6 +364,11 @@ pub struct Config {
     /// file manager (works with any file manager).
     #[serde(default = "default_open_location_shortcut")]
     pub open_location_shortcut: String,
+    /// A web result: open the search in a private/incognito window of the
+    /// default browser. Shares Ctrl+Enter with `open_location_shortcut` on
+    /// purpose — that one only acts on file rows, so they never collide.
+    #[serde(default = "default_private_search_shortcut")]
+    pub private_search_shortcut: String,
     /// Find mode: move the selected file/folder to the Trash (confirmation
     /// dialog first — default answer is No).
     #[serde(default = "default_delete_file_shortcut")]
@@ -526,6 +531,9 @@ fn default_terminal_shortcut() -> String {
 fn default_open_location_shortcut() -> String {
     "<Control>Return".into()
 }
+fn default_private_search_shortcut() -> String {
+    "<Control>Return".into()
+}
 fn default_delete_file_shortcut() -> String {
     "<Control>d".into()
 }
@@ -587,6 +595,7 @@ impl Default for Config {
             paste_shortcut: default_paste_shortcut(),
             terminal_shortcut: default_terminal_shortcut(),
             open_location_shortcut: default_open_location_shortcut(),
+            private_search_shortcut: default_private_search_shortcut(),
             delete_file_shortcut: default_delete_file_shortcut(),
             uninstall_shortcut: default_uninstall_shortcut(),
             kill_shortcut: default_kill_shortcut(),
