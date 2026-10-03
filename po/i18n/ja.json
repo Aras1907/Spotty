@@ -275,7 +275,6 @@
   "Redo": "やり直す",
   "Delete word": "単語を削除",
   "Delete file / folder": "ファイル / フォルダーを削除",
-  "Calculator & Conversions": "電卓と変換",
   "Arithmetic, units, currency and number bases": "計算、単位、通貨、基数",
   "Conversions": "変換",
   "Currency conversion": "通貨の変換",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "変換時にレートを無料の公開APIから取得します",
   "Scientific notation": "科学記数法",
   "Show equivalents when no target unit is given": "変換先の単位を指定しない場合は換算値を表示",
-  "Unit conversions": "単位の変換"
+  "Unit conversions": "単位の変換",
+  "Calculator & Converter": "電卓とコンバーター",
+  "Arithmetic": "計算"
 }

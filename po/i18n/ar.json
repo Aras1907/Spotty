@@ -275,7 +275,6 @@
   "Redo": "إعادة",
   "Delete word": "حذف الكلمة",
   "Delete file / folder": "حذف ملف / مجلد",
-  "Calculator & Conversions": "الآلة الحاسبة والتحويلات",
   "Arithmetic, units, currency and number bases": "الحساب والوحدات والعملات وأنظمة العد",
   "Conversions": "التحويلات",
   "Currency conversion": "تحويل العملات",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "تُجلب الأسعار من واجهة برمجية عامة مجانية عند التحويل",
   "Scientific notation": "الكتابة العلمية",
   "Show equivalents when no target unit is given": "إظهار المكافئات عند عدم إعطاء وحدة الهدف",
-  "Unit conversions": "تحويل الوحدات"
+  "Unit conversions": "تحويل الوحدات",
+  "Calculator & Converter": "الآلة الحاسبة والمحوّل",
+  "Arithmetic": "الحساب"
 }

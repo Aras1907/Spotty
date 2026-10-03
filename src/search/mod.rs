@@ -9,6 +9,7 @@ use std::sync::{Arc, RwLock};
 use crate::i18n::gettext;
 
 pub mod apps;
+pub mod appimage;
 pub mod bluetooth;
 pub mod browse;
 pub mod browser_engine;
@@ -66,6 +67,11 @@ pub struct SearchResult {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Action {
     LaunchDesktopFile(std::path::PathBuf),
+    /// Run an installed AppImage (a portable file, not a desktop entry —
+    /// it may have no integration entry at all).
+    LaunchAppImage(std::path::PathBuf),
+    /// Trash an installed AppImage (confirmed first; see the search window).
+    RemoveAppImage(std::path::PathBuf),
     OpenPath(std::path::PathBuf),
     OpenInFileManager(std::path::PathBuf),
     BrowseInto(std::path::PathBuf),
@@ -205,11 +211,15 @@ pub fn pinned_matches(query_lower: &str, pinned: &[SearchResult]) -> Vec<SearchR
     pinned
         .iter()
         .filter(|p| {
-            p.title.to_lowercase().contains(query_lower)
-                || p
-                    .subtitle
+            let title = p.title.to_lowercase();
+            let sub = p.subtitle.as_deref().map(str::to_lowercase);
+            // Substring first; fuzzy below it so a typo'd pinned query
+            // ("setings") still surfaces its pinned row.
+            title.contains(query_lower)
+                || fuzzy_match(query_lower, &title)
+                || sub
                     .as_deref()
-                    .map(|s| s.to_lowercase().contains(query_lower))
+                    .map(|s| s.contains(query_lower) || fuzzy_match(query_lower, s))
                     .unwrap_or(false)
         })
         .cloned()
@@ -244,12 +254,95 @@ fn inline_file_mode(query: &str, config: &Config) -> Option<(String, String)> {
     if word.is_empty() {
         return None;
     }
-    let kw = config.keyword_for_word(word)?;
+    let kw = inline_keyword(word, config)?;
     // All-files keywords inline-route ("find foo"); the dictionary and the
     // translate trigger route the same way so `dict word` / `translate text`
     // work in one go, without a separate mode-entry step first.
     (kw.all_files || matches!(kw.id.as_str(), "dictionary" | "translate"))
         .then(|| (kw.word.clone(), rest.to_string()))
+}
+
+/// The inline trigger behind a typed word: exact first, then a bounded
+/// fuzzy pass (3–12 chars) so a typo'd inline trigger still routes —
+/// "fnd report" searches files — while short or long words, which is where
+/// unrelated queries live, are never guessed.
+fn inline_keyword(word: &str, config: &Config) -> Option<crate::config::CommandKeyword> {
+    if let Some(kw) = config.keyword_for_word(word) {
+        return Some(kw);
+    }
+    let wl = word.to_lowercase();
+    if !(3..=12).contains(&wl.chars().count()) {
+        return None;
+    }
+    let inline_capable = |kw: &crate::config::CommandKeyword| {
+        kw.all_files || matches!(kw.id.as_str(), "dictionary" | "translate")
+    };
+    let owned = crate::triggers::keywords();
+    config
+        .command_keywords
+        .iter()
+        .chain(owned.iter())
+        .filter(|kw| kw.enabled && inline_capable(kw))
+        .find(|kw| fuzzy_match(&wl, &kw.word))
+        .cloned()
+}
+
+/// Trigger-word suggestions for the universal search (Raycast-style):
+/// prefix matches at any length — so the fully-typed word `bluetooth` or
+/// `translate` still matches — plus a fuzzy tier for typos ("fils" → Find)
+/// that only runs for short queries, so long searches never fuzzy-match a
+/// trigger. Pressing Enter on a suggestion enters that mode. Shared with the
+/// worker (`jobs::compute`), which is the path that runs in production.
+pub fn trigger_suggestions(query: &str, config: &Config) -> Vec<SearchResult> {
+    let ql = query.trim().to_lowercase();
+    if ql.is_empty() || !ql.chars().all(|c| c.is_alphabetic()) {
+        return Vec::new();
+    }
+    let trigger_kws = crate::triggers::keywords();
+    let kw_iter = config
+        .command_keywords
+        .iter()
+        .chain(trigger_kws.iter());
+    let mut r = Vec::new();
+    for kw in kw_iter {
+        let dn = kw.display_name().to_lowercase();
+        let word_match = kw.word.starts_with(&ql);
+        let name_match = dn.starts_with(&ql);
+        // Fuzzy last: a typo'd trigger word ("fils" → find) still suggests
+        // its mode, ranked below every real prefix hit. Bounded to short
+        // queries so a long search never fuzzy-hits a trigger by accident.
+        let fuzzy = !word_match
+            && !name_match
+            && ql.chars().count() <= 12
+            && (fuzzy_match(&ql, &kw.word) || fuzzy_match(&ql, &dn));
+        if !(word_match || name_match || fuzzy) {
+            continue;
+        }
+        // Exact match scores highest; display-name prefix a bit lower than
+        // word prefix; fuzzy below both.
+        let score = if kw.word == ql || dn == ql {
+            100_000
+        } else if word_match {
+            50_000
+        } else if name_match {
+            45_000
+        } else {
+            40_000
+        };
+        r.push(SearchResult {
+            kind: ResultKind::System,
+            title: capitalize(&kw.word),
+            subtitle: Some(kw.description.clone()),
+            icon: Some(if kw.icon.is_empty() {
+                "folder-symbolic".into()
+            } else {
+                kw.icon.clone()
+            }),
+            action: Action::EnterMode(kw.word.clone()),
+            score,
+        });
+    }
+    r
 }
 
 pub fn search(
@@ -277,52 +370,10 @@ pub fn search(
 
     let mut r = Vec::with_capacity(32);
 
-    // Trigger suggestions (Raycast-style): if the query is a PREFIX of one or
-    // more trigger words, surface those triggers as top results. Pressing Enter
-    // on one enters that mode. Only when the query is short and alphabetic.
-    let trigger_kws = crate::triggers::keywords();
-    let kw_iter = config
-        .command_keywords
-        .iter()
-        .chain(trigger_kws.iter());
     let ql = query.to_lowercase();
-    if ql.len() >= 1 && ql.len() <= 8 && ql.chars().all(|c| c.is_alphabetic()) {
-        for kw in kw_iter {
-            let dn = kw.display_name().to_lowercase();
-            let word_match = kw.word.starts_with(&ql);
-            let name_match = dn.starts_with(&ql);
-            // Fuzzy last: a typo'd trigger word ("fils" → find) still
-            // suggests its mode, ranked below every real prefix hit.
-            let fuzzy = !word_match
-                && !name_match
-                && (fuzzy_match(&ql, &kw.word) || fuzzy_match(&ql, &dn));
-            if word_match || name_match || fuzzy {
-                // Exact match scores highest; display-name prefix a bit
-                // lower than word prefix; fuzzy below both.
-                let score = if kw.word == ql || dn == ql {
-                    100_000
-                } else if word_match {
-                    50_000
-                } else if name_match {
-                    45_000
-                } else {
-                    40_000
-                };
-                r.push(SearchResult {
-                    kind: ResultKind::System,
-                    title: capitalize(&kw.word),
-                    subtitle: Some(kw.description.clone()),
-                    icon: Some(if kw.icon.is_empty() {
-                        "folder-symbolic".into()
-                    } else {
-                        kw.icon.clone()
-                    }),
-                    action: Action::EnterMode(kw.word.clone()),
-                    score,
-                });
-            }
-        }
-    }
+    // Trigger suggestions (Raycast-style): shared with the worker — that is
+    // the path that runs in production.
+    r.extend(trigger_suggestions(query, config));
 
     // Updates are a General-section feature now (no trigger): the
     // update/updates/upd/upgrade/upg verbs show the inline update list.
@@ -342,13 +393,18 @@ pub fn search(
     }
     if config.enable_apps {
         r.extend(apps::search(query, &snap.apps));
+        // Portable AppImages: launch rows for files that have no desktop
+        // entry of their own (integrated ones are already indexed apps).
+        if config.app_sources().appimage {
+            r.extend(appimage::search(query, 3));
+        }
     }
     // Installable apps (Flatpak / distro) surfaced without the "install" verb, so
     // the user can discover apps to install while searching for anything. Gated
     // behind a setting and a min length to avoid noise / catalog churn on very
     // short queries. Catalog-backed and cached, so this is cheap per keystroke.
     if config.enable_new_apps && query.chars().count() >= 3 {
-        r.extend(cmd::universal_install(query, config.package_manager, 4));
+        r.extend(cmd::universal_install(query, config.app_sources(), 4));
     }
     if config.enable_web {
         r.push(web::result(query, config));
@@ -573,6 +629,51 @@ mod tests {
             "xyzzy: {:?}",
             rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn typoed_inline_trigger_still_routes() {
+        let cfg = Config::default();
+        // A dropped letter routes "fnd report" into the file search…
+        assert_eq!(
+            super::inline_file_mode("fnd report", &cfg),
+            Some(("find".to_string(), "report".to_string()))
+        );
+        // …while short words, where unrelated queries live, never hijack.
+        assert_eq!(super::inline_file_mode("san francisco", &cfg), None);
+    }
+
+    #[test]
+    fn trigger_suggestions_match_typos_and_fully_typed_long_words() {
+        let mut cfg = Config::default();
+        cfg.command_keywords.push(crate::config::CommandKeyword {
+            id: "superlong".into(),
+            word: "superlongword".into(),
+            description: "Test trigger".into(),
+            extensions: vec![],
+            icon: String::new(),
+            all_files: false,
+            shortcut: String::new(),
+            enabled: true,
+        });
+        // The fully-typed 13-char word matches — the old <=8 gate hid it.
+        let rows = super::trigger_suggestions("superlongword", &cfg);
+        assert!(
+            rows.iter()
+                .any(|r| matches!(&r.action, Action::EnterMode(w) if w == "superlongword")),
+            "long word: {:?}",
+            rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>()
+        );
+        // A typo'd default keyword still suggests its mode…
+        let rows = super::trigger_suggestions("fnd", &cfg);
+        assert!(
+            rows.iter()
+                .any(|r| matches!(&r.action, Action::EnterMode(w) if w == "find")),
+            "fnd: {:?}",
+            rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>()
+        );
+        // …and non-words never match anything.
+        assert!(super::trigger_suggestions("xyzzy123", &cfg).is_empty());
     }
 
     #[test]

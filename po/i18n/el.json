@@ -275,7 +275,6 @@
   "Redo": "Επανέκτελεση",
   "Delete word": "Διαγραφή λέξης",
   "Delete file / folder": "Διαγραφή αρχείου / φακέλου",
-  "Calculator & Conversions": "Αριθμομηχανή & Μετατροπές",
   "Arithmetic, units, currency and number bases": "Αριθμητική, μονάδες, νομίσματα και συστήματα αρίθμησης",
   "Conversions": "Μετατροπές",
   "Currency conversion": "Μετατροπή νομίσματος",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Η ισοτιμία ανακτάται από μια δωρεάν δημόσια API κατά τη μετατροπή",
   "Scientific notation": "Επιστημονική σημειογραφία",
   "Show equivalents when no target unit is given": "Εμφάνιση ισοδύναμων όταν δεν δίνεται μονάδα προορισμού",
-  "Unit conversions": "Μετατροπή μονάδων"
+  "Unit conversions": "Μετατροπή μονάδων",
+  "Calculator & Converter": "Αριθμομηχανή & Μετατροπέας",
+  "Arithmetic": "Αριθμητική"
 }

@@ -275,7 +275,6 @@
   "Redo": "फिर से करें",
   "Delete word": "शब्द हटाएँ",
   "Delete file / folder": "फ़ाइल / फ़ोल्डर हटाएँ",
-  "Calculator & Conversions": "कैलकुलेटर और रूपांतरण",
   "Arithmetic, units, currency and number bases": "अंकगणित, इकाइयाँ, मुद्राएँ और संख्या पद्धतियाँ",
   "Conversions": "रूपांतरण",
   "Currency conversion": "मुद्रा रूपांतरण",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "रूपांतरित करते समय दरें एक मुफ़्त सार्वजनिक API से ली जाती हैं",
   "Scientific notation": "वैज्ञानिक संकेतन",
   "Show equivalents when no target unit is given": "लक्ष्य इकाई न देने पर तुल्य मान दिखाएँ",
-  "Unit conversions": "इकाई रूपांतरण"
+  "Unit conversions": "इकाई रूपांतरण",
+  "Calculator & Converter": "कैलकुलेटर और कनवर्टर",
+  "Arithmetic": "अंकगणित"
 }

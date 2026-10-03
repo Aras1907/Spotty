@@ -1,4 +1,4 @@
-use crate::config::{CommandKeyword, Config, PackageManager, SearchEngine};
+use crate::config::{CommandKeyword, Config, SearchEngine};
 use crate::i18n::gettext;
 use adw::prelude::*;
 use gtk::glib;
@@ -97,7 +97,7 @@ fn build_general_page(window: &adw::PreferencesWindow, config: &Rc<RefCell<Confi
     {
         let (row, sw) = popup_setting_row(
             &gettext("Applications"),
-            &gettext("System, Flatpak and Snap apps"),
+            &gettext("System, Flatpak, Snap and AppImage apps"),
             config.borrow().enable_apps,
         );
         {
@@ -134,11 +134,32 @@ fn build_general_page(window: &adw::PreferencesWindow, config: &Rc<RefCell<Confi
         row.connect_activated(move |_| open_new_apps_dialog(&win, &cfg));
         sg.add(&row);
     }
-    // Calculator & Conversions: its own switch, and activating the row
+    // Web Search: its own switch, and activating the row opens the popup
+    // with the engine choice feeding it.
+    {
+        let (row, sw) = popup_setting_row(
+            &gettext("Web Search"),
+            &gettext("Always show web search row"),
+            config.borrow().enable_web,
+        );
+        {
+            let cfg = config.clone();
+            sw.connect_active_notify(move |r| {
+                let mut c = cfg.borrow_mut();
+                c.enable_web = r.is_active();
+                c.save();
+            });
+        }
+        let win = window.clone();
+        let cfg = config.clone();
+        row.connect_activated(move |_| open_web_dialog(&win, &cfg));
+        sg.add(&row);
+    }
+    // Calculator & Converter: its own switch, and activating the row
     // opens the popup with result formatting and the conversions group.
     {
         let (row, sw) = popup_setting_row(
-            &gettext("Calculator & Conversions"),
+            &gettext("Calculator & Converter"),
             &gettext("Arithmetic, units, currency and number bases"),
             config.borrow().enable_calculator,
         );
@@ -155,98 +176,6 @@ fn build_general_page(window: &adw::PreferencesWindow, config: &Rc<RefCell<Confi
         row.connect_activated(move |_| open_calc_dialog(&win, &cfg));
         sg.add(&row);
     }
-    // Web search engine + custom URL (URL only relevant for the Custom engine)
-    let custom_web = adw::EntryRow::builder()
-        .title(gettext("Custom Search URL"))
-        .show_apply_button(true)
-        .build();
-    custom_web.set_text(&config.borrow().custom_web_search_url);
-    custom_web.set_tooltip_text(Some(
-        "Use {query} as the placeholder, for example https://example.com/search?q={query}",
-    ));
-
-    let eg = adw::PreferencesGroup::builder().title(gettext("Web Search")).build();
-    general.add(&eg);
-    // The web-search switch lives in its own section together with the
-    // engine + custom URL rows, not in the generic results toggles.
-    {
-        let row = adw::SwitchRow::builder()
-            .title(gettext("Web Search"))
-            .subtitle(gettext("Always show web search row"))
-            .active(config.borrow().enable_web)
-            .build();
-        let cfg = config.clone();
-        row.connect_active_notify(move |r| {
-            let mut c = cfg.borrow_mut();
-            c.enable_web = r.is_active();
-            c.save();
-        });
-        eg.add(&row);
-    }
-    let er = adw::ComboRow::builder()
-        .title(gettext("Search Engine"))
-        .subtitle(gettext("Used for web search results"))
-        .build();
-    er.set_model(Some(&gtk::StringList::new(
-        &SearchEngine::all()
-            .iter()
-            .map(|e| e.display_name())
-            .collect::<Vec<_>>(),
-    )));
-    if let Some(i) = SearchEngine::all()
-        .iter()
-        .position(|&e| e == config.borrow().search_engine)
-    {
-        er.set_selected(i as u32);
-    }
-    // Show detected engine name in subtitle when Browser Default is selected.
-    if config.borrow().search_engine == SearchEngine::BrowserDefault {
-        if let Some(name) = crate::search::browser_engine::engine_name() {
-            er.set_subtitle(&gettext("Uses {name} (detected from your default browser)").replace("{name}", &name));
-        } else {
-            er.set_subtitle("Detecting your default browser\u{2026}");
-        }
-    }
-    let cfg = config.clone();
-    // The Custom Search URL only makes sense for the Custom engine — the
-    // row is hidden entirely for everything else.
-    let custom_web_vis = custom_web.clone();
-    let er_sub = er.clone();
-    let is_custom = |e: SearchEngine| e == SearchEngine::Custom;
-    custom_web_vis.set_visible(SearchEngine::all()
-        .get(er.selected() as usize)
-        .copied()
-        .map(is_custom)
-        .unwrap_or(false));
-    er.connect_selected_notify(move |r| {
-        if let Some(&e) = SearchEngine::all().get(r.selected() as usize) {
-            let mut c = cfg.borrow_mut();
-            c.search_engine = e;
-            c.save();
-            custom_web_vis.set_visible(is_custom(e));
-            // Update subtitle for Browser Default
-            if e == SearchEngine::BrowserDefault {
-                if let Some(name) = crate::search::browser_engine::engine_name() {
-                    er_sub.set_subtitle(&gettext("Uses {name} (detected from your default browser)").replace("{name}", &name));
-                } else {
-                    er_sub.set_subtitle("Detecting your default browser\u{2026}");
-                }
-            } else {
-                er_sub.set_subtitle("Used for web search results");
-            }
-        }
-    });
-    eg.add(&er);
-    {
-        let cfg = config.clone();
-        custom_web.connect_apply(move |r| {
-            let mut c = cfg.borrow_mut();
-            c.custom_web_search_url = r.text().trim().to_string();
-            c.save();
-        });
-    }
-eg.add(&custom_web);
-
 
     // Updates: one row in Results — the master switch sits on it, the
     // status stays live on its subtitle, and activating it opens the
@@ -298,24 +227,6 @@ eg.add(&custom_web);
         }
     }
 
-    // Keyboard: one row in General; activating it opens the popup with
-    // every in-window shortcut plus a read-only overview of the trigger
-    // words and their global shortcuts.
-    let kg = adw::PreferencesGroup::builder().title(gettext("Keyboard")).build();
-    general.add(&kg);
-    {
-        let row = adw::ActionRow::builder()
-            .title(gettext("Keyboard Shortcuts"))
-            .subtitle(gettext("Keyboard shortcuts used inside the search window"))
-            .activatable(true)
-            .build();
-        row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
-        let win = window.clone();
-        let cfg = config.clone();
-        row.connect_activated(move |_| open_keyboard_dialog(&win, &cfg));
-        kg.add(&row);
-    }
-
     // About — single row opening the native AboutDialog
     let ag = adw::PreferencesGroup::builder().title(gettext("About")).build();
     general.add(&ag);
@@ -323,6 +234,7 @@ eg.add(&custom_web);
         .title(gettext("About Spotty"))
         .subtitle(format!("Version {}", env!("CARGO_PKG_VERSION")))
         .activatable(true)
+        .use_markup(false)
         .build();
     about_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
     {
@@ -349,6 +261,7 @@ fn popup_setting_row(
         .title(title)
         .subtitle(subtitle)
         .activatable(true)
+        .use_markup(false)
         .build();
     let switch = gtk::Switch::builder()
         .valign(gtk::Align::Center)
@@ -362,46 +275,271 @@ fn popup_setting_row(
 /// The package-manager choice behind "Search for new apps", as a popup
 /// (it used to be a standalone section).
 fn open_new_apps_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>) {
+    // Kick the source probes (idempotent, cached) so availability answers
+    // are as fresh as possible before building the row list.
+    crate::search::cmd::preload_install_cache_async(config.borrow().app_sources());
     let dlg = adw::PreferencesDialog::builder()
         .title(gettext("Search for new Apps"))
         .content_width(440)
         .build();
     let page = adw::PreferencesPage::builder().build();
     let g = adw::PreferencesGroup::builder()
-        .title(gettext("Package Manager"))
+        .title(gettext("App Sources"))
         .build();
 
-    let pm_row = adw::ComboRow::builder()
-        .title(gettext("Package Manager"))
-        .subtitle(gettext("Used for app search, install, and uninstall via the cmd trigger"))
+    // One switch per source. The probes are asynchronous: a source whose
+    // probe hasn't answered yet shows as a disabled "Checking…" row (instead
+    // of silently missing) and the rows update in place as answers arrive.
+    let flatpak_row = source_switch_row(
+        &g,
+        config,
+        &gettext("Flatpak"),
+        &gettext("Search and install Flatpak apps"),
+        |s| s.flatpak,
+        |c, v| c.pm_flatpak = Some(v),
+    );
+    let distro_row = source_switch_row(
+        &g,
+        config,
+        &gettext("System packages"),
+        // Replaced by the sync pass below before the dialog is presented.
+        &gettext("Checking…"),
+        |s| s.distro,
+        |c, v| c.pm_distro = Some(v),
+    );
+    let snap_row = source_switch_row(
+        &g,
+        config,
+        &gettext("Snap"),
+        &gettext("Search and install Snap packages"),
+        |s| s.snap,
+        |c, v| c.pm_snap = Some(v),
+    );
+    let appimage_row = source_switch_row(
+        &g,
+        config,
+        &gettext("AppImages"),
+        &gettext("Search, launch and remove AppImages"),
+        |s| s.appimage,
+        |c, v| c.pm_appimage = Some(v),
+    );
+    let none_row = adw::ActionRow::builder()
+        .title(gettext("No app sources available"))
+        .subtitle(gettext("No Flatpak, package manager, Snap or AppImage found"))
+        .use_markup(false)
         .build();
-    // Snap options are only shown when snapd is installed on the system.
-    let snap_ok = crate::search::cmd::snap_is_available() == Some(true);
-    let visible: Vec<PackageManager> = PackageManager::all()
-        .iter()
-        .copied()
-        .filter(|p| snap_ok || !p.use_snap())
-        .collect();
-    pm_row.set_model(Some(&gtk::StringList::new(
-        &visible.iter().map(|p| p.display_name()).collect::<Vec<_>>(),
-    )));
-    if let Some(i) = visible
-        .iter()
-        .position(|&p| p == config.borrow().package_manager)
-    {
-        pm_row.set_selected(i as u32);
+    g.add(&none_row);
+
+    // Apply one probe answer to its row: available → enabled with the real
+    // subtitle, pending → disabled "Checking…", missing → hidden.
+    fn apply_source_row(row: &adw::SwitchRow, avail: Option<bool>, ok_subtitle: &str) {
+        match avail {
+            Some(true) => {
+                row.set_subtitle(ok_subtitle);
+                row.set_sensitive(true);
+                row.set_visible(true);
+            }
+            None => {
+                row.set_subtitle(&gettext("Checking…"));
+                row.set_sensitive(false);
+                row.set_visible(true);
+            }
+            Some(false) => row.set_visible(false),
+        }
     }
-    {
-        let cfg = config.clone();
-        pm_row.connect_selected_notify(move |r| {
-            if let Some(&p) = visible.get(r.selected() as usize) {
-                let mut c = cfg.borrow_mut();
-                c.package_manager = p;
-                c.save();
+
+    // Re-read the four probes and update the rows. Returns true once every
+    // probe has answered (the poll can stop).
+    let sync: Rc<dyn Fn() -> bool> = {
+        let flatpak_row = flatpak_row.clone();
+        let distro_row = distro_row.clone();
+        let snap_row = snap_row.clone();
+        let appimage_row = appimage_row.clone();
+        let none_row = none_row.clone();
+        Rc::new(move || {
+            let flatpak = crate::search::cmd::flatpak_is_available();
+            let snap = crate::search::cmd::snap_is_available();
+            let appimage = crate::search::appimage::is_supported();
+            let pm = crate::search::cmd::detected_distro_pm();
+            let distro = if pm.is_some() {
+                Some(true)
+            } else if crate::search::cmd::distro_pm_probed() {
+                Some(false)
+            } else {
+                None
+            };
+            apply_source_row(
+                &flatpak_row,
+                flatpak,
+                &gettext("Search and install Flatpak apps"),
+            );
+            let distro_sub = match &pm {
+                Some(p) => {
+                    gettext("Search and install system packages ({pm})").replace("{pm}", p)
+                }
+                None => gettext("Search and install system packages ({pm})").replace("{pm}", "…"),
+            };
+            apply_source_row(&distro_row, distro, &distro_sub);
+            apply_source_row(&snap_row, snap, &gettext("Search and install Snap packages"));
+            apply_source_row(
+                &appimage_row,
+                appimage,
+                &gettext("Search, launch and remove AppImages"),
+            );
+            let any_ok = flatpak == Some(true)
+                || distro == Some(true)
+                || snap == Some(true)
+                || appimage == Some(true);
+            let all_answered =
+                flatpak.is_some() && distro.is_some() && snap.is_some() && appimage.is_some();
+            none_row.set_visible(all_answered && !any_ok);
+            all_answered
+        })
+    };
+
+    if !sync() {
+        // A probe is still running: poll briefly so the rows fill in without
+        // the user having to close and reopen the popup. Stops when every
+        // probe has answered, on dialog close, or after ~18 s as a cap.
+        let alive = Rc::new(std::cell::Cell::new(true));
+        let a = alive.clone();
+        dlg.connect_closed(move |_| a.set(false));
+        let mut ticks = 0u32;
+        glib::timeout_add_local(std::time::Duration::from_millis(300), move || {
+            if !alive.get() || ticks >= 60 {
+                return glib::ControlFlow::Break;
+            }
+            ticks += 1;
+            if sync() {
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
             }
         });
     }
-    g.add(&pm_row);
+
+    page.add(&g);
+    dlg.add(&page);
+    dlg.present(Some(parent));
+}
+
+/// One availability-gated source switch: reads the current value out of
+/// the config (`get`), writes every change back (`set`), saves on toggle.
+fn source_switch_row(
+    group: &adw::PreferencesGroup,
+    config: &Rc<RefCell<Config>>,
+    title: &str,
+    subtitle: &str,
+    get: fn(&crate::config::AppSources) -> bool,
+    set: fn(&mut Config, bool),
+) -> adw::SwitchRow {
+    let active = get(&config.borrow().app_sources());
+    let row = adw::SwitchRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .active(active)
+        .use_markup(false)
+        .build();
+    {
+        let cfg = config.clone();
+        row.connect_active_notify(move |r| {
+            let mut c = cfg.borrow_mut();
+            set(&mut c, r.is_active());
+            c.save();
+        });
+    }
+    group.add(&row);
+    row
+}
+
+/// The web-search settings as a popup: the engine choice behind the Web
+/// Search row (the Custom Search URL only matters for the Custom engine).
+/// Built fresh on every open so it always shows the current state.
+fn open_web_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>) {
+    let dlg = adw::PreferencesDialog::builder()
+        .title(gettext("Web Search"))
+        .content_width(440)
+        .build();
+    let page = adw::PreferencesPage::builder().build();
+    let g = adw::PreferencesGroup::builder()
+        .title(gettext("Search Engine"))
+        .build();
+
+    // The Custom Search URL only makes sense for the Custom engine — the
+    // row is hidden entirely for everything else.
+    let custom_web = adw::EntryRow::builder()
+        .title(gettext("Custom Search URL"))
+        .show_apply_button(true)
+        .use_markup(false)
+        .build();
+    custom_web.set_text(&config.borrow().custom_web_search_url);
+    custom_web.set_tooltip_text(Some(
+        "Use {query} as the placeholder, for example https://example.com/search?q={query}",
+    ));
+    {
+        let cfg = config.clone();
+        custom_web.connect_apply(move |r| {
+            let mut c = cfg.borrow_mut();
+            c.custom_web_search_url = r.text().trim().to_string();
+            c.save();
+        });
+    }
+
+    let er = adw::ComboRow::builder()
+        .title(gettext("Search Engine"))
+        .subtitle(gettext("Used for web search results"))
+        .use_markup(false)
+        .build();
+    er.set_model(Some(&gtk::StringList::new(
+        &SearchEngine::all()
+            .iter()
+            .map(|e| e.display_name())
+            .collect::<Vec<_>>(),
+    )));
+    if let Some(i) = SearchEngine::all()
+        .iter()
+        .position(|&e| e == config.borrow().search_engine)
+    {
+        er.set_selected(i as u32);
+    }
+    // Show detected engine name in subtitle when Browser Default is selected.
+    if config.borrow().search_engine == SearchEngine::BrowserDefault {
+        if let Some(name) = crate::search::browser_engine::engine_name() {
+            er.set_subtitle(&gettext("Uses {name} (detected from your default browser)").replace("{name}", &name));
+        } else {
+            er.set_subtitle("Detecting your default browser\u{2026}");
+        }
+    }
+    let cfg = config.clone();
+    let custom_web_vis = custom_web.clone();
+    let er_sub = er.clone();
+    let is_custom = |e: SearchEngine| e == SearchEngine::Custom;
+    custom_web_vis.set_visible(SearchEngine::all()
+        .get(er.selected() as usize)
+        .copied()
+        .map(is_custom)
+        .unwrap_or(false));
+    er.connect_selected_notify(move |r| {
+        if let Some(&e) = SearchEngine::all().get(r.selected() as usize) {
+            let mut c = cfg.borrow_mut();
+            c.search_engine = e;
+            c.save();
+            custom_web_vis.set_visible(is_custom(e));
+            // Update subtitle for Browser Default
+            if e == SearchEngine::BrowserDefault {
+                if let Some(name) = crate::search::browser_engine::engine_name() {
+                    er_sub.set_subtitle(&gettext("Uses {name} (detected from your default browser)").replace("{name}", &name));
+                } else {
+                    er_sub.set_subtitle("Detecting your default browser\u{2026}");
+                }
+            } else {
+                er_sub.set_subtitle("Used for web search results");
+            }
+        }
+    });
+    g.add(&er);
+    g.add(&custom_web);
+
     page.add(&g);
     dlg.add(&page);
     dlg.present(Some(parent));
@@ -453,19 +591,22 @@ fn open_apps_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>
 /// Enter does with them.
 fn open_calc_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>) {
     let dlg = adw::PreferencesDialog::builder()
-        .title(gettext("Calculator & Conversions"))
+        .title(gettext("Calculator & Converter"))
         .content_width(440)
         .build();
     let page = adw::PreferencesPage::builder().build();
 
-    // Results: how answers are shaped.
+    // Arithmetic: how answers are shaped.
     {
-        let g = adw::PreferencesGroup::builder().title(gettext("Results")).build();
+        let g = adw::PreferencesGroup::builder()
+            .title(gettext("Arithmetic"))
+            .build();
 
         // Decimal places: 2/4/6/8/10 — the labels are digits, no translation.
         {
             let row = adw::ComboRow::builder()
                 .title(gettext("Decimal places"))
+                .use_markup(false)
                 .build();
             row.set_model(Some(&gtk::StringList::new(&["2", "4", "6", "8", "10"])));
             row.set_selected(
@@ -549,6 +690,216 @@ fn open_calc_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>
         ] {
             add_calc_toggle(&g, config, &title, get, set);
         }
+
+        // Wording: the connector the converter understands — presets with a
+        // live example, plus a free-text custom entry.
+        {
+            let row = adw::ComboRow::builder()
+                .title(gettext("Conversion wording"))
+                .use_markup(false)
+                .build();
+            let labels = [
+                gettext("to"),
+                gettext("to or in"),
+                gettext("in"),
+                "\u{2192}".to_string(),
+                "=".to_string(),
+                gettext("Comma"),
+                gettext("None (space only)"),
+                gettext("Custom…"),
+            ];
+            let model = gtk::StringList::new(&[]);
+            for l in &labels {
+                model.append(l);
+            }
+            row.set_model(Some(&model));
+            const PRESETS: [&[&str]; 7] = [
+                &["to"],
+                &["to", "in"],
+                &["in"],
+                &["\u{2192}"],
+                &["="],
+                &[","],
+                &[],
+            ];
+            let words_of_entry = |text: &str| -> Vec<String> {
+                text.split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            };
+            let example = |words: &[String]| -> String {
+                if words.is_empty() {
+                    "20 USD EUR".to_string()
+                } else {
+                    format!("20 USD {} EUR", words.join(" / "))
+                }
+            };
+            let current: Vec<String> = config.borrow().calc_convert_words.clone();
+            let sel = PRESETS
+                .iter()
+                .position(|p| {
+                    p.len() == current.len()
+                        && p.iter().zip(current.iter()).all(|(a, b)| *a == b.as_str())
+                })
+                .unwrap_or(PRESETS.len());
+            row.set_selected(sel as u32);
+            row.set_subtitle(
+                &gettext("Example: {example}").replace("{example}", &example(&current)),
+            );
+            let entry = adw::EntryRow::builder()
+                .title(gettext("Custom wording"))
+                .text(current.join(", "))
+                .visible(sel == PRESETS.len())
+                .use_markup(false)
+                .build();
+            g.add(&row);
+            g.add(&entry);
+            {
+                let cfg = config.clone();
+                let entry = entry.clone();
+                row.connect_selected_notify(move |r| {
+                    let idx = r.selected() as usize;
+                    let words: Vec<String> = if idx < PRESETS.len() {
+                        PRESETS[idx].iter().map(|s| (*s).to_string()).collect()
+                    } else {
+                        words_of_entry(&entry.text())
+                    };
+                    entry.set_visible(idx >= PRESETS.len());
+                    if idx < PRESETS.len() {
+                        entry.set_text(&words.join(", "));
+                    }
+                    r.set_subtitle(
+                        &gettext("Example: {example}").replace("{example}", &example(&words)),
+                    );
+                    let mut c = cfg.borrow_mut();
+                    c.calc_convert_words = words;
+                    c.save();
+                });
+            }
+            {
+                let cfg = config.clone();
+                let row = row.clone();
+                entry.connect_changed(move |e| {
+                    let words = words_of_entry(&e.text());
+                    row.set_subtitle(
+                        &gettext("Example: {example}").replace("{example}", &example(&words)),
+                    );
+                    let mut c = cfg.borrow_mut();
+                    c.calc_convert_words = words;
+                    c.save();
+                });
+            }
+        }
+
+        // Default currency: what a source-less conversion aims at
+        // ("20 EUR" -> the picked currency; the source itself falls back
+        // to the automatic pick, so "20 USD" under a USD default still
+        // answers in EUR).
+        {
+            let codes = [
+                "usd", "eur", "gbp", "try", "jpy", "cny", "inr", "chf", "cad", "aud",
+            ];
+            let row = adw::ComboRow::builder()
+                .title(gettext("Default currency"))
+                .use_markup(false)
+                .build();
+            let model = gtk::StringList::new(&[]);
+            for c in codes {
+                model.append(&c.to_uppercase());
+            }
+            row.set_model(Some(&model));
+            let example_of = |code: &str| -> String {
+                gettext("Example: {example}")
+                    .replace("{example}", &format!("20 EUR \u{2192} {}", code.to_uppercase()))
+            };
+            let sel = codes
+                .iter()
+                .position(|c| *c == config.borrow().calc_default_currency.to_lowercase())
+                .unwrap_or(0);
+            row.set_selected(sel as u32);
+            row.set_subtitle(&example_of(codes.get(sel).copied().unwrap_or("usd")));
+            {
+                let cfg = config.clone();
+                row.connect_selected_notify(move |r| {
+                    let code = codes.get(r.selected() as usize).copied().unwrap_or("usd");
+                    r.set_subtitle(&example_of(code));
+                    let mut c = cfg.borrow_mut();
+                    c.calc_default_currency = code.to_string();
+                    c.save();
+                });
+            }
+            g.add(&row);
+        }
+        page.add(&g);
+    }
+
+    // Default targets: what a no-target conversion answers with, per
+    // dimension — the automatic pick unless the user fixes one.
+    {
+        let g = adw::PreferencesGroup::builder()
+            .title(gettext("Default targets"))
+            .description(gettext("What a value converts to when you don't name a target"))
+            .build();
+        let titles = [
+            gettext("Length"),
+            gettext("Mass"),
+            gettext("Temperature"),
+            gettext("Volume"),
+            gettext("Area"),
+            gettext("Speed"),
+            gettext("Time"),
+            gettext("Data"),
+            gettext("Pressure"),
+            gettext("Energy"),
+            gettext("Power"),
+            gettext("Force"),
+            gettext("Angle"),
+            gettext("Frequency"),
+            gettext("Fuel economy"),
+        ];
+        let auto = gettext("Auto");
+        for (i, (key, syms)) in crate::search::convert::default_target_dims()
+            .into_iter()
+            .enumerate()
+        {
+            let title = titles.get(i).cloned().unwrap_or_else(|| key.to_string());
+            let row = adw::ComboRow::builder().title(&title).use_markup(false).build();
+            let mut opts: Vec<String> = vec![auto.clone()];
+            for s in syms {
+                let s = s.to_string();
+                if !opts.contains(&s) {
+                    opts.push(s);
+                }
+            }
+            let model = gtk::StringList::new(&[]);
+            for o in &opts {
+                model.append(o);
+            }
+            row.set_model(Some(&model));
+            let sel = config
+                .borrow()
+                .calc_default_targets
+                .get(key)
+                .and_then(|v| opts.iter().position(|o| o == v))
+                .unwrap_or(0);
+            row.set_selected(sel as u32);
+            {
+                let cfg = config.clone();
+                row.connect_selected_notify(move |r| {
+                    let idx = r.selected() as usize;
+                    let mut c = cfg.borrow_mut();
+                    if idx == 0 {
+                        c.calc_default_targets.remove(key);
+                    } else if let Some(sym) = opts.get(idx) {
+                        c.calc_default_targets.insert(key.to_string(), sym.clone());
+                    }
+                    c.save();
+                });
+            }
+            g.add(&row);
+        }
         page.add(&g);
     }
 
@@ -557,7 +908,7 @@ fn open_calc_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>
 }
 
 /// One on/off row wired straight to a `Config` bool, saved on change —
-/// the shape every toggle in the Calculator & Conversions dialog uses.
+/// the shape every toggle in the Calculator & Converter dialog uses.
 fn add_calc_toggle(
     g: &adw::PreferencesGroup,
     config: &Rc<RefCell<Config>>,
@@ -568,6 +919,7 @@ fn add_calc_toggle(
     let row = adw::SwitchRow::builder()
         .title(title)
         .active(get(&config.borrow()))
+        .use_markup(false)
         .build();
     let cfg = config.clone();
     row.connect_active_notify(move |r| {
@@ -577,93 +929,6 @@ fn add_calc_toggle(
         c.save();
     });
     g.add(&row);
-}
-
-/// Every in-window shortcut in one place — some had no UI at all, the
-/// others were only reachable through the per-trigger dialogs (which keep
-/// editing the same config fields). Below that, a read-only overview of
-/// the trigger words and their global shortcuts: editing stays in the
-/// Triggers page.
-fn open_keyboard_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>) {
-    let dlg = adw::PreferencesDialog::builder()
-        .title(gettext("Keyboard Shortcuts"))
-        .content_width(440)
-        .build();
-    let page = adw::PreferencesPage::builder().build();
-
-    let g = adw::PreferencesGroup::builder()
-        .title(gettext("Search Window"))
-        .description(gettext("Keyboard shortcuts used inside the search window"))
-        .build();
-    for (title, field, default) in [
-        (gettext("Copy"), "copy", "<Control>c"),
-        (gettext("Cut"), "cut", "<Control>x"),
-        (gettext("Paste"), "paste", "<Control>v"),
-        (gettext("Select all"), "select_all", "<Control>a"),
-        (gettext("Undo"), "undo", "<Control>z"),
-        (gettext("Redo"), "redo", "<Control><Shift>z"),
-        (gettext("Delete word"), "delete_word", "<Control>space"),
-        (gettext("Operations"), "operations", "<Control>o"),
-        (gettext("Keyboard shortcuts"), "hints", "<Control>h"),
-        (gettext("Uninstall app"), "uninstall", "<Control>u"),
-        (gettext("Kill app"), "kill", "<Control>k"),
-        (gettext("Delete file / folder"), "delete_file", "<Control>d"),
-        (gettext("Open location in file manager"), "open_location", "<Control>Return"),
-        (gettext("Open folder in terminal"), "terminal", "<Control><Shift>Return"),
-    ] {
-        let current = shortcut_value(config, field, default);
-        let cell: Rc<RefCell<String>> = Rc::new(RefCell::new(current.clone()));
-        let cfg_k = config.clone();
-        let field_k = field.to_string();
-        let cell_k = cell.clone();
-        let (row, _) = capture_shortcut_row(
-            &dlg,
-            &title,
-            &display_shortcut(&current),
-            cell,
-            Rc::new(move || {
-                let mut c = cfg_k.borrow_mut();
-                set_shortcut(&mut c, &field_k, &cell_k.borrow());
-                c.save();
-            }),
-            default,
-        );
-        g.add(&row);
-    }
-    page.add(&g);
-
-    // Trigger words: read-only here, exactly as the Triggers page shows
-    // them.
-    let tg = adw::PreferencesGroup::builder().title(gettext("Triggers")).build();
-    {
-        let row = adw::ActionRow::builder()
-            .title(gettext("Open Spotty"))
-            .subtitle(&trigger_subtitle(true, "spotty", &config.borrow().shortcut))
-            .build();
-        tg.add(&row);
-    }
-    let keywords: Vec<CommandKeyword> = config.borrow().command_keywords.clone();
-    for kw in &keywords {
-        if kw.id == "cmd" {
-            continue;
-        }
-        let row = adw::ActionRow::builder()
-            .title(capitalized(&kw.id))
-            .subtitle(&trigger_subtitle(kw.enabled, &kw.word, &kw.shortcut))
-            .build();
-        tg.add(&row);
-    }
-    for a in crate::triggers::all() {
-        let row = adw::ActionRow::builder()
-            .title(&a.name)
-            .subtitle(&trigger_subtitle(a.enabled, &a.word, &a.shortcut))
-            .build();
-        tg.add(&row);
-    }
-    page.add(&tg);
-
-    dlg.add(&page);
-    dlg.present(Some(parent));
 }
 
 /// The updates settings as a popup: check-now with its live status,
@@ -683,6 +948,7 @@ fn open_updates_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Conf
         .title(gettext("Check now"))
         .subtitle(&crate::search::cmd::update_status_text(enabled))
         .activatable(true)
+        .use_markup(false)
         .build();
     let check_btn = gtk::Button::builder()
         .icon_name("view-refresh-symbolic")
@@ -718,6 +984,7 @@ fn open_updates_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Conf
             .title(gettext("Update notification"))
             .subtitle(gettext("Show a badge and a desktop notification when updates exist"))
             .active(config.borrow().update_notification)
+            .use_markup(false)
             .build();
         let cfg = config.clone();
         row.connect_active_notify(move |r| {
@@ -729,6 +996,7 @@ fn open_updates_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Conf
     {
         let row = adw::ComboRow::builder()
             .title(gettext("Check every"))
+            .use_markup(false)
             .build();
         let intervals_model = gtk::StringList::new(&[]);
         // Literal gettext calls so the labels land in the translation
@@ -769,6 +1037,7 @@ fn open_updates_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Conf
             .title(gettext("Remind tomorrow"))
             .subtitle(gettext("Hide the update notice for 24 hours"))
             .activatable(true)
+            .use_markup(false)
             .build();
         row.add_prefix(&gtk::Image::from_icon_name("document-open-recent-symbolic"));
         row.connect_activated(|_| crate::search::cmd::snooze_update_notice());
@@ -778,6 +1047,7 @@ fn open_updates_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Conf
             .title(gettext("Dismiss update notice"))
             .subtitle(gettext("Hidden until a new update appears"))
             .activatable(true)
+            .use_markup(false)
             .build();
         row.add_prefix(&gtk::Image::from_icon_name("window-close-symbolic"));
         row.connect_activated(|_| crate::search::cmd::dismiss_current_update_notice());
@@ -786,41 +1056,28 @@ fn open_updates_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Conf
         page.add(&g2);
     }
 
+    // Offered only once the probe confirms a reboot is pending — i.e. after an
+    // update run completed and left the machine needing a restart. Updates
+    // themselves are never chained into this button: they run to completion
+    // first, then this appears.
     if crate::search::cmd::reboot_pending() {
-        // Updates still pending → "Update & Restart" (upgrade, then reboot);
-        // already applied → a plain restart.
-        let with_updates = crate::search::cmd::updates_pending();
-        let heading = if with_updates {
-            gettext("Update & Restart")
-        } else {
-            gettext("Restart required to finish the update")
-        };
-        let btn_label = if with_updates {
-            gettext("Update & Restart")
-        } else {
-            gettext("Restart")
-        };
+        let (title, subtitle) = crate::search::cmd::reboot_notice();
         let g3 = adw::PreferencesGroup::builder().build();
-        let row = adw::ActionRow::builder().title(heading).activatable(true).build();
+        let row = adw::ActionRow::builder()
+            .title(title)
+            .subtitle(subtitle)
+            .activatable(true)
+            .use_markup(false)
+            .build();
         row.add_prefix(&gtk::Image::from_icon_name("system-reboot-symbolic"));
         let btn = gtk::Button::builder()
-            .label(btn_label)
+            .label(gettext("Restart"))
             .css_classes(["suggested-action"])
             .valign(gtk::Align::Center)
             .build();
         {
             let win = parent.clone();
             btn.connect_clicked(move |_| {
-                if crate::search::cmd::updates_pending() {
-                    crate::operations::start(
-                        gettext("Update & Restart"),
-                        "System Update".into(),
-                        "system-reboot-symbolic".into(),
-                        crate::search::cmd::update_then_restart_args(),
-                    );
-                    win.close();
-                    return;
-                }
                 let dialog = adw::MessageDialog::builder()
                     .transient_for(&win)
                     .heading(gettext("Are you sure?"))
@@ -969,44 +1226,6 @@ fn open_spotty_edit_dialog(
     group.add(&sc_row);
     content.append(&group);
 
-    // In-window shortcuts (not global GNOME keybindings): each row captures
-    // a combo into its own pending cell; Reset restores the row's default.
-    let win_group = adw::PreferencesGroup::builder()
-        .title(gettext("Search Window"))
-        .description(gettext("Keyboard shortcuts used inside the search window"))
-        .build();
-    let win_fields: [(&str, &str, &str); 4] = [
-        ("Uninstall app", "uninstall", "<Control>u"),
-        ("Kill app", "kill", "<Control>k"),
-        ("Delete file / folder", "delete_file", "<Control>d"),
-        ("Open location in file manager", "open_location", "<Control>Return"),
-    ];
-    for &(title, field, default) in &win_fields {
-        let current = shortcut_value(config, field, default);
-        let cell: Rc<RefCell<String>> = Rc::new(RefCell::new(current.clone()));
-        let (win_row, _) = {
-            let cfg_w = config.clone();
-            let field_w = field.to_string();
-            let cell_w = cell.clone();
-            capture_shortcut_row(
-                &dialog,
-                title,
-                &display_shortcut(&current),
-                cell.clone(),
-                Rc::new(move || {
-                    let mut c = cfg_w.borrow_mut();
-                    set_shortcut(&mut c, &field_w, &cell_w.borrow());
-                    c.save();
-                    drop(c);
-                    std::thread::spawn(crate::keybindings::register_all);
-                }),
-                default,
-            )
-        };
-        win_group.add(&win_row);
-    }
-    content.append(&win_group);
-
     let clamp = adw::Clamp::builder().maximum_size(600).build();
     clamp.set_child(Some(&content));
     scroll.set_child(Some(&clamp));
@@ -1045,6 +1264,7 @@ fn build_keywords_page(
         .title(gettext("Open Spotty"))
         .subtitle(&trigger_subtitle(true, "spotty", &config.borrow().shortcut))
         .activatable(true)
+        .use_markup(false)
         .build();
     open_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
     {
@@ -1066,6 +1286,7 @@ fn build_keywords_page(
         .title(gettext("Store"))
         .subtitle(gettext("Browse and install triggers"))
         .activatable(true)
+        .use_markup(false)
         .build();
     store_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
     {
@@ -1162,6 +1383,7 @@ fn rebuild_trigger_rows(
             .title(capitalized(&kw.id))
             .subtitle(&trigger_subtitle(kw.enabled, &kw.word, &kw.shortcut))
             .activatable(true)
+            .use_markup(false)
             .build();
         let switch = gtk::Switch::builder()
             .active(kw.enabled)
@@ -1213,6 +1435,7 @@ fn rebuild_trigger_rows(
             .title(&a.name)
             .subtitle(&trigger_subtitle(a.enabled, &a.word, &a.shortcut))
             .activatable(true)
+            .use_markup(false)
             .build();
         let del_btn = gtk::Button::builder()
             .icon_name("user-trash-symbolic")
@@ -1606,13 +1829,15 @@ fn create_trigger_dialog(
         .title(gettext("Trigger"))
         .description(gettext("What you type to open it."))
         .build();
-    let name_row = adw::EntryRow::builder().title(gettext("Name")).build();
-    let word_row = adw::EntryRow::builder().title(gettext("Keyword")).build();
+    let name_row = adw::EntryRow::builder().title(gettext("Name")).use_markup(false).build();
+    let word_row = adw::EntryRow::builder().title(gettext("Keyword")).use_markup(false).build();
     let desc_row = adw::EntryRow::builder()
         .title(gettext("Description (optional)"))
+        .use_markup(false)
         .build();
     let icon_row = adw::EntryRow::builder()
         .title(gettext("Icon name (optional)"))
+        .use_markup(false)
         .build();
     trigger_group.add(&name_row);
     trigger_group.add(&word_row);
@@ -1627,7 +1852,7 @@ fn create_trigger_dialog(
              what you type after the keyword and single-quote-escaped.",
         )
         .build();
-    let cmd_row = adw::EntryRow::builder().title(gettext("Command line")).build();
+    let cmd_row = adw::EntryRow::builder().title(gettext("Command line")).use_markup(false).build();
     action_group.add(&cmd_row);
     content.append(&action_group);
 
@@ -1843,6 +2068,7 @@ fn server_trigger_row(
     let action = adw::ActionRow::builder()
         .title(&t.name)
         .subtitle(&subtitle)
+        .use_markup(false)
         .build();
     if !t.icon.is_empty() && has_icon(&t.icon) {
         let img = gtk::Image::from_icon_name(&t.icon);
@@ -2284,11 +2510,13 @@ fn edit_trigger_dialog(
         .title(gettext("Enabled"))
         .subtitle(gettext("Pause this trigger without uninstalling it"))
         .active(enabled)
+        .use_markup(false)
         .build();
     trigger_group.add(&enabled_row);
     let entry = adw::EntryRow::builder()
         .title(gettext("Trigger word"))
         .text(&word)
+        .use_markup(false)
         .build();
     trigger_group.add(&entry);
     content.append(&trigger_group);
@@ -2300,6 +2528,8 @@ fn edit_trigger_dialog(
     let pending_pin_shortcut: Rc<RefCell<String>> = Rc::new(RefCell::new(config.borrow().clipboard_pin_shortcut.clone()));
     let pending_show_hints: Rc<RefCell<bool>> = Rc::new(RefCell::new(config.borrow().show_shortcut_hints));
     let pending_terminal: Rc<RefCell<String>> = Rc::new(RefCell::new(config.borrow().terminal_shortcut.clone()));
+    let pending_delete_file: Rc<RefCell<String>> = Rc::new(RefCell::new(config.borrow().delete_file_shortcut.clone()));
+    let pending_open_location: Rc<RefCell<String>> = Rc::new(RefCell::new(config.borrow().open_location_shortcut.clone()));
 
     // Apply all pending values to config / manifest immediately.
     let apply: Rc<dyn Fn()> = {
@@ -2315,6 +2545,8 @@ fn edit_trigger_dialog(
         let pending_limit_c = pending_limit.clone();
         let pending_show_hints_c = pending_show_hints.clone();
         let pending_terminal_c = pending_terminal.clone();
+        let pending_delete_file_c = pending_delete_file.clone();
+        let pending_open_location_c = pending_open_location.clone();
         Rc::new(move || {
             let new_word = entry_c.text().trim().to_lowercase();
             let new_shortcut = pending_shortcut_c.borrow().clone();
@@ -2344,6 +2576,8 @@ fn edit_trigger_dialog(
                 }
                 if is_find {
                     c.terminal_shortcut = pending_terminal_c.borrow().clone();
+                    c.delete_file_shortcut = pending_delete_file_c.borrow().clone();
+                    c.open_location_shortcut = pending_open_location_c.borrow().clone();
                 }
                 c.save();
                 std::thread::spawn(crate::keybindings::register_all);
@@ -2420,6 +2654,7 @@ fn edit_trigger_dialog(
         let limit_row = adw::ActionRow::builder()
             .title(gettext("History Limit"))
             .subtitle(gettext("Maximum number of clipboard entries to keep"))
+            .use_markup(false)
             .build();
         limit_row.add_suffix(&limit_label);
         limit_row.add_suffix(&limit_spin);
@@ -2437,6 +2672,7 @@ fn edit_trigger_dialog(
             .subtitle(gettext("Delete clipboard entries older than this (pinned items are exempt)"))
             .model(&retention_model)
             .selected(current_retention_idx as u32)
+            .use_markup(false)
             .build();
         {
             let cfg = config.clone();
@@ -2455,6 +2691,7 @@ fn edit_trigger_dialog(
             .title(gettext("Show Keyboard Shortcuts"))
             .subtitle(gettext("Display a hint bar in the clipboard manager"))
             .active(config.borrow().show_shortcut_hints)
+            .use_markup(false)
             .build();
         {
             let pending = pending_show_hints.clone();
@@ -2487,6 +2724,7 @@ fn edit_trigger_dialog(
             .title(gettext("Root Path Browsing"))
             .subtitle(gettext("Allow typing / or ~/ to browse the filesystem directly"))
             .active(config.borrow().enable_root_browsing)
+            .use_markup(false)
             .build();
         {
             let cfg = config.clone();
@@ -2502,6 +2740,7 @@ fn edit_trigger_dialog(
             .title(gettext("Recent File/Folder Searches"))
             .subtitle(gettext("Show recently opened files and folders"))
             .active(config.borrow().show_recent_file_searches)
+            .use_markup(false)
             .build();
         {
             let cfg = config.clone();
@@ -2513,10 +2752,32 @@ fn edit_trigger_dialog(
         }
         find_group.add(&recent_row);
 
+        // Result shortcuts for Find mode: delete and open-location sit with
+        // the terminal row — all three save through the dialog's apply.
+        let (delete_row, _) = capture_shortcut_row(
+            &dialog,
+            &gettext("Delete file / folder"),
+            &display_shortcut(&config.borrow().delete_file_shortcut),
+            pending_delete_file.clone(),
+            apply.clone(),
+            &Config::default().delete_file_shortcut,
+        );
+        find_group.add(&delete_row);
+
+        let (open_loc_row, _) = capture_shortcut_row(
+            &dialog,
+            &gettext("Open location in file manager"),
+            &display_shortcut(&config.borrow().open_location_shortcut),
+            pending_open_location.clone(),
+            apply.clone(),
+            &Config::default().open_location_shortcut,
+        );
+        find_group.add(&open_loc_row);
+
         // Terminal shortcut
         let (terminal_row, _) = capture_shortcut_row(
             &dialog,
-            "Open folder in terminal",
+            &gettext("Open folder in terminal"),
             &display_shortcut(&config.borrow().terminal_shortcut),
             pending_terminal.clone(),
             apply.clone(),
@@ -2767,6 +3028,7 @@ fn capture_shortcut_row(
         } else {
             current
         })
+        .use_markup(false)
         .build();
 
     // Reset → back to the built-in default. Only visible while the pending

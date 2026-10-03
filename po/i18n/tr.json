@@ -275,7 +275,6 @@
   "Redo": "Yinele",
   "Delete word": "Kelimeyi sil",
   "Delete file / folder": "Dosya / klasörü sil",
-  "Calculator & Conversions": "Hesap makinesi ve dönüştürmeler",
   "Arithmetic, units, currency and number bases": "Aritmetik, birimler, para birimleri ve sayı tabanları",
   "Conversions": "Dönüştürmeler",
   "Currency conversion": "Para birimi dönüştürme",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Dönüştürürken kurlar ücretsiz genel bir API'den alınır",
   "Scientific notation": "Bilimsel gösterim",
   "Show equivalents when no target unit is given": "Hedef birim verilmediğinde eşdeğerleri göster",
-  "Unit conversions": "Birim dönüştürme"
+  "Unit conversions": "Birim dönüştürme",
+  "Calculator & Converter": "Hesap makinesi ve dönüştürücü",
+  "Arithmetic": "Aritmetik"
 }

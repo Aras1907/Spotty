@@ -275,7 +275,6 @@
   "Redo": "Tee uudelleen",
   "Delete word": "Poista sana",
   "Delete file / folder": "Poista tiedosto / kansio",
-  "Calculator & Conversions": "Laskin ja muunnokset",
   "Arithmetic, units, currency and number bases": "Aritmetiikka, yksiköt, valuutat ja kantaluvut",
   "Conversions": "Muunnokset",
   "Currency conversion": "Valuutan muunto",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Kurssit haetaan maksuttomasta julkisesta API:sta muunnossa",
   "Scientific notation": "Tieteellinen merkintä",
   "Show equivalents when no target unit is given": "Näytä vastineet, kun kohdeyksikköä ei ole annettu",
-  "Unit conversions": "Yksikkömuunnokset"
+  "Unit conversions": "Yksikkömuunnokset",
+  "Calculator & Converter": "Laskin ja muunnin",
+  "Arithmetic": "Aritmetiikka"
 }

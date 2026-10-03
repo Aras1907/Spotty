@@ -275,7 +275,6 @@
   "Redo": "Gör om",
   "Delete word": "Ta bort ord",
   "Delete file / folder": "Ta bort fil / mapp",
-  "Calculator & Conversions": "Kalkylator och omräkningar",
   "Arithmetic, units, currency and number bases": "Aritmetik, enheter, valutor och talbasar",
   "Conversions": "Omräkningar",
   "Currency conversion": "Valutaomräkning",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Växelkurserna hämtas från ett gratis, publikt API när du räknar om",
   "Scientific notation": "Exponentiell notation",
   "Show equivalents when no target unit is given": "Visa motsvarigheter när målenhet inte anges",
-  "Unit conversions": "Enhetsomräkning"
+  "Unit conversions": "Enhetsomräkning",
+  "Calculator & Converter": "Kalkylator och omvandlare",
+  "Arithmetic": "Aritmetik"
 }

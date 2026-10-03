@@ -275,7 +275,6 @@
   "Redo": "重做",
   "Delete word": "刪除單字",
   "Delete file / folder": "刪除檔案 / 資料夾",
-  "Calculator & Conversions": "計算機與轉換",
   "Arithmetic, units, currency and number bases": "算術、單位、貨幣與進位",
   "Conversions": "轉換",
   "Currency conversion": "貨幣換算",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "轉換時從免費的公開 API 取得匯率",
   "Scientific notation": "科學記號",
   "Show equivalents when no target unit is given": "未指定目標單位時顯示等值換算",
-  "Unit conversions": "單位轉換"
+  "Unit conversions": "單位轉換",
+  "Calculator & Converter": "計算機與轉換器",
+  "Arithmetic": "算術"
 }

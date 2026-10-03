@@ -192,35 +192,3 @@ pub fn unregister_all() {
     log::info!("keybindings: unregistered all spotty shortcuts");
 }
 
-/// Remove the GNOME Shell extension that was previously used for shortcuts.
-/// Safe to call even if the extension is not installed.
-pub fn uninstall_old_extension() {
-    let ext_dir = dirs::data_dir()
-        .unwrap_or_default()
-        .join("gnome-shell/extensions/spotty@spotty");
-    if !ext_dir.exists() {
-        return;
-    }
-    // Disable first, then remove
-    let _ = Command::new("gdbus")
-        .args([
-            "call",
-            "--session",
-            "--dest",
-            "org.gnome.Shell.Extensions",
-            "--object-path",
-            "/org/gnome/Shell/Extensions",
-            "--method",
-            "org.gnome.Shell.Extensions.DisableExtension",
-            "spotty@spotty",
-        ])
-        .output();
-    if let Err(e) = std::fs::remove_dir_all(&ext_dir) {
-        log::warn!(
-            "keybindings: failed to remove old extension dir: {}",
-            e
-        );
-    } else {
-        log::info!("keybindings: removed old GNOME Shell extension");
-    }
-}

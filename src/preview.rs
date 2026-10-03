@@ -643,7 +643,7 @@ impl PreviewPane {
         }
         const CAP: usize = 40;
         for pkg in packages.iter().take(CAP) {
-            let row = adw::ActionRow::builder().title(pkg).build();
+            let row = adw::ActionRow::builder().title(pkg).use_markup(false).build();
             row.add_prefix(&gtk::Image::from_icon_name("software-update-available-symbolic"));
             self.u_list.append(&row);
         }
@@ -652,7 +652,7 @@ impl PreviewPane {
                 "{n}",
                 &(packages.len() - CAP).to_string(),
             );
-            let row = adw::ActionRow::builder().title(more).build();
+            let row = adw::ActionRow::builder().title(more).use_markup(false).build();
             row.add_prefix(&gtk::Image::from_icon_name("view-more-symbolic"));
             self.u_list.append(&row);
         }
@@ -827,6 +827,19 @@ impl PreviewPane {
             p.file_name().unwrap_or_default().to_string_lossy()
         );
         self.schedule_list_refresh();
+    }
+
+    /// Stop the two persistent timers (the 16 ms payload poll and the 1 s
+    /// staleness check). They run forever by design — the owning window must
+    /// call this when it is destroyed, or every replaced window would leave
+    /// two live timers pinning its widget graph (and ticking) forever.
+    pub fn stop_polling(&self) {
+        if let Some(id) = self.preview_poll_id.take() {
+            id.remove();
+        }
+        if let Some(id) = self.stale_poll_id.take() {
+            id.remove();
+        }
     }
 
     /// Debounce so the result list (rows + Tier-0 thumbnails) catches up

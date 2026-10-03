@@ -33,6 +33,10 @@ finish-args:
   - --talk-name=org.gnome.Shell
   - --talk-name=org.gnome.Shell.Extensions
   - --talk-name=org.freedesktop.Notifications
+  # Distro updates go through the host's dnf5daemon (the service the Software
+  # store uses), which is passwordless for a wheel user — that is the whole
+  # reason to prefer it over `pkexec dnf` on the host.
+  - --system-talk-name=org.rpm.dnf.v0
   - --own-name=com.spotty.Spotty
 
 build-options:

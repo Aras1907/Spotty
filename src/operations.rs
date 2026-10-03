@@ -222,14 +222,18 @@ fn nudge_ui() {
 /// caches and re-enumerate desktop apps so the results list updates immediately.
 fn post_op_refresh() {
     crate::search::cmd::invalidate_installed_caches();
-    // Re-enumerate apps on a background thread to avoid stalling the UI,
-    // then nudge the window to redraw with the fresh data.
+    // Re-enumerate apps on a background thread to avoid stalling the UI, then
+    // hand the result to the main thread. App state is a thread-local, so it
+    // can only be touched there — reaching for it from this thread used to
+    // panic with "not init" and silently drop the refresh.
     std::thread::spawn(|| {
         let apps = crate::index::enum_apps();
-        crate::app::with_state(|st| {
-            st.indexer.snapshot().write().unwrap().apps = apps;
+        glib::MainContext::default().invoke(move || {
+            crate::app::with_state(|st| {
+                st.indexer.snapshot().write().unwrap().apps = apps;
+            });
+            nudge_ui();
         });
-        nudge_ui();
     });
 }
 
@@ -267,7 +271,35 @@ fn ensure_pending_sweeper() {
     });
 }
 
+/// Progress/status handle for an operation that runs *inside* Spotty rather
+/// than as a child process (see [`start`]'s [`crate::dnf5daemon`] argv).
+///
+/// Held by the worker thread, so every method is safe to call from there.
+#[derive(Clone, Copy)]
+pub struct TaskHandle {
+    id: u64,
+}
+
+impl TaskHandle {
+    /// Publish the current status line (shown next to the title).
+    pub fn status(&self, status: &str) {
+        update(self.id, status, None);
+        nudge_ui();
+    }
+
+    /// True once the user cancelled this operation — long calls poll this.
+    pub fn cancelled(&self) -> bool {
+        is_cancelled(self.id)
+    }
+}
+
 /// Start a background operation running `args` (argv; `args[0]` is the program).
+///
+/// One `args[0]` is special: [`crate::dnf5daemon::ARGV0`] means the work is
+/// done in-process over D-Bus (a distro update driven by the daemon the
+/// Software store uses) rather than by spawning a program, so it runs on a
+/// plain thread and reports through a [`TaskHandle`]. Everything else — the
+/// registry, cancel, restart, undo, history — is identical either way.
 pub fn start(title: String, source: String, icon: String, args: Vec<String>) {
     let id = next_id();
     registry().lock().unwrap().push(Operation {
@@ -284,7 +316,38 @@ pub fn start(title: String, source: String, icon: String, args: Vec<String>) {
         pending_commit_at: None,
     });
     nudge_ui();
-    run_process(id, args);
+    run(id, args);
+}
+
+/// Run an operation's work: in-process for the daemon sentinel, a child
+/// process otherwise.
+fn run(id: u64, args: Vec<String>) {
+    if args.first().map(String::as_str) == Some(crate::dnf5daemon::ARGV0) {
+        run_task(id, &args);
+    } else {
+        run_process(id, args);
+    }
+}
+
+/// Run an in-process operation on its own thread.
+fn run_task(id: u64, args: &[String]) {
+    let rest = args[1..].to_vec();
+    std::thread::spawn(move || {
+        let task = TaskHandle { id };
+        match crate::dnf5daemon::run_task(&rest, &task) {
+            Ok(()) => finish(id, State::Done),
+            // A cancellation is not a failure: the row already says so, and
+            // `finish` would overwrite it with a "Failed" state.
+            Err(e) => {
+                if is_cancelled(id) {
+                    log::info!("task cancelled: {e}");
+                } else {
+                    log::info!("task failed: {e}");
+                    finish(id, State::Failed);
+                }
+            }
+        }
+    });
 }
 
 /// Restart a cancelled operation from scratch, reusing its original argv.
@@ -305,7 +368,7 @@ pub fn restart(id: u64) {
         }
     };
     nudge_ui();
-    run_process(id, args);
+    run(id, args);
 }
 
 fn run_process(id: u64, mut args: Vec<String>) {
@@ -510,7 +573,7 @@ fn parse_counter(s: &str) -> Option<f64> {
 
 // Strip ANSI escapes, block-progress bar glyphs, and collapse whitespace from
 // flatpak's CLI output so the status text reads cleanly in the UI.
-fn clean_status(s: &str) -> String {
+pub(crate) fn clean_status(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut in_escape = false;
     for ch in s.chars() {
@@ -674,6 +737,39 @@ pub fn restore_item(op_id: Option<u64>, hist_id: Option<u64>) -> bool {
     restored
 }
 
+/// Key of the most recently dismissed item that is still inside its undo grace
+/// window: `(op_id, hist_id)`. Once the grace lapses the sweeper commits the
+/// dismissal and there is nothing left to bring back.
+pub fn latest_dismissed() -> Option<(Option<u64>, Option<u64>)> {
+    // The most recent dismissal is the one with the latest commit deadline.
+    let reg_latest = {
+        let reg = registry().lock().unwrap();
+        reg.iter()
+            .filter(|o| o.dismissed_dir.is_some() && o.pending_commit_at.is_some())
+            .max_by_key(|o| o.pending_commit_at)
+            .map(|o| (o.id, o.pending_commit_at))
+    };
+    let hist_latest = {
+        let h = history().lock().unwrap();
+        h.iter()
+            .filter(|e| e.dismissed_dir.is_some() && e.pending_commit_at.is_some())
+            .max_by_key(|e| e.pending_commit_at)
+            .map(|e| (e.id, e.pending_commit_at))
+    };
+    match (reg_latest, hist_latest) {
+        (Some((a, ta)), Some((b, tb))) => {
+            if ta >= tb {
+                Some((Some(a), None))
+            } else {
+                Some((None, Some(b)))
+            }
+        }
+        (Some((a, _)), None) => Some((Some(a), None)),
+        (None, Some((b, _))) => Some((None, Some(b))),
+        (None, None) => None,
+    }
+}
+
 pub fn commit_item(op_id: Option<u64>, hist_id: Option<u64>) {
     if let Some(id) = op_id {
         cancel_silently(id);
@@ -772,6 +868,7 @@ fn finish(id: u64, state: State) {
     let mut notify_title: Option<String> = None;
     let mut hist: Option<(String, String, String, Option<f64>, Option<Instant>)> = None;
     let mut was_update = false;
+    let mut armed_update = false;
     {
         let mut reg = registry().lock().unwrap();
         if let Some(op) = reg.iter_mut().find(|o| o.id == id) {
@@ -779,8 +876,12 @@ fn finish(id: u64, state: State) {
                 return;
             }
             op.state = state;
-            was_update = matches!(state, State::Done)
-                && crate::search::cmd::is_update_op(&op.args);
+            let done = matches!(state, State::Done);
+            was_update = done && crate::search::cmd::is_update_op(&op.args);
+            // Arming an already-downloaded update changes what the reboot row
+            // has to say ("this restart installs them"), so it needs the same
+            // re-probe an update run gets — without pretending to be one.
+            armed_update = done && crate::dnf5daemon::is_schedule_task(&op.args);
             op.progress = Some(1.0);
             op.status = match state {
                 State::Done => "Completed".into(),
@@ -812,8 +913,10 @@ fn finish(id: u64, state: State) {
     }
     // After a system update, re-evaluate whether a reboot is pending
     // (off-thread; the live state clears itself after the user reboots).
-    if was_update {
+    if was_update || armed_update {
         crate::search::cmd::refresh_reboot_state();
+    }
+    if was_update {
         // The pending list is stale now — drop it and re-check, so the
         // rows/badge go away once the run really applied everything.
         crate::search::cmd::refresh_updates_after_run();

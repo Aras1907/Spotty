@@ -275,7 +275,6 @@
   "Redo": "Повтаряне",
   "Delete word": "Изтриване на дума",
   "Delete file / folder": "Изтриване на файл / папка",
-  "Calculator & Conversions": "Калкулатор и преобразувания",
   "Arithmetic, units, currency and number bases": "Аритметика, единици, валути и бройни системи",
   "Conversions": "Преобразувания",
   "Currency conversion": "Преобразуване на валути",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Курсите се изтеглят от безплатен публичен API при конвертиране",
   "Scientific notation": "Научна нотация",
   "Show equivalents when no target unit is given": "Показване на еквиваленти, когато не е посочена целева единица",
-  "Unit conversions": "Преобразуване на единици"
+  "Unit conversions": "Преобразуване на единици",
+  "Calculator & Converter": "Калкулатор и конвертер",
+  "Arithmetic": "Аритметика"
 }

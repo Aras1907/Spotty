@@ -20,27 +20,27 @@ msgstr ""
 msgid "1 / 1"
 msgstr ""
 
-#: src/ui/settings_window.rs:320
+#: src/ui/settings_window.rs:231
 msgid "About"
 msgstr "Tietoja"
 
-#: src/ui/settings_window.rs:323
+#: src/ui/settings_window.rs:234
 msgid "About Spotty"
 msgstr "Tietoja Spottysta"
 
-#: src/ui/settings_window.rs:1577
+#: src/ui/settings_window.rs:1800
 msgid "Add Trigger"
 msgstr "Lisää trigger"
 
-#: src/ui/settings_window.rs:1302
+#: src/ui/settings_window.rs:1525
 msgid "Add Trigger Word"
 msgstr "Lisää triggerisana"
 
-#: src/ui/settings_window.rs:1977
+#: src/ui/settings_window.rs:2203
 msgid "Add a local trigger"
 msgstr "Lisää paikallinen trigger"
 
-#: src/ui/settings_window.rs:2488
+#: src/ui/settings_window.rs:2725
 msgid "Allow typing / or ~/ to browse the filesystem directly"
 msgstr "Sallii kirjoittaa / tai ~/ tiedostojen selaamiseksi suoraan"
 
@@ -52,32 +52,60 @@ msgstr "Jo {language}"
 msgid "Also suggest installable apps as you type"
 msgstr "Ehdota asennettavia sovelluksia kirjoittaessasi"
 
-#: src/ui/settings_window.rs:175
+#: src/ui/settings_window.rs:142
 msgid "Always show web search row"
 msgstr "Näitä aina verkkohakurivi"
 
+#: src/ui/settings_window.rs:858
+msgid "Angle"
+msgstr ""
+
+#: src/ui/settings_window.rs:287
+msgid "App Sources"
+msgstr ""
+
+#: src/search/appimage.rs:646
+msgid "AppImage · {version} — {path}"
+msgstr ""
+
+#: src/search/appimage.rs:644
+msgid "AppImage — {path}"
+msgstr ""
+
+#: src/ui/settings_window.rs:321
+msgid "AppImages"
+msgstr ""
+
 #: src/ui/settings_window.rs:99
-#: src/ui/settings_window.rs:416
+#: src/ui/settings_window.rs:554
 msgid "Applications"
 msgstr "Sovellukset"
 
-#: src/ui/search_window.rs:2151
-#: src/ui/search_window.rs:3100
+#: src/ui/search_window.rs:2001
+#: src/ui/search_window.rs:2972
 msgid "Are you sure you want to install {name}?"
 msgstr "Haluatko varmasti asentaa {name}?"
 
-#: src/ui/search_window.rs:2155
-#: src/ui/search_window.rs:3104
+#: src/ui/search_window.rs:2005
+#: src/ui/search_window.rs:2976
 msgid "Are you sure you want to uninstall {name}?"
 msgstr "Haluatko varmasti poistaa {name}?"
 
-#: src/ui/search_window.rs:2166
-#: src/ui/search_window.rs:3144
-#: src/ui/settings_window.rs:826
+#: src/ui/search_window.rs:2016
+#: src/ui/search_window.rs:3016
+#: src/ui/settings_window.rs:1083
 msgid "Are you sure?"
 msgstr "Oletko varma?"
 
-#: src/ui/settings_window.rs:142
+#: src/ui/settings_window.rs:850
+msgid "Area"
+msgstr ""
+
+#: src/ui/settings_window.rs:602
+msgid "Arithmetic"
+msgstr "Aritmetiikka"
+
+#: src/ui/settings_window.rs:163
 msgid "Arithmetic, units, currency and number bases"
 msgstr "Aritmetiikka, yksiköt, valuutat ja kantaluvut"
 
@@ -85,6 +113,7 @@ msgstr "Aritmetiikka, yksiköt, valuutat ja kantaluvut"
 #: src/search/translate.rs:665
 #: src/search/translate.rs:721
 #: src/search/translate.rs:772
+#: src/ui/settings_window.rs:862
 msgid "Auto"
 msgstr "Auto"
 
@@ -92,68 +121,73 @@ msgstr "Auto"
 msgid "Back to Auto (system language)"
 msgstr "Takaisin Auto (järjestelmän kieli)"
 
-#: src/config.rs:204
+#: src/config.rs:242
 msgid "Bluetooth devices"
 msgstr "Bluetooth-laitteet"
 
-#: src/ui/settings_window.rs:1067
+#: src/ui/settings_window.rs:1287
 msgid "Browse and install triggers"
 msgstr "Selaa ja asenna triggereitä"
 
-#: src/ui/settings_window.rs:141
-#: src/ui/settings_window.rs:456
-msgid "Calculator & Conversions"
-msgstr "Laskin ja muunnokset"
+#: src/ui/settings_window.rs:162
+#: src/ui/settings_window.rs:594
+msgid "Calculator & Converter"
+msgstr "Laskin ja muunnin"
 
 #: src/ui/result_row.rs:301
-#: src/ui/search_window.rs:529
-#: src/ui/search_window.rs:754
-#: src/ui/search_window.rs:2168
-#: src/ui/search_window.rs:3146
-#: src/ui/search_window.rs:4720
-#: src/ui/search_window.rs:5152
-#: src/ui/settings_window.rs:828
-#: src/ui/settings_window.rs:1398
-#: src/ui/settings_window.rs:2160
+#: src/ui/search_window.rs:558
+#: src/ui/search_window.rs:2018
+#: src/ui/search_window.rs:3018
+#: src/ui/search_window.rs:4906
+#: src/ui/search_window.rs:5328
+#: src/ui/search_window.rs:5795
+#: src/ui/settings_window.rs:1085
+#: src/ui/settings_window.rs:1621
+#: src/ui/settings_window.rs:2386
 msgid "Cancel"
 msgstr "Peruuta"
 
-#: src/ui/settings_window.rs:1933
+#: src/ui/settings_window.rs:2159
 msgid "Cannot save the manifest: {e}"
 msgstr "Manifestia ei voi tallentaa: {e}"
 
-#: src/ui/settings_window.rs:1725
+#: src/ui/settings_window.rs:1950
 msgid "Cannot save the trigger: {e}"
 msgstr "Triggeriä ei voi tallentaa: {e}"
 
-#: src/ui/settings_window.rs:731
+#: src/ui/settings_window.rs:998
 msgid "Check every"
 msgstr "Tarkistustiheys"
 
-#: src/ui/settings_window.rs:683
-#: src/ui/settings_window.rs:691
+#: src/ui/settings_window.rs:948
+#: src/ui/settings_window.rs:957
 msgid "Check now"
 msgstr "Tarkista nyt"
 
-#: src/search/cmd.rs:1853
+#: src/search/cmd.rs:2030
 msgid "Check spelling or try a different name"
 msgstr "Tarkista oikeinkirjoitus tai kokeile toista nimeä"
 
-#: src/search/cmd.rs:2007
+#: src/search/cmd.rs:2192
 msgid "Check spelling or try fewer characters"
 msgstr "Tarkista oikeinkirjoitus tai kokeile vähemmällä merkkimäärällä"
 
-#: src/search/cmd.rs:2049
-#: src/search/cmd.rs:3691
-#: src/search/cmd.rs:3701
+#: src/search/cmd.rs:2247
+#: src/search/cmd.rs:4693
+#: src/search/cmd.rs:4703
 msgid "Checking for updates…"
 msgstr "Etsitään päivityksiä…"
+
+#: src/ui/settings_window.rs:306
+#: src/ui/settings_window.rs:343
+msgid "Checking…"
+msgstr ""
 
 #: src/ui/settings_window.rs:92
 msgid "Choose what types of results appear"
 msgstr "Valitse mitkä tulos tyypit näytetään"
 
-#: src/ui/settings_window.rs:2387
+#: src/ui/settings_window.rs:2621
 msgid "Clipboard"
 msgstr "Leikepöytä"
 
@@ -161,97 +195,113 @@ msgstr "Leikepöytä"
 msgid "Clipped {time}"
 msgstr "Kopioitu {time}"
 
-#: src/ui/settings_window.rs:1624
+#: src/ui/settings_window.rs:707
+msgid "Comma"
+msgstr ""
+
+#: src/ui/settings_window.rs:1849
 msgid "Command"
 msgstr "Komento"
 
-#: src/ui/settings_window.rs:1630
+#: src/ui/settings_window.rs:1855
 msgid "Command line"
 msgstr "Komentorivi"
 
-#: src/ui/search_window.rs:2169
-#: src/ui/search_window.rs:3147
-#: src/ui/settings_window.rs:829
+#: src/ui/search_window.rs:2019
+#: src/ui/search_window.rs:3019
+#: src/ui/settings_window.rs:1086
 msgid "Confirm"
 msgstr "Vahvista"
 
-#: src/ui/settings_window.rs:525
+#: src/ui/settings_window.rs:698
+msgid "Conversion wording"
+msgstr ""
+
+#: src/ui/settings_window.rs:666
 msgid "Conversions"
 msgstr "Muunnokset"
 
-#: src/ui/settings_window.rs:599
-msgid "Copy"
-msgstr "Kopioi"
-
-#: src/ui/search_window.rs:4013
+#: src/ui/search_window.rs:3922
 msgid "Couldn't delete \"{name}\": {e}"
 msgstr "Ei voitu poistaa \\\"{name}\\\": {e}"
 
-#: src/ui/settings_window.rs:1751
+#: src/ui/settings_window.rs:1976
 msgid "Couldn't install"
 msgstr "Asennus epäonnistui"
 
-#: src/ui/settings_window.rs:2040
+#: src/ui/settings_window.rs:2266
 msgid "Couldn't load the trigger repository"
 msgstr "Triggeriarkistoa ei voi ladata"
 
-#: src/ui/settings_window.rs:2130
+#: src/ui/settings_window.rs:2356
 msgid "Couldn't load {url}: {e}"
 msgstr "Ei voitu ladata {url}: {e}"
 
-#: src/ui/settings_window.rs:1875
+#: src/ui/settings_window.rs:2101
 msgid "Couldn't uninstall: {e}"
 msgstr "Poisto epäonnistui: {e}"
 
-#: src/ui/settings_window.rs:1562
+#: src/ui/settings_window.rs:1785
 msgid "Create a Trigger"
 msgstr "Luo trigger"
 
-#: src/ui/settings_window.rs:545
+#: src/ui/settings_window.rs:686
 msgid "Currency conversion"
 msgstr "Valuutan muunto"
 
-#: src/ui/settings_window.rs:160
+#: src/ui/settings_window.rs:471
 msgid "Custom Search URL"
 msgstr "Mukautettu hakuo-URL"
 
-#: src/ui/settings_window.rs:600
-msgid "Cut"
-msgstr "Leikkaa"
+#: src/ui/settings_window.rs:752
+msgid "Custom wording"
+msgstr ""
 
-#: src/ui/settings_window.rs:740
+#: src/ui/settings_window.rs:709
+msgid "Custom…"
+msgstr ""
+
+#: src/ui/settings_window.rs:1008
 msgid "Daily"
 msgstr "Päivittäin"
 
-#: src/ui/settings_window.rs:468
+#: src/ui/settings_window.rs:853
+msgid "Data"
+msgstr ""
+
+#: src/ui/settings_window.rs:608
 msgid "Decimal places"
 msgstr "Desimaalit"
 
-#: src/ui/search_window.rs:3967
+#: src/ui/settings_window.rs:805
+msgid "Default currency"
+msgstr ""
+
+#: src/ui/settings_window.rs:842
+msgid "Default targets"
+msgstr ""
+
+#: src/ui/search_window.rs:3876
 msgid "Delete"
 msgstr "Poista"
 
-#: src/ui/settings_window.rs:2437
+#: src/ui/settings_window.rs:2672
 msgid "Delete clipboard entries older than this (pinned items are exempt)"
 msgstr "Poistaa vanhemmat leikepöytätallenteet (liitetyt jätetään)"
 
-#: src/ui/search_window.rs:1102
+#: src/ui/search_window.rs:948
 msgid "Delete file"
 msgstr "Poista tiedosto"
 
-#: src/ui/settings_window.rs:610
+#: src/ui/settings_window.rs:2759
 msgid "Delete file / folder"
 msgstr "Poista tiedosto / kansio"
 
-#: src/ui/search_window.rs:1100
+#: src/ui/search_window.rs:946
 msgid "Delete folder"
 msgstr "Poista kansio"
 
-#: src/ui/settings_window.rs:605
-msgid "Delete word"
-msgstr "Poista sana"
-
-#: src/ui/settings_window.rs:1612
+#: src/ui/settings_window.rs:1835
 msgid "Description (optional)"
 msgstr "Kuvaus (valinnainen)"
 
@@ -263,97 +313,145 @@ msgstr "Tunnistetaan automaattisesti — paina Enter valitaksesi"
 msgid "Dictionary: {query}"
 msgstr "Sanakirja: {query}"
 
-#: src/search/cmd.rs:2183
+#: src/search/cmd.rs:2442
 msgid "Disable update checks"
 msgstr "Poista päivitystarkistus käytöstä"
 
-#: src/ui/settings_window.rs:899
+#: src/ui/settings_window.rs:1156
 msgid "Disabled · {base}"
 msgstr "Pois käytöstä · {base}"
 
-#: src/search/cmd.rs:2133
-#: src/ui/settings_window.rs:778
+#: src/ui/search_window.rs:4922
+#: src/ui/search_window.rs:5344
+msgid "Dismiss"
+msgstr "Piilota"
+
+#: src/search/cmd.rs:2334
+#: src/ui/settings_window.rs:1047
 msgid "Dismiss update notice"
 msgstr "Piilota päivitysilmoitus"
 
-#: src/ui/settings_window.rs:2456
+#: src/ui/settings_window.rs:2692
 msgid "Display a hint bar in the clipboard manager"
 msgstr "Näyttää vihjepalkin leikepöytähallinnassa"
 
-#: src/ui/search_window.rs:3948
+#: src/ui/search_window.rs:3857
 msgid "Do you want to delete \"{name}\"?"
 msgstr "Haluatko poistaa \\\"{name}\\\"?"
 
-#: src/ui/search_window.rs:2148
-#: src/ui/search_window.rs:3096
+#: src/ui/search_window.rs:1998
+#: src/ui/search_window.rs:2968
 msgid "Do you want to update {name}?"
 msgstr "Haluatko päivittää {name}?"
 
-#: src/ui/search_window.rs:2157
+#: src/ui/search_window.rs:2007
 msgid "Do you want to {action}?"
 msgstr "Haluatko {action}?"
 
-#: src/ui/search_window.rs:533
+#: src/ui/search_window.rs:562
 msgid "Done"
 msgstr "Valmis"
 
-#: src/ui/settings_window.rs:1937
+#: src/ui/settings_window.rs:2163
 msgid "Download failed: {e}"
 msgstr "Lataus epäonnistui: {e}"
 
-#: src/ui/settings_window.rs:914
+#: src/search/cmd.rs:2367
+msgid "Downloaded and ready — they install with the restart"
+msgstr ""
+
+#: src/search/cmd.rs:2417
+msgid "Downloaded updates are waiting — install them now"
+msgstr ""
+
+#: src/search/cmd.rs:2412
+msgid "Downloaded — restart to install them"
+msgstr ""
+
+#: src/ui/settings_window.rs:1171
 msgid "Edit \"Open Spotty\" shortcut"
 msgstr "Muokkaa pikanäppäintä \\\"Avaa Spotty\\\""
 
-#: src/ui/settings_window.rs:2241
-#: src/ui/settings_window.rs:2248
+#: src/ui/settings_window.rs:2467
+#: src/ui/settings_window.rs:2474
 msgid "Edit \"{name}\" trigger"
 msgstr "Muokkaa triggeriä \\\"{name}\\\""
 
-#: src/ui/settings_window.rs:1038
+#: src/ui/settings_window.rs:1257
 msgid "Edit trigger words, import a manifest with +, or delete installed triggers."
 msgstr "Muokkaa triggerisanoja, tuo manifesti + -painikkeella tai poista asennetut triggerit."
 
-#: src/search/cmd.rs:2185
-#: src/search/cmd.rs:3308
+#: src/search/cmd.rs:2444
+#: src/search/cmd.rs:4090
 msgid "Enable update checks"
 msgstr "Ota päivitystarkistus käyttöön"
 
-#: src/ui/settings_window.rs:2284
+#: src/ui/settings_window.rs:2510
 msgid "Enabled"
 msgstr "Käytössä"
 
-#: src/ui/settings_window.rs:739
+#: src/ui/settings_window.rs:855
+msgid "Energy"
+msgstr ""
+
+#: src/ui/settings_window.rs:1007
 msgid "Every 12 hours"
 msgstr "Joka 12. tunti"
 
-#: src/ui/settings_window.rs:738
+#: src/ui/settings_window.rs:1006
 msgid "Every 6 hours"
 msgstr "Joka 6. tunti"
+
+#: src/ui/settings_window.rs:749
+#: src/ui/settings_window.rs:774
+#: src/ui/settings_window.rs:787
+#: src/ui/settings_window.rs:814
+msgid "Example: {example}"
+msgstr ""
 
 #: src/search/dictionary.rs:129
 msgid "Fetching the definition"
 msgstr "Haetaan määritelmää"
 
-#: src/ui/settings_window.rs:2030
+#: src/ui/settings_window.rs:2256
 msgid "Fetching triggers…"
 msgstr "Haetaan triggereitä…"
 
-#: src/ui/settings_window.rs:2483
+#: src/ui/settings_window.rs:2720
 msgid "Find"
 msgstr "Etsi"
+
+#: src/ui/settings_window.rs:296
+msgid "Flatpak"
+msgstr ""
+
+#: src/ui/settings_window.rs:857
+msgid "Force"
+msgstr ""
+
+#: src/ui/settings_window.rs:859
+msgid "Frequency"
+msgstr ""
+
+#: src/ui/settings_window.rs:860
+msgid "Fuel economy"
+msgstr ""
 
 #: src/ui/settings_window.rs:84
 msgid "General"
 msgstr "Yleiset"
 
-#: src/search/cmd.rs:2134
-#: src/ui/settings_window.rs:779
+#: src/search/cmd.rs:2335
+#: src/ui/settings_window.rs:1048
 msgid "Hidden until a new update appears"
 msgstr "Piilossa, kunnes uusi päivitys ilmestyy"
 
-#: src/search/cmd.rs:2126
-#: src/ui/settings_window.rs:770
+#: src/ui/search_window.rs:4721
+msgid "Hidden — swipe back to restore"
+msgstr ""
+
+#: src/search/cmd.rs:2327
+#: src/ui/settings_window.rs:1038
 msgid "Hide the update notice for 24 hours"
 msgstr "Piilota päivitysilmoitus 24 tunniksi"
 
@@ -361,127 +459,114 @@ msgstr "Piilota päivitysilmoitus 24 tunniksi"
 msgid "Highlight a result\nto preview"
 msgstr "Korosta tulos\\nnähdäksesi esikatselun"
 
-#: src/ui/settings_window.rs:2421
+#: src/ui/settings_window.rs:2655
 msgid "History Limit"
 msgstr "Historiaraja"
 
-#: src/ui/settings_window.rs:737
+#: src/ui/settings_window.rs:1005
 msgid "Hourly"
 msgstr "Joka tunti"
 
-#: src/ui/settings_window.rs:1615
+#: src/ui/settings_window.rs:1839
 msgid "Icon name (optional)"
 msgstr "Kuvakkeen nimi (valinnainen)"
 
-#: src/search/cmd.rs:1551
-#: src/ui/settings_window.rs:1399
-#: src/ui/settings_window.rs:1881
+#: src/search/cmd.rs:1717
+#: src/ui/settings_window.rs:1622
+#: src/ui/settings_window.rs:2107
 msgid "Install"
 msgstr "Asenna"
 
-#: src/ui/settings_window.rs:1484
+#: src/ui/settings_window.rs:1707
 msgid "Install failed"
 msgstr "Asennus epäonnistui"
 
-#: src/search/cmd.rs:2155
-msgid "Install the updates, then restart"
-msgstr "Asentaa päivitykset ja käynnistää sitten uudelleen"
-
-#: src/ui/settings_window.rs:1395
+#: src/ui/settings_window.rs:1618
 msgid "Install {name}?"
 msgstr "Asennetaanko {name}?"
 
-#: src/config.rs:174
+#: src/config.rs:212
 msgid "Install, uninstall, and manage apps"
 msgstr "Asentaa, poistaa ja hallitsee sovelluksia"
 
-#: src/search/cmd.rs:2564
-#: src/search/cmd.rs:2658
-#: src/search/cmd.rs:2677
-#: src/search/cmd.rs:2764
+#: src/search/cmd.rs:2938
+#: src/search/cmd.rs:3032
+#: src/search/cmd.rs:3051
+#: src/search/cmd.rs:3138
 msgid "Install: {name}"
 msgstr "Asenna: {name}"
 
-#: src/ui/settings_window.rs:1478
+#: src/ui/settings_window.rs:1701
 msgid "Installed \"{name}\""
 msgstr "\\\"{name}\\\" asennettu"
 
-#: src/search/cmd.rs:2570
+#: src/search/cmd.rs:2372
+msgid "Installed — restart to start using them"
+msgstr ""
+
+#: src/search/cmd.rs:2944
 msgid "Installing {name}"
 msgstr "Asennetaan {name}"
 
-#: src/ui/search_window.rs:3955
+#: src/ui/search_window.rs:3864
 msgid "It will be moved to the Trash."
 msgstr "Se siirretään roskakoriin."
 
-#: src/ui/search_window.rs:1416
+#: src/ui/search_window.rs:1262
 msgid "Item deleted"
 msgstr "Kohde poistettu"
 
-#: src/ui/search_window.rs:1457
+#: src/ui/search_window.rs:1303
 msgid "Item unpinned — Press Ctrl+Z to undo"
 msgstr "Kohde irrotettu — paina Ctrl+Z kumotaksesi"
 
-#: src/ui/settings_window.rs:2158
+#: src/ui/settings_window.rs:2384
 msgid "Its trigger word and shortcut will be removed."
 msgstr "Sen triggerisana ja pikanäppäin poistetaan."
 
-#: src/ui/settings_window.rs:2436
+#: src/ui/settings_window.rs:2671
 msgid "Keep history"
 msgstr "Säilytä historia"
 
-#: src/ui/settings_window.rs:304
-msgid "Keyboard"
-msgstr "Näppäimistö"
-
-#: src/ui/settings_window.rs:942
-#: src/ui/settings_window.rs:1636
-#: src/ui/settings_window.rs:2367
+#: src/ui/settings_window.rs:1199
+#: src/ui/settings_window.rs:1861
+#: src/ui/settings_window.rs:2601
 msgid "Keyboard Shortcut"
 msgstr "Näppäinyhdistelmä"
 
-#: src/ui/search_window.rs:1120
-#: src/ui/settings_window.rs:308
-#: src/ui/settings_window.rs:421
-#: src/ui/settings_window.rs:589
+#: src/ui/search_window.rs:966
+#: src/ui/settings_window.rs:559
 msgid "Keyboard Shortcuts"
 msgstr "Näppäinyhdistelmät"
 
-#: src/ui/settings_window.rs:607
-msgid "Keyboard shortcuts"
-msgstr "Pikanäppäimet"
-
-#: src/ui/settings_window.rs:309
-#: src/ui/settings_window.rs:596
-#: src/ui/settings_window.rs:976
-msgid "Keyboard shortcuts used inside the search window"
-msgstr "Hakusikkunassa käytettävät näppäinyhdistelmät"
-
-#: src/ui/settings_window.rs:1610
+#: src/ui/settings_window.rs:1833
 msgid "Keyword"
 msgstr "Avainsana"
 
-#: src/ui/settings_window.rs:1692
+#: src/ui/settings_window.rs:1917
 msgid "Keyword: letters, digits, -, _ and . only."
 msgstr "Avainsana: vain kirjaimia, numeroita, -, _ ja ."
 
-#: src/search/cmd.rs:1543
+#: src/search/cmd.rs:1709
 msgid "Kill"
 msgstr "Lopeta"
 
-#: src/ui/search_window.rs:1050
-#: src/ui/settings_window.rs:426
-#: src/ui/settings_window.rs:609
+#: src/ui/search_window.rs:886
+#: src/ui/settings_window.rs:564
 msgid "Kill app"
 msgstr "Lopeta sovellus"
 
-#: src/ui/search_window.rs:2385
+#: src/ui/search_window.rs:2249
 msgid "Kill {name}?"
 msgstr "Lopetetaanko {name}?"
 
-#: src/search/cmd.rs:2521
+#: src/search/cmd.rs:2895
 msgid "Kill: {name}"
 msgstr "Lopeta: {name}"
+
+#: src/ui/settings_window.rs:846
+msgid "Length"
+msgstr ""
 
 #: src/search/translate.rs:790
 msgid "Local translation engine not reachable"
@@ -491,90 +576,106 @@ msgstr "Paikallinen kääntämismoottori ei ole käytettävissä"
 msgid "Looking up \"{word}\"…"
 msgstr "Etsitään \\\"{word}\\\"…"
 
-#: src/ui/settings_window.rs:2422
+#: src/ui/settings_window.rs:847
+msgid "Mass"
+msgstr ""
+
+#: src/ui/settings_window.rs:2656
 msgid "Maximum number of clipboard entries to keep"
 msgstr "Enimmäismäärä säilytettäviä leikepöytätallenteita"
 
-#: src/ui/settings_window.rs:1609
+#: src/ui/settings_window.rs:1832
 msgid "Name"
 msgstr "Nimi"
 
-#: src/ui/settings_window.rs:1684
+#: src/ui/settings_window.rs:1909
 msgid "Name, keyword and command are required."
 msgstr "Nimi, avainsana ja komento ovat pakollisia."
 
-#: src/ui/search_window.rs:3837
-#: src/ui/search_window.rs:3971
+#: src/ui/search_window.rs:3746
+#: src/ui/search_window.rs:3880
 msgid "No"
 msgstr "Ei"
 
-#: src/search/cmd.rs:1852
+#: src/ui/settings_window.rs:328
+msgid "No Flatpak, package manager, Snap or AppImage found"
+msgstr ""
+
+#: src/ui/settings_window.rs:327
+msgid "No app sources available"
+msgstr ""
+
+#: src/search/cmd.rs:2029
 msgid "No apps found for \"{query}\""
 msgstr "Sovelluksia ei löytynyt haulle \\\"{query}\\\""
 
-#: src/search/cmd.rs:2006
+#: src/search/cmd.rs:2191
 msgid "No installed app matching \"{query}\""
 msgstr "Yhtään asennettua sovellusta ei vastaa \\\"{query}\\\""
 
-#: src/search/cmd.rs:2105
+#: src/search/cmd.rs:2306
 msgid "No matching updates"
 msgstr "Ei vastaavia päivityksiä"
 
-#: src/ui/search_window.rs:616
+#: src/ui/search_window.rs:4659
 msgid "No operations yet"
 msgstr "Ei toimintoja vielä"
 
-#: src/search/cmd.rs:1685
+#: src/search/cmd.rs:1851
 msgid "No running app matching \"{query}\""
 msgstr "Yhtään suoritettavaa sovellusta ei vastaa \\\"{query}\\\""
 
-#: src/ui/settings_window.rs:2036
+#: src/ui/settings_window.rs:2262
 msgid "No triggers found"
 msgstr "Triggereitä ei löytynyt"
 
-#: src/ui/settings_window.rs:1795
+#: src/ui/settings_window.rs:2020
 msgid "No triggers match \"{q}\"."
 msgstr "Yhtään triggeriä ei vastaa \\\"{q}\\\"."
 
-#: src/search/cmd.rs:2338
-#: src/search/cmd.rs:3061
-#: src/search/cmd.rs:3328
-#: src/search/cmd.rs:3698
+#: src/search/cmd.rs:798
+#: src/search/cmd.rs:2697
+#: src/search/cmd.rs:3437
+#: src/search/cmd.rs:4110
+#: src/search/cmd.rs:4700
 msgid "No updates available"
 msgstr "Ei päivityksiä saatavilla"
 
-#: src/search/cmd.rs:2340
-#: src/search/cmd.rs:3062
-#: src/search/cmd.rs:3063
+#: src/ui/settings_window.rs:708
+msgid "None (space only)"
+msgstr ""
+
+#: src/search/cmd.rs:2699
+#: src/search/cmd.rs:3438
+#: src/search/cmd.rs:3439
 msgid "Nothing pending"
 msgstr "Ei päivitettävää"
 
-#: src/ui/settings_window.rs:540
+#: src/ui/settings_window.rs:681
 msgid "Number base conversions"
 msgstr "Kantalukumuunnokset"
 
-#: src/ui/settings_window.rs:1487
-#: src/ui/settings_window.rs:1754
+#: src/ui/settings_window.rs:1710
+#: src/ui/settings_window.rs:1979
 msgid "OK"
 msgstr "OK"
 
-#: src/search/cmd.rs:3202
-#: src/search/cmd.rs:3699
-#: src/ui/search_window.rs:3442
+#: src/search/cmd.rs:3984
+#: src/search/cmd.rs:4701
+#: src/ui/search_window.rs:3351
 msgid "One update available"
 msgstr "Yksi päivitys saatavilla"
 
-#: src/search/cmd.rs:1686
+#: src/search/cmd.rs:1852
 msgid "Only running apps can be killed"
 msgstr "Vain suoritettavia sovelluksia voi lopettaa"
 
-#: src/ui/settings_window.rs:640
-#: src/ui/settings_window.rs:1045
+#: src/ui/settings_window.rs:1264
 msgid "Open Spotty"
 msgstr "Avaa Spotty"
 
-#: src/ui/search_window.rs:1089
-#: src/ui/settings_window.rs:612
+#: src/ui/search_window.rs:935
+#: src/ui/settings_window.rs:2780
 msgid "Open folder in terminal"
 msgstr "Avaa kansio pääteikkunassa"
 
@@ -586,43 +687,37 @@ msgstr ""
 msgid "Open in GNOME Settings"
 msgstr "Avaa GNOME-asetuksissa"
 
-#: src/ui/search_window.rs:1114
-#: src/ui/settings_window.rs:611
+#: src/ui/search_window.rs:960
+#: src/ui/settings_window.rs:2769
 msgid "Open location in file manager"
 msgstr "Avaa sijainti tiedostohallinnassa"
 
-#: src/ui/search_window.rs:593
-#: src/ui/settings_window.rs:606
+#: src/ui/search_window.rs:4642
 msgid "Operations"
 msgstr "Toiminnot"
 
-#: src/ui/settings_window.rs:371
-#: src/ui/settings_window.rs:375
-msgid "Package Manager"
-msgstr "Pakettihallinta"
-
-#: src/ui/settings_window.rs:601
-msgid "Paste"
-msgstr "Liitä"
-
-#: src/ui/settings_window.rs:507
+#: src/ui/settings_window.rs:648
 msgid "Paste the result automatically"
 msgstr "Liitä tulos automaattisesti"
 
-#: src/ui/settings_window.rs:2285
+#: src/ui/settings_window.rs:2511
 msgid "Pause this trigger without uninstalling it"
 msgstr "Pysäyttää triggerin asentamatta sitä"
 
-#: src/ui/search_window.rs:1025
+#: src/ui/search_window.rs:861
 msgid "Pin / Unpin selected"
 msgstr "Kiinnitä/Irrota valittu"
 
-#: src/search/cmd.rs:1581
+#: src/search/cmd.rs:1747
 msgid "Please wait…"
 msgstr "Odota hetki…"
 
-#: src/search/cmd.rs:2050
-#: src/search/cmd.rs:2343
+#: src/ui/settings_window.rs:856
+msgid "Power"
+msgstr ""
+
+#: src/search/cmd.rs:2248
+#: src/search/cmd.rs:2702
 msgid "Press Enter to check again"
 msgstr "Paina Enteria tarkistaaksesi uudelleen"
 
@@ -634,56 +729,72 @@ msgstr "Paina Enter valitaksesi toisen kielen"
 msgid "Press Enter to detect automatically"
 msgstr "Paina Enter tunnistusta varten"
 
-#: src/ui/search_window.rs:4859
+#: src/ui/search_window.rs:5495
 msgid "Press Enter to restart"
 msgstr "Paina Enteria käynnistääksesi uudelleen"
 
-#: src/ui/settings_window.rs:526
+#: src/ui/settings_window.rs:854
+msgid "Pressure"
+msgstr ""
+
+#: src/ui/settings_window.rs:667
 msgid "Rates are fetched from a free public API when you convert"
 msgstr "Kurssit haetaan maksuttomasta julkisesta API:sta muunnossa"
 
-#: src/ui/settings_window.rs:2502
+#: src/ui/settings_window.rs:2740
 msgid "Recent File/Folder Searches"
 msgstr "Viimeisimmät tiedosto-/kansiohaut"
 
-#: src/ui/settings_window.rs:604
-msgid "Redo"
-msgstr "Tee uudelleen"
-
-#: src/search/cmd.rs:2125
-#: src/ui/settings_window.rs:769
+#: src/search/cmd.rs:2326
+#: src/ui/settings_window.rs:1037
 msgid "Remind tomorrow"
 msgstr "Muistuta huomenna"
+
+#: src/ui/search_window.rs:897
+msgid "Remove AppImage"
+msgstr ""
+
+#: src/search/appimage.rs:720
+msgid "Remove AppImage: {name}"
+msgstr ""
 
 #: src/ui/result_row.rs:179
 msgid "Remove from history"
 msgstr "Poista historiasta"
 
-#: src/ui/settings_window.rs:1871
+#: src/ui/settings_window.rs:2097
 msgid "Removed \"{name}\""
 msgstr "\\\"{name}\\\" poistettu"
 
-#: src/ui/settings_window.rs:2539
-#: src/ui/settings_window.rs:2775
+#: src/ui/settings_window.rs:2800
+#: src/ui/settings_window.rs:3037
 msgid "Reset"
 msgstr "Palauta"
 
-#: src/ui/settings_window.rs:1092
+#: src/ui/settings_window.rs:1313
 msgid "Reset trigger words and shortcuts to defaults"
 msgstr "Palauttaa triggerisanat ja pikanäppäimet oletusarvoihin"
 
-#: src/ui/settings_window.rs:801
+#: src/ui/search_window.rs:5493
+#: src/ui/settings_window.rs:1074
 msgid "Restart"
 msgstr "Uudelleenkäynnistä"
 
-#: src/search/cmd.rs:2168
-#: src/ui/search_window.rs:4858
-#: src/ui/settings_window.rs:796
+#: src/search/cmd.rs:2371
+#: src/search/cmd.rs:3612
+#: src/search/cmd.rs:3677
+#: src/search/cmd.rs:4503
+#: src/search/system.rs:373
+#: src/ui/search_window.rs:5491
 msgid "Restart required to finish the update"
 msgstr "Uudelleenkäynnistys vaaditaan päivityksen viimeiseksi saattamiseksi"
 
+#: src/search/cmd.rs:2366
+#: src/search/cmd.rs:3671
+msgid "Restart to install the updates"
+msgstr ""
+
 #: src/ui/settings_window.rs:91
-#: src/ui/settings_window.rs:463
 msgid "Results"
 msgstr "Tulokset"
 
@@ -691,15 +802,15 @@ msgstr "Tulokset"
 msgid "Retry"
 msgstr "Yritä uudelleen"
 
-#: src/ui/settings_window.rs:2487
+#: src/ui/settings_window.rs:2724
 msgid "Root Path Browsing"
 msgstr "Selaa absoluuttisia polkuja"
 
-#: src/config.rs:184
+#: src/config.rs:222
 msgid "Run a command"
 msgstr "Suorita komento"
 
-#: src/search/mod.rs:493
+#: src/search/mod.rs:549
 msgid "Run {name}"
 msgstr "Suorita {name}"
 
@@ -707,7 +818,7 @@ msgstr "Suorita {name}"
 msgid "Run: {command}"
 msgstr "Suorita: {command}"
 
-#: src/ui/search_window.rs:495
+#: src/ui/search_window.rs:524
 msgid "Running…"
 msgstr "Suoritetaan…"
 
@@ -715,74 +826,86 @@ msgstr "Suoritetaan…"
 msgid "Runs through your shell, output shown here"
 msgstr "Suoritetaan kuoressasi, tuloste näkyy tässä"
 
-#: src/search/cmd.rs:2000
+#: src/search/cmd.rs:2185
 msgid "Scanning installed apps…"
 msgstr "Skannataan asennettuja sovelluksia…"
 
-#: src/search/cmd.rs:1662
+#: src/search/cmd.rs:1828
 msgid "Scanning running processes…"
 msgstr "Skannataan suoritettavia prosesseja…"
 
-#: src/ui/settings_window.rs:512
+#: src/ui/settings_window.rs:653
 msgid "Scientific notation"
 msgstr "Tieteellinen merkintä"
 
-#: src/ui/search_window.rs:221
+#: src/ui/search_window.rs:250
 msgid "Search"
 msgstr "Haku"
 
-#: src/ui/settings_window.rs:187
+#: src/ui/settings_window.rs:465
+#: src/ui/settings_window.rs:489
 msgid "Search Engine"
 msgstr "Hakukone"
 
-#: src/ui/settings_window.rs:595
-#: src/ui/settings_window.rs:975
-msgid "Search Window"
-msgstr "Hakusikkuna"
-
-#: src/config.rs:154
+#: src/config.rs:192
 msgid "Search all files and folders"
 msgstr "Etsii kaikista tiedostoista ja kansioista"
 
-#: src/config.rs:164
-#: src/ui/search_window.rs:3320
+#: src/ui/settings_window.rs:297
+#: src/ui/settings_window.rs:374
+msgid "Search and install Flatpak apps"
+msgstr ""
+
+#: src/ui/settings_window.rs:314
+#: src/ui/settings_window.rs:383
+msgid "Search and install Snap packages"
+msgstr ""
+
+#: src/ui/settings_window.rs:378
+#: src/ui/settings_window.rs:380
+msgid "Search and install system packages ({pm})"
+msgstr ""
+
+#: src/config.rs:202
+#: src/ui/search_window.rs:3205
 msgid "Search clipboard history"
 msgstr "Etsii leikepöytähistoriasta"
 
-#: src/config.rs:194
+#: src/config.rs:232
 msgid "Search emoji"
 msgstr "Etsi emojia"
 
 #: src/ui/settings_window.rs:120
-#: src/ui/settings_window.rs:366
+#: src/ui/settings_window.rs:282
 msgid "Search for new Apps"
 msgstr "Etsi myös uusia sovelluksia"
 
-#: src/ui/settings_window.rs:2001
+#: src/ui/settings_window.rs:2227
 msgid "Search triggers"
 msgstr "Etsi triggereitä"
 
-#: src/ui/search_window.rs:1554
+#: src/ui/settings_window.rs:322
+#: src/ui/settings_window.rs:387
+msgid "Search, launch and remove AppImages"
+msgstr ""
+
+#: src/ui/search_window.rs:1400
 msgid "Searching for Bluetooth device{dots}"
 msgstr "Etsitään Bluetooth-laitetta{dots}"
 
-#: src/search/cmd.rs:1846
+#: src/search/cmd.rs:2023
 msgid "Searching for \"{query}\"…"
 msgstr "Etsitään \\\"{query}\\\"…"
 
-#: src/ui/settings_window.rs:602
-msgid "Select all"
-msgstr "Valitse kaikki"
-
-#: src/ui/settings_window.rs:2796
+#: src/ui/settings_window.rs:3058
 msgid "Set shortcut…"
 msgstr "Aseta pikanäppäin…"
 
-#: src/ui/settings_window.rs:2097
+#: src/ui/settings_window.rs:2323
 msgid "Set the trigger repository URL in the Trigger Repository row."
 msgstr "Aseta triggeriarkiston URL riville Trigger-repository."
 
-#: src/ui/search_window.rs:294
+#: src/ui/search_window.rs:323
 msgid "Settings"
 msgstr "Asetukset"
 
@@ -790,33 +913,37 @@ msgstr "Asetukset"
 msgid "Settings: {title}"
 msgstr "Asetukset: {title}"
 
-#: src/ui/settings_window.rs:943
+#: src/ui/settings_window.rs:1200
 msgid "Shortcut to focus the Spotty launcher"
 msgstr "Pikanäppäin Spotty-käynnistimen kohdistamiseen"
 
-#: src/ui/settings_window.rs:2455
+#: src/ui/settings_window.rs:2691
 msgid "Show Keyboard Shortcuts"
 msgstr "Näytä näppäinyhdistelmät"
 
-#: src/ui/settings_window.rs:719
+#: src/ui/settings_window.rs:985
 msgid "Show a badge and a desktop notification when updates exist"
 msgstr "Näytä merkki ja työpöytäilmoitus, kun päivityksiä on saatavilla"
 
-#: src/ui/settings_window.rs:535
+#: src/ui/settings_window.rs:676
 msgid "Show equivalents when no target unit is given"
 msgstr "Näytä vastineet, kun kohdeyksikköä ei ole annettu"
 
-#: src/ui/settings_window.rs:497
+#: src/ui/settings_window.rs:638
 msgid "Show hex, octal and binary"
 msgstr "Näytä heksadesimaalinen, oktaali ja binääri"
 
-#: src/ui/settings_window.rs:2503
+#: src/ui/settings_window.rs:2741
 msgid "Show recently opened files and folders"
 msgstr "Näyttää viimeksi avatut tiedostot ja kansiot"
 
-#: src/ui/settings_window.rs:502
+#: src/ui/settings_window.rs:643
 msgid "Show the expression"
 msgstr "Näytä lauseke"
+
+#: src/ui/settings_window.rs:313
+msgid "Snap"
+msgstr ""
 
 #: src/search/translate.rs:658
 #: src/search/translate.rs:665
@@ -824,7 +951,11 @@ msgstr "Näytä lauseke"
 msgid "Source: {name}"
 msgstr "Lähde: {name}"
 
-#: src/ui/search_window.rs:205
+#: src/ui/settings_window.rs:851
+msgid "Speed"
+msgstr ""
+
+#: src/ui/search_window.rs:234
 msgid "Spotty"
 msgstr ""
 
@@ -832,42 +963,54 @@ msgstr ""
 msgid "Spotty Settings"
 msgstr "Spottyn asetukset"
 
-#: src/preview.rs:2831
-#: src/preview.rs:4693
+#: src/preview.rs:2844
+#: src/preview.rs:4706
 msgid "Spreadsheet"
 msgstr "Laskentataulukko"
 
-#: src/ui/settings_window.rs:1066
+#: src/ui/settings_window.rs:1286
 msgid "Store"
 msgstr "Kauppa"
 
+#: src/ui/settings_window.rs:304
+msgid "System packages"
+msgstr ""
+
 #: src/ui/settings_window.rs:100
-msgid "System, Flatpak and Snap apps"
-msgstr "Järjestelmä-, Flatpak- ja Snap-sovellukset"
+msgid "System, Flatpak, Snap and AppImage apps"
+msgstr ""
 
 #: src/search/translate.rs:735
 msgid "Target: {name}"
 msgstr "Kohde: {name}"
 
+#: src/ui/settings_window.rs:848
+msgid "Temperature"
+msgstr ""
+
 #: src/search/files.rs:189
 msgid "Text match: {snippet}"
 msgstr "Tekstin osuma: {snippet}"
 
-#: src/ui/settings_window.rs:1697
+#: src/ui/settings_window.rs:1922
 msgid "The keyword \"{word}\" is already taken."
 msgstr "Avainsana \\\"{word}\\\" on jo käytössä."
 
-#: src/ui/settings_window.rs:1793
+#: src/ui/settings_window.rs:2018
 msgid "The repository has no triggers yet."
 msgstr "Arkistossa ei ole vielä triggereitä."
 
-#: src/ui/search_window.rs:5150
+#: src/ui/search_window.rs:5793
 msgid "The trigger word and its files will be removed."
 msgstr "Sen triggerisana ja tiedostot poistetaan."
 
-#: src/ui/settings_window.rs:492
+#: src/ui/settings_window.rs:633
 msgid "Thousands separators"
 msgstr "Tuhansien erotin"
+
+#: src/ui/settings_window.rs:852
+msgid "Time"
+msgstr ""
 
 #: src/search/translate.rs:632
 msgid "Translate to {name}"
@@ -881,28 +1024,27 @@ msgstr "Käännetään…"
 msgid "Translation unavailable"
 msgstr "Käännöstä ei ole saatavilla"
 
-#: src/ui/settings_window.rs:1606
+#: src/ui/settings_window.rs:1829
 msgid "Trigger"
 msgstr "Trigger"
 
-#: src/ui/settings_window.rs:1962
+#: src/ui/settings_window.rs:2188
 msgid "Trigger Store"
 msgstr "Triggerikauppa"
 
-#: src/ui/settings_window.rs:2290
+#: src/ui/settings_window.rs:2517
 msgid "Trigger word"
 msgstr "Triggerisana"
 
-#: src/ui/settings_window.rs:2593
+#: src/ui/settings_window.rs:2854
 msgid "Trigger word \"{word}\" is already in use"
 msgstr "Triggerisana \\\"{word}\\\" on jo käytössä"
 
-#: src/ui/settings_window.rs:2588
+#: src/ui/settings_window.rs:2849
 msgid "Trigger word cannot be empty"
 msgstr "Triggerisana ei voi olla tyhjä"
 
-#: src/ui/settings_window.rs:637
-#: src/ui/settings_window.rs:1032
+#: src/ui/settings_window.rs:1251
 msgid "Triggers"
 msgstr "Kynnysimet"
 
@@ -910,11 +1052,11 @@ msgstr "Kynnysimet"
 msgid "Type a command to run"
 msgstr "Kirjoita suoritettava komento"
 
-#: src/search/mod.rs:481
+#: src/search/mod.rs:537
 msgid "Type a command to run with {name}"
 msgstr "Kirjoita komento suoritettavaksi kohteella {name}"
 
-#: src/ui/search_window.rs:968
+#: src/ui/search_window.rs:804
 msgid "Type a keyword"
 msgstr "Kirjoita avainsana"
 
@@ -922,11 +1064,11 @@ msgstr "Kirjoita avainsana"
 msgid "Type a word to look up"
 msgstr "Kirjoita haettava sana"
 
-#: src/search/cmd.rs:2107
+#: src/search/cmd.rs:2308
 msgid "Type all, flatpak, distro or a package name"
 msgstr "Kirjoita all, flatpak, distro tai paketin nimi"
 
-#: src/search/mod.rs:459
+#: src/search/mod.rs:515
 msgid "Type something to search with {name}"
 msgstr "Kirjoita jotain haettavaksi kohteella {name}"
 
@@ -934,130 +1076,137 @@ msgstr "Kirjoita jotain haettavaksi kohteella {name}"
 msgid "Type text to translate"
 msgstr "Kirjoita käännettävä teksti"
 
-#: src/ui/search_window.rs:1422
-#: src/ui/search_window.rs:4750
-#: src/ui/settings_window.rs:603
+#: src/ui/search_window.rs:1268
+#: src/ui/search_window.rs:4729
 msgid "Undo"
 msgstr "Kumoa"
 
-#: src/search/cmd.rs:1559
-#: src/ui/search_window.rs:5153
-#: src/ui/settings_window.rs:1854
-#: src/ui/settings_window.rs:2161
+#: src/search/cmd.rs:1725
+#: src/ui/search_window.rs:5796
+#: src/ui/settings_window.rs:2080
+#: src/ui/settings_window.rs:2387
 msgid "Uninstall"
 msgstr "Poista"
 
-#: src/ui/settings_window.rs:2157
+#: src/ui/settings_window.rs:2383
 msgid "Uninstall \"{id}\"?"
 msgstr "Poistetaanko \\\"{id}\\\"?"
 
-#: src/ui/search_window.rs:1041
-#: src/ui/settings_window.rs:425
-#: src/ui/settings_window.rs:608
+#: src/ui/search_window.rs:877
+#: src/ui/settings_window.rs:563
 msgid "Uninstall app"
 msgstr "Poista sovellus"
 
-#: src/ui/settings_window.rs:1221
+#: src/ui/settings_window.rs:1444
 msgid "Uninstall trigger"
 msgstr "Poista trigger"
 
-#: src/ui/search_window.rs:2356
-#: src/ui/search_window.rs:5149
+#: src/ui/search_window.rs:2214
+#: src/ui/search_window.rs:5792
 msgid "Uninstall {name}?"
 msgstr "Poistetaanko {name}?"
 
-#: src/search/cmd.rs:2587
+#: src/search/cmd.rs:2961
 msgid "Uninstall: {name}"
 msgstr "Poista: {name}"
 
-#: src/search/cmd.rs:2591
+#: src/search/appimage.rs:710
+#: src/search/cmd.rs:2965
 msgid "Uninstalling {name}"
 msgstr "Poistetaan {name}"
 
-#: src/ui/settings_window.rs:530
+#: src/ui/settings_window.rs:671
 msgid "Unit conversions"
 msgstr "Yksikkömuunnokset"
 
-#: src/search/cmd.rs:1567
+#: src/search/cmd.rs:1733
 msgid "Update"
 msgstr "Päivitä"
 
-#: src/search/cmd.rs:2150
-#: src/ui/settings_window.rs:794
-#: src/ui/settings_window.rs:799
-#: src/ui/settings_window.rs:816
-msgid "Update & Restart"
-msgstr "Päivitä ja käynnistä uudelleen"
+#: src/search/cmd.rs:2818
+msgid "Update AppImages"
+msgstr ""
 
-#: src/search/cmd.rs:2397
+#: src/search/cmd.rs:2408
+#: src/search/cmd.rs:2757
+#: src/search/cmd.rs:3536
 msgid "Update all packages"
 msgstr "Päivitä kaikki paketit"
 
-#: src/search/cmd.rs:3334
-#: src/search/cmd.rs:3688
+#: src/search/cmd.rs:4116
+#: src/search/cmd.rs:4690
 msgid "Update checks are off"
 msgstr "Päivitysten tarkistukset ovat pois päältä"
 
-#: src/search/cmd.rs:2409
+#: src/search/cmd.rs:2769
 msgid "Update flatpak packages"
 msgstr "Päivitä Flatpak-paketit"
 
-#: src/ui/settings_window.rs:718
+#: src/ui/settings_window.rs:984
 msgid "Update notification"
 msgstr "Päivitysilmoitus"
 
-#: src/search/cmd.rs:2444
+#: src/search/cmd.rs:2422
+#: src/search/cmd.rs:3656
+msgid "Update now"
+msgstr "Päivitä nyt"
+
+#: src/search/cmd.rs:2804
 msgid "Update snap packages"
 msgstr "Päivitä Snap-paketit"
 
-#: src/search/cmd.rs:2431
+#: src/search/cmd.rs:2791
 msgid "Update system packages"
 msgstr "Päivitä järjestelmäpaketteja"
 
-#: src/search/cmd.rs:2259
+#: src/search/cmd.rs:2618
 msgid "Update: {name}"
 msgstr "Päivitä: {name}"
 
-#: src/ui/settings_window.rs:257
-#: src/ui/settings_window.rs:675
+#: src/ui/settings_window.rs:186
+#: src/ui/settings_window.rs:940
 msgid "Updates"
 msgstr "Päivitykset"
 
-#: src/ui/settings_window.rs:376
-msgid "Used for app search, install, and uninstall via the cmd trigger"
-msgstr "Käytetään sovellusten hakemiseen, asentamiseen ja poistamiseen cmd-triggerilla"
-
-#: src/ui/settings_window.rs:188
+#: src/ui/settings_window.rs:490
 msgid "Used for web search results"
 msgstr "Käytetään verkkohakutuloksissa"
 
-#: src/ui/settings_window.rs:205
-#: src/ui/settings_window.rs:230
+#: src/ui/settings_window.rs:508
+#: src/ui/settings_window.rs:531
 msgid "Uses {name} (detected from your default browser)"
 msgstr "Käyttää {name} (havaittu oletusselaimesi kautta)"
 
-#: src/ui/settings_window.rs:168
-#: src/ui/settings_window.rs:174
+#: src/ui/settings_window.rs:849
+msgid "Volume"
+msgstr ""
+
+#: src/ui/settings_window.rs:141
+#: src/ui/settings_window.rs:460
 msgid "Web Search"
 msgstr "Verkkohaku"
 
-#: src/ui/settings_window.rs:741
+#: src/ui/settings_window.rs:1009
 msgid "Weekly"
 msgstr "Viikoittain"
 
-#: src/ui/settings_window.rs:1607
+#: src/ui/settings_window.rs:843
+msgid "What a value converts to when you don't name a target"
+msgstr ""
+
+#: src/ui/settings_window.rs:1830
 msgid "What you type to open it."
 msgstr "Mitä kirjoitat avataksesi sen."
 
-#: src/ui/settings_window.rs:892
+#: src/ui/settings_window.rs:1149
 msgid "Word: {word} · No shortcut"
 msgstr "Sana: {word} · Ei pikanäppäintä"
 
-#: src/ui/settings_window.rs:894
+#: src/ui/settings_window.rs:1151
 msgid "Word: {word} · {shortcut}"
 msgstr "Sana: {word} · {shortcut}"
 
-#: src/ui/search_window.rs:3841
+#: src/ui/search_window.rs:3750
 msgid "Yes"
 msgstr "Kyllä"
 
@@ -1076,7 +1225,11 @@ msgstr "tyhjä vastaus"
 msgid "id '{id}' is a built-in trigger"
 msgstr "id '{id}' on sisäänrakennettu trigger"
 
-#: src/search/cmd.rs:1552
+#: src/ui/settings_window.rs:704
+msgid "in"
+msgstr ""
+
+#: src/search/cmd.rs:1718
 msgid "install <app>  —  install from Flatpak, distro, or Snap"
 msgstr "install <app>  —  asenna Flatpakista, jakelusta tai Snapista"
 
@@ -1088,7 +1241,7 @@ msgstr "virheellinen id '{id}': vain kirjaimia, numeroita, '_', '-' ja '.' salli
 msgid "just now"
 msgstr "juuri nyt"
 
-#: src/search/cmd.rs:1544
+#: src/search/cmd.rs:1710
 msgid "kill <app-name>  —  stop a running process"
 msgstr "kill <app-name>  —  pysäyttää suoritettavan prosessin"
 
@@ -1099,6 +1252,14 @@ msgstr "'word' puuttuu (triggerin teksti)"
 #: src/triggers.rs:326
 msgid "shell action needs a 'command' template"
 msgstr "shell-toiminto vaatii 'command'-mallin"
+
+#: src/ui/settings_window.rs:702
+msgid "to"
+msgstr ""
+
+#: src/ui/settings_window.rs:703
+msgid "to or in"
+msgstr ""
 
 #: src/triggers.rs:316
 msgid "trigger '{id}' is already installed"
@@ -1112,20 +1273,20 @@ msgstr "trigger '{id}' ei ole asennettu"
 msgid "trigger word '{word}' is already in use"
 msgstr "triggerisana '{word}' on jo käytössä"
 
-#: src/search/cmd.rs:1560
+#: src/search/cmd.rs:1726
 msgid "uninstall <app>  —  remove an installed app"
 msgstr "uninstall <app>  —  poista asennettu sovellus"
 
-#: src/search/cmd.rs:1568
+#: src/search/cmd.rs:1734
 msgid "update  —  update installed packages"
 msgstr "update  —  päivitä asennetut paketit"
 
-#: src/search/cmd.rs:2553
-#: src/search/cmd.rs:2588
+#: src/search/cmd.rs:2927
+#: src/search/cmd.rs:2962
 msgid "via Flatpak ({app})"
 msgstr ""
 
-#: src/search/cmd.rs:2786
+#: src/search/cmd.rs:3160
 msgid "via snap"
 msgstr ""
 
@@ -1133,22 +1294,22 @@ msgstr ""
 msgid "web action needs a 'url' template"
 msgstr "web-toiminto vaatii 'url'-mallin"
 
-#: src/search/cmd.rs:2555
+#: src/search/cmd.rs:2929
 msgid "{description} — via Flatpak ({app})"
 msgstr ""
 
-#: src/search/mod.rs:470
-#: src/search/mod.rs:497
+#: src/search/mod.rs:526
+#: src/search/mod.rs:553
 msgid "{name}: {query}"
 msgstr ""
 
-#: src/operations.rs:588
+#: src/operations.rs:651
 msgid "{noun} {target} {suffix}"
 msgstr ""
 
-#: src/search/cmd.rs:3603
-#: src/search/cmd.rs:3700
-#: src/ui/search_window.rs:3444
+#: src/search/cmd.rs:4605
+#: src/search/cmd.rs:4702
+#: src/ui/search_window.rs:3353
 msgid "{n} updates available"
 msgstr "Päivityksiä saatavilla: {n}"
 
@@ -1169,16 +1330,16 @@ msgstr "{n} min sitten"
 msgid "{pos} — {text}"
 msgstr ""
 
-#: src/search/cmd.rs:2270
-#: src/search/cmd.rs:2329
+#: src/search/cmd.rs:2629
+#: src/search/cmd.rs:2688
 msgid "{source} Update"
 msgstr "Päivitys {source}"
 
 #: src/operations.rs:175
 #: src/operations.rs:195
-#: src/operations.rs:849
-#: src/operations.rs:875
-#: src/operations.rs:900
+#: src/operations.rs:952
+#: src/operations.rs:978
+#: src/operations.rs:1003
 msgid "{source} · {status}"
 msgstr ""
 
@@ -1188,11 +1349,11 @@ msgstr ""
 msgid "{src} → {tgt}"
 msgstr "{src} → {tgt}"
 
-#: src/operations.rs:591
+#: src/operations.rs:654
 msgid "{title} {suffix}"
 msgstr ""
 
-#: src/ui/search_window.rs:3593
+#: src/ui/search_window.rs:3502
 msgid "{title} — {detail}"
 msgstr ""
 
@@ -1200,7 +1361,7 @@ msgstr ""
 msgid "{word} — complete the word with Tab"
 msgstr "{word} — viimeistele sana Tab-näppäimellä"
 
-#: src/ui/settings_window.rs:1841
+#: src/ui/settings_window.rs:2066
 msgid "{word} — {description}"
 msgstr ""
 

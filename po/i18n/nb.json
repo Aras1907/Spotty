@@ -275,7 +275,6 @@
   "Redo": "Gjenta",
   "Delete word": "Slett ord",
   "Delete file / folder": "Slett fil / mappe",
-  "Calculator & Conversions": "Kalkulator og omregninger",
   "Arithmetic, units, currency and number bases": "Aritmetikk, enheter, valutaer og tallsystemer",
   "Conversions": "Omregninger",
   "Currency conversion": "Valutaomregning",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Kurser hentes fra et gratis, offentlig API når du regner om",
   "Scientific notation": "Eksponentialform",
   "Show equivalents when no target unit is given": "Vis ekvivalenter når ingen målenhet er oppgitt",
-  "Unit conversions": "Enhetsomregning"
+  "Unit conversions": "Enhetsomregning",
+  "Calculator & Converter": "Kalkulator og omformer",
+  "Arithmetic": "Aritmetikk"
 }

@@ -275,7 +275,6 @@
   "Redo": "انجام مجدد",
   "Delete word": "حذف کلمه",
   "Delete file / folder": "حذف فایل / پوشه",
-  "Calculator & Conversions": "ماشین حساب و تبدیل‌ها",
   "Arithmetic, units, currency and number bases": "حساب، واحدها، ارزها و مبناهای عددی",
   "Conversions": "تبدیل‌ها",
   "Currency conversion": "تبدیل ارز",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "نرخ‌ها هنگام تبدیل از یک API عمومی رایگان دریافت می‌شوند",
   "Scientific notation": "نماد علمی",
   "Show equivalents when no target unit is given": "نمایش معادل‌ها وقتی واحد مقصد داده نشده",
-  "Unit conversions": "تبدیل واحدها"
+  "Unit conversions": "تبدیل واحدها",
+  "Calculator & Converter": "ماشین حساب و مبدل",
+  "Arithmetic": "حساب"
 }

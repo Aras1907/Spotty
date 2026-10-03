@@ -275,7 +275,6 @@
   "Redo": "Újra",
   "Delete word": "Szó törlése",
   "Delete file / folder": "Fájl / mappa törlése",
-  "Calculator & Conversions": "Számológép és átváltások",
   "Arithmetic, units, currency and number bases": "Aritmetika, mértékegységek, pénznemek és számrendszerek",
   "Conversions": "Átváltások",
   "Currency conversion": "Pénznem-átváltás",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Az árfolyamok ingyenes, nyilvános API-ból érkeznek átváltáskor",
   "Scientific notation": "Tudományos jelölés",
   "Show equivalents when no target unit is given": "Egyenértékek megjelenítése, ha nincs megadva a cél egysége",
-  "Unit conversions": "Mértékegység-átváltás"
+  "Unit conversions": "Mértékegység-átváltás",
+  "Calculator & Converter": "Számológép és konverter",
+  "Arithmetic": "Aritmetika"
 }

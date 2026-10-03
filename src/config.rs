@@ -72,34 +72,72 @@ pub enum PackageManager {
 }
 
 impl PackageManager {
-    pub fn display_name(self) -> &'static str {
+    /// The legacy combo, translated into the four independent source
+    /// switches (Settings → Search for new Apps). Only used to migrate
+    /// configs written before the switches existed.
+    pub fn to_sources(self) -> AppSources {
         match self {
-            Self::FlatpakOnly => "Flatpak only",
-            Self::Both => "Flatpak + Distro",
-            Self::DistroOnly => "Distro only",
-            Self::SnapOnly => "Snap only",
-            Self::DistroSnap => "Snap + Distro",
-            Self::All => "Flatpak + Distro + Snap",
+            Self::FlatpakOnly => AppSources {
+                flatpak: true,
+                distro: false,
+                snap: false,
+                appimage: true,
+            },
+            Self::Both => AppSources {
+                flatpak: true,
+                distro: true,
+                snap: false,
+                appimage: true,
+            },
+            Self::DistroOnly => AppSources {
+                flatpak: false,
+                distro: true,
+                snap: false,
+                appimage: true,
+            },
+            Self::SnapOnly => AppSources {
+                flatpak: false,
+                distro: false,
+                snap: true,
+                appimage: true,
+            },
+            Self::DistroSnap => AppSources {
+                flatpak: false,
+                distro: true,
+                snap: true,
+                appimage: true,
+            },
+            Self::All => AppSources {
+                flatpak: true,
+                distro: true,
+                snap: true,
+                appimage: true,
+            },
         }
     }
-    pub fn all() -> &'static [Self] {
-        &[
-            Self::FlatpakOnly,
-            Self::Both,
-            Self::DistroOnly,
-            Self::SnapOnly,
-            Self::DistroSnap,
-            Self::All,
-        ]
-    }
-    pub fn use_flatpak(self) -> bool {
-        matches!(self, Self::FlatpakOnly | Self::Both | Self::All)
-    }
-    pub fn use_distro(self) -> bool {
-        matches!(self, Self::DistroOnly | Self::Both | Self::DistroSnap | Self::All)
-    }
-    pub fn use_snap(self) -> bool {
-        matches!(self, Self::SnapOnly | Self::DistroSnap | Self::All)
+}
+
+/// Which app sources the search/install features consult — one independent
+/// switch per source (replaces the old single `package_manager` combo, so
+/// any combination is expressible). Availability gating (snapd present,
+/// AppImages found...) lives in the Settings UI, not here: the switches only
+/// record what the user chose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppSources {
+    pub flatpak: bool,
+    pub distro: bool,
+    pub snap: bool,
+    pub appimage: bool,
+}
+
+impl AppSources {
+    pub const fn new(flatpak: bool, distro: bool, snap: bool, appimage: bool) -> Self {
+        Self {
+            flatpak,
+            distro,
+            snap,
+            appimage,
+        }
     }
 }
 
@@ -266,6 +304,19 @@ pub struct Config {
     /// (|v| >= 1e15) or lose to rounding (rounds to zero).
     #[serde(default = "dt")]
     pub calc_sci_notation: bool,
+    /// Connector words the converter accepts between source and target
+    /// (`20 USD to EUR`, `20 USD em EUR`). The symbols `->`, `→` and `=`
+    /// always work; Settings offers presets plus a custom entry.
+    #[serde(default = "default_calc_convert_words")]
+    pub calc_convert_words: Vec<String>,
+    /// Currency a no-target conversion aims at (`20 EUR` -> …). Falls
+    /// back to the automatic pick when the source *is* this currency.
+    #[serde(default = "default_calc_default_currency")]
+    pub calc_default_currency: String,
+    /// Per-dimension default target unit for no-target rows
+    /// (`{"length": "mi"}`); a missing key means the automatic pick.
+    #[serde(default)]
+    pub calc_default_targets: std::collections::BTreeMap<String, String>,
     #[serde(default = "dt")]
     pub show_recent_file_searches: bool,
     /// Allow browsing absolute paths (/ and ~/) in the main search box.
@@ -344,8 +395,20 @@ pub struct Config {
     /// Legacy clipboard shortcut migrated into the clipboard keyword on load.
     #[serde(default, skip_serializing)]
     pub clipboard_shortcut: String,
-    /// Which package manager(s) to use in the cmd trigger for install/uninstall/search.
+    /// App sources for search/install, one switch each (Settings → Search
+    /// for new Apps). `Option<bool>` so a config written before the
+    /// switches existed is detectable and gets migrated on load.
     #[serde(default)]
+    pub pm_flatpak: Option<bool>,
+    #[serde(default)]
+    pub pm_distro: Option<bool>,
+    #[serde(default)]
+    pub pm_snap: Option<bool>,
+    #[serde(default)]
+    pub pm_appimage: Option<bool>,
+    /// Legacy single-choice package manager: migrated into the four
+    /// switches on load and never written back.
+    #[serde(default, skip_serializing)]
     pub package_manager: PackageManager,
     /// Also surface installable apps (Flatpak / distro) in the default search,
     /// so the user finds apps to install without typing the "install" verb.
@@ -406,6 +469,14 @@ pub fn default_update_check_hours() -> u32 {
 }
 
 /// Calculator fraction digits: 6 keeps the long-standing behaviour.
+fn default_calc_convert_words() -> Vec<String> {
+    vec!["to".to_string(), "in".to_string()]
+}
+
+fn default_calc_default_currency() -> String {
+    "usd".to_string()
+}
+
 fn default_calc_precision() -> u32 {
     6
 }
@@ -496,6 +567,9 @@ impl Default for Config {
             calc_base_convert: true,
             calc_currency: true,
             calc_sci_notation: true,
+            calc_convert_words: default_calc_convert_words(),
+            calc_default_currency: default_calc_default_currency(),
+            calc_default_targets: std::collections::BTreeMap::new(),
             show_recent_file_searches: true,
             enable_root_browsing: true,
             shortcut: ds(),
@@ -525,6 +599,10 @@ impl Default for Config {
             max_index_entries: dm(),
             command_keywords: default_command_keywords(),
             clipboard_shortcut: String::new(),
+            pm_flatpak: Some(true),
+            pm_distro: Some(false),
+            pm_snap: Some(false),
+            pm_appimage: Some(true),
             package_manager: PackageManager::default(),
             enable_new_apps: true,
             trigger_repo_url: default_trigger_repo_url(),
@@ -543,6 +621,17 @@ impl Default for Config {
 impl Config {
     pub fn config_path() -> PathBuf {
         dirs::config_dir().unwrap().join("spotty/config.json")
+    }
+
+    /// The active app sources (post-migration; any missing switch falls back
+    /// to the fresh-install default).
+    pub fn app_sources(&self) -> AppSources {
+        AppSources::new(
+            self.pm_flatpak.unwrap_or(true),
+            self.pm_distro.unwrap_or(false),
+            self.pm_snap.unwrap_or(false),
+            self.pm_appimage.unwrap_or(true),
+        )
     }
 
     /// Read + merge the config file. Never fails: a missing file, corrupt
@@ -567,11 +656,31 @@ impl Config {
         let before = serde_json::to_string(&cfg).unwrap_or_default();
         cfg.migrate_keywords();
         cfg.migrate_resource_defaults();
+        cfg.migrate_app_sources();
         let after = serde_json::to_string(&cfg).unwrap_or_default();
         if before != after {
             let _ = cfg.save();
         }
         cfg
+    }
+
+    /// Old configs stored one `package_manager` combo; the four source
+    /// switches replace it (any combination is now expressible). Fills only
+    /// the switches the file didn't have, so a hand-edited config keeps its
+    /// choices and a migrated one is idempotent.
+    fn migrate_app_sources(&mut self) {
+        if self.pm_flatpak.is_some()
+            && self.pm_distro.is_some()
+            && self.pm_snap.is_some()
+            && self.pm_appimage.is_some()
+        {
+            return;
+        }
+        let s = self.package_manager.to_sources();
+        self.pm_flatpak.get_or_insert(s.flatpak);
+        self.pm_distro.get_or_insert(s.distro);
+        self.pm_snap.get_or_insert(s.snap);
+        self.pm_appimage.get_or_insert(s.appimage);
     }
 
     /// Keep only the supported built-in trigger rows and add any missing ones.
@@ -758,6 +867,56 @@ mod tests {
             "https://raw.githubusercontent.com/Aras1907/spotty-triggers/main"
         );
     }
+
+    #[test]
+    fn legacy_package_manager_migrates_into_source_switches() {
+        // Every old combo value maps onto the four independent switches;
+        // AppImages are always introduced as available-on (Settings hides
+        // the switch when the machine has none).
+        for (legacy, fp, ds, sn) in [
+            ("flatpakonly", true, false, false),
+            ("both", true, true, false),
+            ("distroonly", false, true, false),
+            ("snaponly", false, false, true),
+            ("distrosnap", false, true, true),
+            ("all", true, true, true),
+        ] {
+            let json = format!(r#"{{"package_manager": "{legacy}"}}"#);
+            let mut cfg: Config = serde_json::from_str(&json).unwrap();
+            cfg.migrate_app_sources();
+            assert_eq!(
+                (cfg.pm_flatpak, cfg.pm_distro, cfg.pm_snap, cfg.pm_appimage),
+                (Some(fp), Some(ds), Some(sn), Some(true)),
+                "{legacy}"
+            );
+            assert_eq!(cfg.app_sources(), AppSources::new(fp, ds, sn, true));
+            // Second pass is a no-op (migrations run on every load).
+            let before = serde_json::to_string(&cfg).unwrap();
+            cfg.migrate_app_sources();
+            assert_eq!(before, serde_json::to_string(&cfg).unwrap());
+        }
+    }
+
+    #[test]
+    fn migrated_switches_persist_and_the_legacy_combo_does_not() {
+        let mut cfg: Config = serde_json::from_str(r#"{"package_manager": "all"}"#).unwrap();
+        cfg.migrate_app_sources();
+        let s = serde_json::to_string(&cfg).unwrap();
+        assert!(!s.contains("package_manager"), "{s}");
+        assert!(s.contains(r#""pm_flatpak":true"#), "{s}");
+
+        // A hand-edited config keeps the switches it has and only gains the
+        // missing ones from the legacy value.
+        let mut cfg: Config =
+            serde_json::from_str(r#"{"package_manager": "all", "pm_snap": false}"#).unwrap();
+        cfg.migrate_app_sources();
+        assert_eq!(cfg.pm_snap, Some(false));
+        assert_eq!(cfg.pm_flatpak, Some(true));
+        assert_eq!(
+            cfg.app_sources(),
+            AppSources::new(true, true, false, true)
+        );
+    }
 }
 
 #[cfg(test)]
@@ -787,6 +946,16 @@ mod calculator_setting_tests {
         assert!(c.calc_base_convert, "base conversions are on by default");
         assert!(c.calc_currency, "currency conversion is on by default");
         assert!(c.calc_sci_notation, "scientific notation is on by default");
+        assert_eq!(
+            c.calc_convert_words,
+            ["to".to_string(), "in".to_string()],
+            "both connector words ship enabled"
+        );
+        assert_eq!(c.calc_default_currency, "usd", "default currency ships USD");
+        assert!(
+            c.calc_default_targets.is_empty(),
+            "default targets start automatic"
+        );
     }
 
     #[test]
@@ -799,6 +968,8 @@ mod calculator_setting_tests {
         assert!(!c.enable_calculator, "existing fields survive");
         assert_eq!(c.calc_precision, 8);
         assert!(c.calc_converter && c.calc_equivalents && c.calc_base_convert);
+        assert_eq!(c.calc_convert_words, ["to".to_string(), "in".to_string()]);
+        assert_eq!(c.calc_default_currency, "usd");
         assert!(c.calc_currency && c.calc_sci_notation);
     }
 }

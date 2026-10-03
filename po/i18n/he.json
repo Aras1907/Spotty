@@ -275,7 +275,6 @@
   "Redo": "ביצוע מחדש",
   "Delete word": "מחיקת מילה",
   "Delete file / folder": "מחיקת קובץ / תיקייה",
-  "Calculator & Conversions": "מחשבון והמרות",
   "Arithmetic, units, currency and number bases": "חשבון, יחידות, מטבעות ובסיסים מספריים",
   "Conversions": "המרות",
   "Currency conversion": "המרת מטבעות",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "השערים נמשכים מ-API ציבורי וחינמי בעת ההמרה",
   "Scientific notation": "תבנית מדעית",
   "Show equivalents when no target unit is given": "הצגת מקבילות כשלא צוינה יחידת יעד",
-  "Unit conversions": "המרת יחידות"
+  "Unit conversions": "המרת יחידות",
+  "Calculator & Converter": "מחשבון וממיר",
+  "Arithmetic": "חשבון"
 }

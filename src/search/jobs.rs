@@ -110,40 +110,9 @@ fn compute(
     }
     let ql = query.to_lowercase();
     let mut r = Vec::with_capacity(32);
-    // Trigger suggestions
-    let trigger_kws = crate::triggers::keywords();
-    let kw_iter = config
-        .command_keywords
-        .iter()
-        .chain(trigger_kws.iter());
-    if ql.len() >= 1 && ql.len() <= 8 && ql.chars().all(|c| c.is_alphabetic()) {
-        for kw in kw_iter {
-            let dn = kw.display_name().to_lowercase();
-            let word_match = kw.word.starts_with(&ql);
-            let name_match = dn.starts_with(&ql);
-            if word_match || name_match {
-                let score = if kw.word == ql || dn == ql {
-                    100_000
-                } else if word_match {
-                    50_000
-                } else {
-                    45_000
-                };
-                r.push(SearchResult {
-                    kind: crate::search::ResultKind::System,
-                    title: crate::search::capitalize(&kw.word),
-                    subtitle: Some(kw.description.clone()),
-                    icon: Some(if kw.icon.is_empty() {
-                        "folder-symbolic".into()
-                    } else {
-                        kw.icon.clone()
-                    }),
-                    action: crate::search::Action::EnterMode(kw.word.clone()),
-                    score,
-                });
-            }
-        }
-    }
+    // Trigger suggestions (shared with mod.rs: exact/prefix at any length,
+    // plus a fuzzy tier for typos — "fnd" suggests Find mode).
+    r.extend(crate::search::trigger_suggestions(query, config));
     // Updates are a General-section feature now (no trigger): the
     // update/updates/upd/upgrade/upg verbs show the inline update list.
     if let Some(update_rows) = crate::search::cmd::update_verb_rows(query, config) {
@@ -162,9 +131,18 @@ fn compute(
     if config.enable_apps {
         let snap_guard = snap.read().unwrap();
         r.extend(crate::search::apps::search(query, &snap_guard.apps));
+        // Portable AppImages: launch rows for files that have no desktop
+        // entry of their own (integrated ones are already indexed apps).
+        if config.app_sources().appimage {
+            r.extend(crate::search::appimage::search(query, 3));
+        }
     }
     if config.enable_new_apps && query.chars().count() >= 3 {
-        r.extend(crate::search::cmd::universal_install(query, config.package_manager, 4));
+        r.extend(crate::search::cmd::universal_install(
+            query,
+            config.app_sources(),
+            4,
+        ));
     }
     if config.enable_web {
         r.push(crate::search::web::result(query, config));
@@ -190,6 +168,21 @@ mod tests {
         assert_ne!(key(Some("find"), "x"), key(None, "x"));
         assert_ne!(key(Some("find"), "x"), key(Some("app"), "x"));
         assert_eq!(key(Some("find"), "x"), key(Some("find"), "x"));
+    }
+
+    #[test]
+    fn typoed_trigger_word_reaches_the_live_search() {
+        let snap = snap_with(vec![]);
+        let cfg = Config::default();
+        // The worker path (the one that runs in production) must surface
+        // fuzzy trigger suggestions too — it used to be prefix-only.
+        let rows = compute("fnd", None, &cfg, &snap);
+        assert!(
+            rows.iter()
+                .any(|r| matches!(&r.action, crate::search::Action::EnterMode(w) if w == "find")),
+            "fnd: {:?}",
+            rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>()
+        );
     }
 
     #[test]

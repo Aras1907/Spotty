@@ -275,7 +275,6 @@
   "Redo": "다시 실행",
   "Delete word": "단어 삭제",
   "Delete file / folder": "파일 / 폴더 삭제",
-  "Calculator & Conversions": "계산기 및 변환",
   "Arithmetic, units, currency and number bases": "산술, 단위, 통화, 진법",
   "Conversions": "변환",
   "Currency conversion": "통화 변환",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "변환할 때 무료 공개 API에서 환율을 가져옵니다",
   "Scientific notation": "지수 표기법",
   "Show equivalents when no target unit is given": "변환 대상 단위가 없으면 상응 값을 표시",
-  "Unit conversions": "단위 변환"
+  "Unit conversions": "단위 변환",
+  "Calculator & Converter": "계산기 및 컨버터",
+  "Arithmetic": "산술"
 }

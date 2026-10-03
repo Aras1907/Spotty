@@ -1,8 +1,10 @@
 //! Conversion rows: physical units, number bases and live currency —
 //! typed straight into the search box next to the calculator.
 //!
-//! Syntax: `<number> <unit> (to|in|=|->) <unit>`, or just `<number>
-//! <unit>` for a list of equivalents (`10 km`). Word aliases work
+//! Syntax: `<number> <unit> (to|in|=|->) <unit>` — the wording between the
+//! units is editable in Settings and may be left out entirely
+//! (`20 usd euro`), or just `<number> <unit>` for a list of equivalents
+//! (`10 km`). Word aliases work
 //! (`10 miles to km`), the number may touch its unit (`10km to m`), and
 //! each dimension has its own base unit, so mismatched targets
 //! (`10 km to lb`) are quietly ignored instead of answered wrongly.
@@ -78,14 +80,14 @@ static UNITS: &[Unit] = &[
     u!("yd", D_LEN, 0.9144, 0.0, ["yard", "yards"]),
     u!("mi", D_LEN, 1609.344, 0.0, ["mile", "miles"]),
     u!("nmi", D_LEN, 1852.0, 0.0, ["nauticalmile", "nauticalmiles", "nautical mile", "nautical miles"]),
-    u!("au", D_LEN, 149_597_870_700.0, 0.0, ["astronomicalunit", "astronomicalunits"]),
+    u!("au", D_LEN, 149_597_870_700.0, 0.0, ["astronomicalunit", "astronomicalunits", "astronomical unit", "astronomical units"]),
     u!("ly", D_LEN, 9.460_730_472_580_8e15, 0.0, ["lightyear", "lightyears", "light year", "light years"]),
     u!("pc", D_LEN, 3.085_677_581_491_367_3e16, 0.0, ["parsec", "parsecs"]),
     // Mass — base: kg
     u!("mg", D_MASS, 1e-6, 0.0, ["milligram", "milligrams"]),
     u!("g", D_MASS, 1e-3, 0.0, ["gram", "grams", "gramme", "grammes"]),
     u!("kg", D_MASS, 1.0, 0.0, ["kilo", "kilos", "kilogram", "kilograms", "kilogramme", "kilogrammes"]),
-    u!("t", D_MASS, 1e3, 0.0, ["tonne", "tonnes"]),
+    u!("t", D_MASS, 1e3, 0.0, ["tonne", "tonnes", "metric ton", "metric tons", "metric tonne", "metric tonnes"]),
     // "ton"/"tons" mean the US short ton (like most converters);
     // metric tonnes are "t"/"tonne(s)".
     u!("ton", D_MASS, 907.184_74, 0.0, ["tons", "short ton", "short tons", "us ton", "us tons"]),
@@ -93,9 +95,9 @@ static UNITS: &[Unit] = &[
     u!("lb", D_MASS, 0.453_592_37, 0.0, ["pound", "pounds", "lbs"]),
     u!("st", D_MASS, 6.350_293_18, 0.0, ["stone", "stones"]),
     // Temperature — base: °C (affine: offsets, not factors, move the zero)
-    u!("°C", D_TEMP, 1.0, 0.0, ["c", "celsius", "centigrade"]),
-    u!("°F", D_TEMP, 5.0 / 9.0, -160.0 / 9.0, ["f", "fahrenheit"]),
-    u!("K", D_TEMP, 1.0, -273.15, ["k", "kelvin", "kelvins", "°k"]),
+    u!("°C", D_TEMP, 1.0, 0.0, ["c", "celsius", "centigrade", "degree celsius", "degrees celsius", "degrees c"]),
+    u!("°F", D_TEMP, 5.0 / 9.0, -160.0 / 9.0, ["f", "fahrenheit", "degree fahrenheit", "degrees fahrenheit", "degrees f"]),
+    u!("K", D_TEMP, 1.0, -273.15, ["k", "kelvin", "kelvins", "°k", "degree kelvin", "degrees kelvin", "degrees k"]),
     // Volume — base: L
     u!("mL", D_VOL, 1e-3, 0.0, ["ml", "milliliter", "milliliters", "millilitre", "millilitres", "cc"]),
     u!("L", D_VOL, 1.0, 0.0, ["l", "liter", "liters", "litre", "litres"]),
@@ -266,6 +268,81 @@ fn lookup_unit(token: &str) -> Option<&'static Unit> {
         .copied()
 }
 
+// ── Short-prefix guessing ────────────────────────────────────────────────────
+
+/// Longest last word still treated as a partial unit ("unless it is a long
+/// word": `dol` and `kilom` are guessed, `kilomet` and `something` never
+/// are).
+const MAX_GUESS_WORD: usize = 6;
+
+/// The lowercased token when its last word is short enough to guess from.
+fn guessable(token: &str) -> Option<String> {
+    let t = token.trim().to_lowercase();
+    if t.is_empty() {
+        return None;
+    }
+    let n = t.split_whitespace().last()?.chars().count();
+    (2..=MAX_GUESS_WORD).contains(&n).then_some(t)
+}
+
+/// Resolve a partial unit word by unique prefix. `dim` — known from the
+/// other side of the conversion — restricts candidates to that dimension,
+/// so `met` is the meter next to a length and the metric ton next to a
+/// mass. Several *different* units matching means no guess at all.
+fn guess_unit_in(token: &str, dim: Option<u8>) -> Option<&'static Unit> {
+    let t = guessable(token)?;
+    let mut found: Option<&'static Unit> = None;
+    for (key, unit) in index().1.iter() {
+        let unit = *unit;
+        if !key.starts_with(&t) {
+            continue;
+        }
+        if let Some(d) = dim {
+            if unit.dim != d {
+                continue;
+            }
+        }
+        match found {
+            None => found = Some(unit),
+            Some(f) if std::ptr::eq(f, unit) => {}
+            Some(_) => return None,
+        }
+    }
+    found
+}
+
+/// Resolve a partial currency word by unique prefix over every spelling we
+/// know: static codes and names first, then the live rate table's codes and
+/// API names. Several *different* currencies matching means no guess.
+fn guess_currency(token: &str, rates: Option<&Rates>) -> Option<String> {
+    let t = guessable(token)?;
+    let statics = ISO
+        .iter()
+        .copied()
+        .chain(CUR_NAME.iter().map(|(k, _)| *k));
+    let live = rates.into_iter().flat_map(|r| {
+        r.names
+            .keys()
+            .map(|s| s.as_str())
+            .chain(r.map.keys().map(|s| s.as_str()))
+    });
+    let mut found: Option<String> = None;
+    for cand in statics.chain(live) {
+        if !cand.starts_with(&t) || cand == t {
+            continue;
+        }
+        let Some(code) = currency_code(cand, rates) else {
+            continue;
+        };
+        match &found {
+            None => found = Some(code),
+            Some(f) if *f == code => {}
+            Some(_) => return None,
+        }
+    }
+    found
+}
+
 fn base_unit(dim: u8) -> &'static Unit {
     lookup_unit(BASE_SYM[dim as usize]).expect("every dimension has a base unit")
 }
@@ -349,45 +426,133 @@ fn leading_radix(q: &str) -> Option<(i64, String, &str)> {
 }
 
 /// First occurrence of `w` as a whole word (start/space before,
-/// space/end after) → (byte index, the word itself).
-fn find_word<'a>(s: &'a str, w: &str) -> Option<usize> {
-    let mut from = 0;
-    while let Some(rel) = s[from..].find(w) {
-        let i = from + rel;
-        let end = i + w.len();
-        let before_ok = i == 0 || s[..i].ends_with(' ');
-        let after_ok = end >= s.len() || s[end..].starts_with(' ');
+/// space/end after), ignoring case — `TO`/`In` separate like `to`/
+/// `in` — → byte index. ASCII words never match inside a multibyte
+/// char (UTF-8 continuation bytes are all ≥ 0x80).
+fn find_word(s: &str, w: &str) -> Option<usize> {
+    let b = s.as_bytes();
+    let w = w.as_bytes();
+    if w.is_empty() || b.len() < w.len() {
+        return None;
+    }
+    for i in 0..=b.len() - w.len() {
+        if !b[i..i + w.len()].eq_ignore_ascii_case(w) {
+            continue;
+        }
+        let before_ok = i == 0 || b[i - 1] == b' ';
+        let after_ok = i + w.len() == b.len() || b[i + w.len()] == b' ';
         if before_ok && after_ok {
             return Some(i);
         }
-        from = i + 1;
     }
     None
 }
 
 /// Split the part after the amount into (source, target) at the first
-/// separator: `->`, `→`, `to`, `in`, `=`. No separator → the whole
-/// string is the source and the target is empty (equivalents).
-/// "in" at index 0 is the unit inch, not a separator.
-fn split_target(rest: &str) -> (&str, &str) {
+/// separator: the symbols `->`, `→`, `=` (always), then the configured
+/// wording words (Settings → Calculator & Converter; default `to`/`in`,
+/// matched as whole words in any case: `10 USD IN TRY`). No separator →
+/// the whole string is the source and the target is empty (equivalents,
+/// or the connector-less split in [`convert`]).
+/// A word separator needs a source before it: `10 in` is ten inches.
+fn split_target<'a>(rest: &'a str, config: &Config) -> (&'a str, &'a str) {
     if let Some(i) = rest.find("->") {
         return (rest[..i].trim(), rest[i + 2..].trim());
     }
     if let Some(i) = rest.find('→') {
         return (rest[..i].trim(), rest[i + '→'.len_utf8()..].trim());
     }
-    if let Some(i) = find_word(rest, "to") {
-        return (rest[..i].trim(), rest[i + 2..].trim());
-    }
-    if let Some(i) = find_word(rest, "in") {
-        if i > 0 {
-            return (rest[..i].trim(), rest[i + 2..].trim());
+    for w in &config.calc_convert_words {
+        let w = w.trim();
+        if w.is_empty() {
+            continue;
+        }
+        // Punctuation (",") sticks to the source word, so it matches as a
+        // plain substring; alphabetic words match whole.
+        let hit = if w.chars().any(|c| !c.is_alphanumeric()) {
+            rest.find(w)
+        } else {
+            find_word(rest, w)
+        };
+        if let Some(i) = hit {
+            // A wording that is itself a unit (`in`, `mile`) needs a source
+            // before it — `10 in` is ten inches, not a split with an empty
+            // source. Regular words (`to`, custom) don't: the number may sit
+            // right before them (`255 to hex` splits as ("", "hex")).
+            if lookup_unit(w).is_some() && rest[..i].trim().is_empty() {
+                continue;
+            }
+            return (rest[..i].trim(), rest[i + w.len()..].trim());
         }
     }
     if let Some(i) = rest.find('=') {
         return (rest[..i].trim(), rest[i + 1..].trim());
     }
     (rest.trim(), "")
+}
+
+/// No connector typed: split the words into (source, target) when exactly
+/// one split resolves on both sides — `20 usd euro`, `20 turkish lira
+/// usd`, `20 usd, euro` — while multi-word units (`10 miles per hour`)
+/// and plain sentences stay with the equivalents path. Two valid splits
+/// mean ambiguity: stay silent rather than guess.
+fn split_pair(rest: &str, config: &Config) -> Option<(String, String)> {
+    let words: Vec<&str> = rest.split_whitespace().collect();
+    if words.len() < 2 {
+        return None;
+    }
+    let mut found: Option<(String, String)> = None;
+    for i in 1..words.len() {
+        let a = words[..i].join(" ").trim_matches(&[',', ';'][..]).to_string();
+        let b = words[i..].join(" ").trim_matches(&[',', ';'][..]).to_string();
+        if a.is_empty() || b.is_empty() {
+            continue;
+        }
+        if pair_resolves(&a, &b, config) {
+            if found.is_some() {
+                return None;
+            }
+            found = Some((a, b));
+        }
+    }
+    found
+}
+
+/// True when (source, target) reads as a conversion: two units of the same
+/// dimension (converter on) or two currencies (currency on). Mirrors
+/// [`convert`]'s resolution order — exact first, then the short-prefix
+/// guesses, guided by whichever side already resolved.
+fn pair_resolves(a: &str, b: &str, config: &Config) -> bool {
+    let mut ua = lookup_unit(a);
+    let mut ub = lookup_unit(b);
+    if config.calc_converter {
+        if ua.is_none() {
+            ua = guess_unit_in(a, ub.map(|u| u.dim));
+        }
+        if ub.is_none() {
+            ub = guess_unit_in(b, ua.map(|u| u.dim));
+        }
+        if ua.is_none() {
+            ua = guess_unit_in(a, ub.map(|u| u.dim));
+        }
+        if let (Some(x), Some(y)) = (ua, ub) {
+            if x.dim == y.dim {
+                return true;
+            }
+        }
+    }
+    if config.calc_currency {
+        let rates = currency::cached();
+        let resolves = |t: &str| {
+            currency_code(t, rates.as_deref())
+                .or_else(|| guess_currency(t, rates.as_deref()))
+                .is_some()
+        };
+        if resolves(a) && resolves(b) {
+            return true;
+        }
+    }
+    false
 }
 
 #[derive(Clone, Copy)]
@@ -412,7 +577,7 @@ fn base_keyword(t: &str) -> Option<BaseKw> {
 /// integers only; units never convert into bases (`10 km to hex`).
 fn base_row(q: &str, config: &Config) -> Option<SearchResult> {
     if let Some((v, display, rest)) = leading_radix(q) {
-        let (from_tok, to_tok) = split_target(rest);
+        let (from_tok, to_tok) = split_target(rest, config);
         if !from_tok.is_empty() {
             return None; // trailing junk, not a target
         }
@@ -424,7 +589,7 @@ fn base_row(q: &str, config: &Config) -> Option<SearchResult> {
         return Some(base_result(display, v, kw, config));
     }
     let (n, rest) = leading_number(q)?;
-    let (from_tok, to_tok) = split_target(rest);
+    let (from_tok, to_tok) = split_target(rest, config);
     if !from_tok.is_empty() || to_tok.is_empty() {
         return None;
     }
@@ -521,10 +686,81 @@ const CUR_NAME: &[(&str, &str)] = &[
     ("real", "brl"),
     ("reais", "brl"),
     ("rand", "zar"),
+    // Country-qualified names — how people actually type them
+    // ("10 dollars to turkish lira"); the API's name list extends
+    // this to all ~340 currencies once rates have landed.
+    ("us dollar", "usd"),
+    ("american dollar", "usd"),
+    ("buck", "usd"),
+    ("turkish lira", "try"),
+    ("british pound", "gbp"),
+    ("uk pound", "gbp"),
+    ("quid", "gbp"),
+    ("japanese yen", "jpy"),
+    ("canadian dollar", "cad"),
+    ("australian dollar", "aud"),
+    ("new zealand dollar", "nzd"),
+    ("singapore dollar", "sgd"),
+    ("hong kong dollar", "hkd"),
+    ("swiss franc", "chf"),
+    ("chinese yuan", "cny"),
+    ("indian rupee", "inr"),
+    ("russian ruble", "rub"),
+    ("south korean won", "krw"),
+    ("korean won", "krw"),
+    ("uae dirham", "aed"),
+    ("emirati dirham", "aed"),
+    ("saudi riyal", "sar"),
+    ("saudi arabian riyal", "sar"),
+    ("swedish krona", "sek"),
+    ("norwegian krone", "nok"),
+    ("danish krone", "dkk"),
+    ("polish zloty", "pln"),
+    ("czech koruna", "czk"),
+    ("mexican peso", "mxn"),
+    ("brazilian real", "brl"),
+    ("south african rand", "zar"),
+    ("israeli shekel", "ils"),
+    ("thai baht", "thb"),
+    ("indonesian rupiah", "idr"),
+    ("malaysian ringgit", "myr"),
+    ("philippine peso", "php"),
+    ("vietnamese dong", "vnd"),
+    ("egyptian pound", "egp"),
+    ("pakistani rupee", "pkr"),
+    ("bangladeshi taka", "bdt"),
+    ("nigerian naira", "ngn"),
+    ("kenyan shilling", "kes"),
+    ("chilean peso", "clp"),
+    ("argentine peso", "ars"),
+    ("colombian peso", "cop"),
+    ("peruvian sol", "pen"),
+    ("ukrainian hryvnia", "uah"),
+    ("romanian leu", "ron"),
+    ("hungarian forint", "huf"),
+    ("serbian dinar", "rsd"),
+    // Shortened/local spellings people actually type ("20 tl", "20 dolar").
+    ("tl", "try"),
+    ("r$", "brl"),
+    ("c$", "cad"),
+    ("a$", "aud"),
+    ("s$", "sgd"),
+    ("hk$", "hkd"),
+    ("nz$", "nzd"),
+    ("rm", "myr"),
+    ("rp", "idr"),
+    ("kč", "czk"),
+    ("dolar", "usd"),
+    ("avro", "eur"),
+    ("sterlin", "gbp"),
 ];
 
-/// A currency intent: static spellings first, then whatever the live
-/// rate table carries (300+ codes including crypto and metals).
+/// A currency intent: static spellings first (they work before any
+/// rates have landed and trigger the first fetch), then the API's
+/// plain-name list ("Turkish Lira"), then whatever the live rate
+/// table carries (300+ codes including crypto and metals). A plural
+/// typed by hand ("turkish liras") strips its trailing `s` for the
+/// second look-up.
 fn currency_code(token: &str, rates: Option<&Rates>) -> Option<String> {
     let t = token.trim().to_lowercase();
     if t.is_empty() {
@@ -536,7 +772,63 @@ fn currency_code(token: &str, rates: Option<&Rates>) -> Option<String> {
     if let Some((_, code)) = CUR_NAME.iter().find(|(k, _)| *k == t) {
         return Some((*code).to_string());
     }
-    rates.and_then(|r| r.map.contains_key(&t).then_some(t))
+    let singular = t.strip_suffix('s');
+    if let Some(s) = singular {
+        if let Some((_, code)) = CUR_NAME.iter().find(|(k, _)| *k == s) {
+            return Some((*code).to_string());
+        }
+    }
+    // Shortened spellings: "tl" is no prefix of "turkish lira", but it is
+    // its initials — resolve unique acronyms of known names (the static
+    // table always, the live rate names once loaded). Ambiguous initials
+    // ("us dollar" and "uae dirham" both give "ud") resolve to nothing.
+    if let Some(code) = currency_initials(&t, rates) {
+        return Some(code);
+    }
+    let rates = rates?;
+    if let Some(code) = rates.names.get(&t) {
+        return Some(code.clone());
+    }
+    if let Some(s) = singular {
+        if let Some(code) = rates.names.get(s) {
+            return Some(code.clone());
+        }
+    }
+    rates.map.contains_key(&t).then_some(t)
+}
+
+/// Unique initials of known multi-word currency names ("turkish lira" →
+/// "tl", "canadian dollar" → "cd", "swiss franc" → "sf"). Short, purely
+/// alphabetic tokens only — long or odd tokens are normal words.
+fn currency_initials(token: &str, rates: Option<&Rates>) -> Option<String> {
+    if !token.chars().all(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let n = token.chars().count();
+    if !(2..=5).contains(&n) {
+        return None;
+    }
+    let initials_of = |name: &str| -> String {
+        name.split_whitespace()
+            .filter_map(|w| w.chars().next())
+            .collect::<String>()
+            .to_lowercase()
+    };
+    let mut codes: Vec<&str> = Vec::new();
+    for (name, code) in CUR_NAME {
+        if initials_of(name) == token {
+            codes.push(code);
+        }
+    }
+    if let Some(r) = rates {
+        for (name, code) in &r.names {
+            if initials_of(name) == token {
+                codes.push(code);
+            }
+        }
+    }
+    let first = *codes.first()?;
+    codes.iter().all(|c| *c == first).then(|| first.to_string())
 }
 
 /// The one shape every conversion row takes.
@@ -569,6 +861,36 @@ fn unit_row(amount: f64, from: &Unit, to: &Unit, config: &Config) -> Option<Sear
 /// `10 km` — no target given: lead with a readable primary conversion
 /// (a value between 1 and 1e6 wins, else the base unit), then list up
 /// to four more in the subtitle.
+/// Stable per-dimension keys for the settings' default-target rows.
+fn dim_key(dim: u8) -> &'static str {
+    match dim {
+        D_LEN => "length",
+        D_MASS => "mass",
+        D_TEMP => "temperature",
+        D_VOL => "volume",
+        D_AREA => "area",
+        D_SPEED => "speed",
+        D_TIME => "time",
+        D_DATA => "data",
+        D_PRESS => "pressure",
+        D_ENERGY => "energy",
+        D_POWER => "power",
+        D_FORCE => "force",
+        D_ANGLE => "angle",
+        D_FREQ => "frequency",
+        D_FUEL => "fuel",
+        _ => "",
+    }
+}
+
+/// (config key, option units) per dimension — what the settings' default-
+/// target rows offer as fixed alternatives to the automatic pick.
+pub fn default_target_dims() -> Vec<(&'static str, Vec<&'static str>)> {
+    (0..NDIM)
+        .map(|i| (dim_key(i as u8), EQUIV[i].to_vec()))
+        .collect()
+}
+
 fn equiv_row(amount: f64, from: &Unit, config: &Config) -> Option<SearchResult> {
     let conv = |u: &Unit| from_base(to_base(amount, from), u);
     let base = base_unit(from.dim);
@@ -587,10 +909,15 @@ fn equiv_row(amount: f64, from: &Unit, config: &Config) -> Option<SearchResult> 
         let v = conv(u);
         v.is_finite() && (1.0..=1e6).contains(&v.abs())
     };
-    let prim = cands
-        .iter()
-        .copied()
-        .find(|u| readable(u))
+    // The settings' default target wins over the "readable" heuristic when
+    // it is set for this dimension and isn't the source itself.
+    let default_target = config
+        .calc_default_targets
+        .get(dim_key(from.dim))
+        .and_then(|sym| lookup_unit(sym))
+        .filter(|u| u.dim == from.dim && u.sym != from.sym && conv(u).is_finite());
+    let prim = default_target
+        .or_else(|| cands.iter().copied().find(|u| readable(u)))
         .or_else(|| {
             if base.sym != from.sym && readable(base) {
                 Some(base)
@@ -658,7 +985,19 @@ fn currency_equiv_row(
     rates: &Rates,
     config: &Config,
 ) -> Option<SearchResult> {
-    let prim = if from == "eur" { "usd" } else { "eur" };
+    // The settings' default currency wins when it isn't the source itself;
+    // otherwise the automatic pick stands (USD for EUR sources, EUR else).
+    let default_ccy = config.calc_default_currency.to_lowercase();
+    let prim: &str = if !default_ccy.is_empty()
+        && default_ccy != from
+        && rates.map.contains_key(&default_ccy)
+    {
+        default_ccy.as_str()
+    } else if from == "eur" {
+        "usd"
+    } else {
+        "eur"
+    };
     let mut rest: Vec<&str> = Vec::new();
     for c in ["eur", "usd", "gbp", "jpy", "cny", "inr", "chf", "cad", "aud", "btc"] {
         if c != from && c != prim && rates.map.contains_key(c) {
@@ -706,31 +1045,81 @@ pub fn convert(q: &str, config: &Config) -> Option<SearchResult> {
     if !amount.is_finite() {
         return None;
     }
-    let (from_tok, to_tok) = split_target(rest);
-    let from_unit = lookup_unit(from_tok);
-    let to_unit = lookup_unit(to_tok);
+    let (from_raw, to_raw) = split_target(rest, config);
+    // No connector typed ("20 usd euro"): use the split into source and
+    // target when exactly one split resolves on both sides — anything
+    // else (multi-word units, plain words) falls through untouched.
+    let split_owned: Option<(String, String)> =
+        if to_raw.is_empty() && rest.split_whitespace().count() > 1 {
+            split_pair(rest, config)
+        } else {
+            None
+        };
+    let (from_tok, to_tok) = match &split_owned {
+        Some((a, b)) => (a.as_str(), b.as_str()),
+        None => (from_raw, to_raw),
+    };
+
+    // Exact lookups first; a guess only fills in what's unresolved. A unit
+    // known on the other side pins the guess to its dimension, so "20 km to
+    // met" reads as the meter while "20 kg to met" reads as the metric ton.
+    let mut from_unit = lookup_unit(from_tok);
+    let mut to_unit = lookup_unit(to_tok);
+    if from_unit.is_none() {
+        from_unit = guess_unit_in(from_tok, to_unit.map(|u| u.dim));
+    }
+    if to_unit.is_none() && !to_tok.is_empty() {
+        to_unit = guess_unit_in(to_tok, from_unit.map(|u| u.dim));
+    }
+    if from_unit.is_none() {
+        // The target may have been the ambiguous side — retry now that it
+        // resolved (or stayed empty).
+        from_unit = guess_unit_in(from_tok, to_unit.map(|u| u.dim));
+    }
 
     if let Some(fu) = from_unit {
-        if !config.calc_converter {
-            return None;
-        }
         if to_tok.is_empty() {
+            if !config.calc_converter {
+                return None;
+            }
             return if config.calc_equivalents {
                 equiv_row(amount, fu, config)
             } else {
                 None
             };
         }
-        let tu = to_unit?;
-        if fu.dim != tu.dim {
-            return None;
+        if let Some(tu) = to_unit {
+            if !config.calc_converter {
+                return None;
+            }
+            if fu.dim != tu.dim {
+                return None;
+            }
+            return unit_row(amount, fu, tu, config);
         }
-        return unit_row(amount, fu, tu, config);
+        // The source is a word units share with money ("pounds") and
+        // the target is no unit — fall through: only the money
+        // reading has something to answer with. When the target isn't
+        // a currency either, the money path answers nothing.
     }
 
-    // Not a physical unit — money?
+    // Not a physical unit (or no unit pair) — money?
+    money_row(amount, from_tok, to_tok, config)
+}
+
+/// The money path: both sides read as currencies, warm the rate
+/// table, then the direct row or — with no target — the majors as
+/// equivalents. Also the fallback for unit-shaped words aimed at
+/// money (`10 pounds to dollars`).
+fn money_row(
+    amount: f64,
+    from_tok: &str,
+    to_tok: &str,
+    config: &Config,
+) -> Option<SearchResult> {
     let rates = currency::cached();
-    let fc = currency_code(from_tok, rates.as_deref())?;
+    let fc = currency_code(from_tok, rates.as_deref())
+        .or_else(|| guess_currency(from_tok, rates.as_deref()))?;
     if !config.calc_currency {
         return None;
     }
@@ -745,7 +1134,8 @@ pub fn convert(q: &str, config: &Config) -> Option<SearchResult> {
             None
         };
     }
-    let tc = currency_code(to_tok, Some(table.as_ref()))?;
+    let tc = currency_code(to_tok, Some(table.as_ref()))
+        .or_else(|| guess_currency(to_tok, Some(table.as_ref())))?;
     currency_row(amount, &fc, &tc, &table, config)
 }
 
@@ -766,6 +1156,7 @@ mod tests {
                 ("eur".to_string(), 0.875),
                 ("gbp".to_string(), 0.75),
                 ("jpy".to_string(), 150.5),
+                ("try".to_string(), 34.2),
                 // Not in the static ISO list: only detectable once the
                 // table has loaded.
                 ("aed".to_string(), 3.67),
@@ -774,6 +1165,11 @@ mod tests {
             .collect(),
             date: "2026-09-28".into(),
             at: Instant::now(),
+            // Non-empty so `ensure_loaded` never spawns a fetch (and
+            // its disk overwrite) under a test that planted this.
+            names: currency::parse_names(
+                r#"{"turkish lira":"Turkish Lira","us dollar":"US Dollar"}"#,
+            ),
         }
     }
 
@@ -791,6 +1187,23 @@ mod tests {
         // Canonical symbols in the title, aliases only as input.
         let r = convert("100 metres in feet", &c).expect("word alias");
         assert_eq!(r.title, "100 m = 328.08399 ft");
+        // Spoken-out forms — the word gaps natural queries run into.
+        assert_eq!(
+            convert("10 metric tons to kg", &c).unwrap().title,
+            "10 t = 10000 kg"
+        );
+        assert_eq!(
+            convert("1 astronomical unit to km", &c).unwrap().title,
+            "1 au = 149597870.7 km"
+        );
+        assert_eq!(
+            convert("100 degrees fahrenheit to celsius", &c).unwrap().title,
+            "100 °F = 37.777778 °C"
+        );
+        assert_eq!(
+            convert("10 degrees celsius to f", &c).unwrap().title,
+            "10 °C = 50 °F"
+        );
     }
 
     #[test]
@@ -885,6 +1298,211 @@ mod tests {
     }
 
     #[test]
+    fn short_partial_words_guess_units_and_currencies() {
+        let c = cfg();
+        currency::commit_for_test(rates());
+        // Money: a short unique prefix resolves the target…
+        let r = convert("20 usd to eu", &c).expect("guessed target");
+        assert!(r.title.starts_with("20 USD = "), "{}", r.title);
+        assert!(r.title.ends_with(" EUR"), "{}", r.title);
+        // …and the source.
+        let r = convert("20 eu to usd", &c).expect("guessed source");
+        assert!(r.title.starts_with("20 EUR = "), "{}", r.title);
+        // Multi-word partial: only the last word has to be short.
+        let r = convert("20 usd to us doll", &c).expect("guessed name");
+        assert!(r.title.ends_with(" USD"), "{}", r.title);
+        // Units: the known side fixes the dimension, so "met" reads as the
+        // meter next to a length and the metric ton next to a mass.
+        assert_eq!(
+            convert("10 km to met", &c).unwrap().title,
+            "10 km = 10000 m"
+        );
+        assert_eq!(convert("10 kg to met", &c).unwrap().title, "10 kg = 0.01 t");
+        assert_eq!(
+            convert("10 mi to kilom", &c).unwrap().title,
+            "10 mi = 16.09344 km"
+        );
+        // A partial source resolves against the exact target's dimension.
+        assert_eq!(
+            convert("10 met to km", &c).unwrap().title,
+            "10 m = 0.01 km"
+        );
+    }
+
+    #[test]
+    fn long_or_ambiguous_words_never_guess() {
+        let c = cfg();
+        currency::commit_for_test(rates());
+        // Long words are never guessed — the converter stays silent.
+        assert!(convert("20 euros to something", &c).is_none());
+        assert!(convert("10 km to kilomet", &c).is_none(), "7-char word");
+        // Short but ambiguous: several different currencies match "b".
+        assert!(convert("20 usd to b", &c).is_none());
+        // One letter is never enough.
+        assert!(convert("10 km to z", &c).is_none());
+        // Ambiguous target with nothing to pin the dimension: no guess.
+        assert!(convert("20 zorp to met", &c).is_none());
+    }
+
+    #[test]
+    fn guessing_respects_the_feature_switches() {
+        currency::commit_for_test(rates());
+        let mut off = cfg();
+        off.calc_converter = false;
+        assert!(convert("10 km to met", &off).is_none(), "converter switch");
+        let mut off = cfg();
+        off.calc_currency = false;
+        assert!(convert("20 usd to eu", &off).is_none(), "currency switch");
+    }
+
+    #[test]
+    fn conversions_without_a_connector_resolve() {
+        let c = cfg();
+        currency::commit_for_test(rates());
+        // Currencies…
+        let r = convert("20 usd euro", &c).expect("money pair");
+        assert!(r.title.starts_with("20 USD = "), "{}", r.title);
+        // …multi-word names split at the only place that resolves…
+        let r = convert("20 usd turkish lira", &c).expect("multi-word target");
+        assert!(r.title.ends_with(" TRY"), "{}", r.title);
+        // …commas are trimmed off the words…
+        let r = convert("20 usd, euro", &c).expect("comma pair");
+        assert!(r.title.starts_with("20 USD = "), "{}", r.title);
+        // …and same-dimension units.
+        assert_eq!(convert("10 kg g", &c).unwrap().title, "10 kg = 10000 g");
+        // Multi-word units are never hijacked: still the equivalents row.
+        let r = convert("10 miles per hour", &c).expect("equivalents");
+        assert!(r.title.starts_with("10 mph = "), "{}", r.title);
+        // Nothing resolves → silence.
+        assert!(convert("20 zorp zorp", &c).is_none());
+    }
+
+    #[test]
+    fn the_configured_wording_replaces_the_defaults() {
+        currency::commit_for_test(rates());
+        // Default config: both built-ins, the symbols and the bare split.
+        let c = cfg();
+        assert!(convert("20 usd to euro", &c).is_some(), "to");
+        assert!(convert("20 usd in euro", &c).is_some(), "in");
+        assert!(convert("20 usd -> euro", &c).is_some(), "->");
+        // A custom list replaces the built-ins.
+        let mut c = cfg();
+        c.calc_convert_words = vec!["em".to_string()];
+        let r = convert("20 usd em euro", &c).expect("custom word");
+        assert!(r.title.starts_with("20 USD = "), "{}", r.title);
+        assert!(convert("20 usd to euro", &c).is_none(), "replaced");
+        // …but symbols and the connector-less split keep working.
+        assert!(convert("20 usd -> euro", &c).is_some(), "symbol");
+        assert!(convert("20 usd euro", &c).is_some(), "no connector");
+    }
+
+    #[test]
+    fn default_currency_and_default_targets_steer_no_target_rows() {
+        currency::commit_for_test(rates());
+        // Ships with USD: a EUR source converts to the default currency.
+        let mut c = cfg();
+        assert_eq!(c.calc_default_currency, "usd");
+        let r = convert("20 eur", &c).expect("default currency");
+        assert!(
+            r.title.starts_with("20 EUR = ") && r.title.ends_with(" USD"),
+            "{}",
+            r.title
+        );
+        // …source == default → the automatic pick (EUR for a USD source).
+        let r = convert("20 usd", &c).expect("auto pick");
+        assert!(r.title.ends_with(" EUR"), "{}", r.title);
+        // Changing it steers every other source.
+        c.calc_default_currency = "gbp".to_string();
+        let r = convert("20 usd", &c).expect("gbp");
+        assert!(r.title.ends_with(" GBP"), "{}", r.title);
+        // Unit targets: automatic by default…
+        let mut c = cfg();
+        assert!(c.calc_default_targets.is_empty());
+        let r = convert("10 km", &c).expect("auto length");
+        assert!(r.title.starts_with("10 km = 10000 m"), "{}", r.title);
+        // …a configured default wins…
+        c.calc_default_targets
+            .insert("length".to_string(), "mi".to_string());
+        let r = convert("10 km", &c).expect("mi");
+        assert_eq!(r.title, "10 km = 6.213712 mi");
+        // …unless the source *is* the default (mi → mi makes no sense,
+        // so the automatic pick takes over again).
+        c.calc_default_targets
+            .insert("length".to_string(), "mi".to_string());
+        let r = convert("10 mi", &c).expect("source == default");
+        assert!(!r.title.ends_with(" mi"), "{}", r.title);
+    }
+
+    #[test]
+    fn default_target_dims_cover_every_dimension() {
+        let dims = default_target_dims();
+        assert_eq!(dims.len(), NDIM);
+        assert_eq!(dims[0].0, "length");
+        assert!(dims[0].1.contains(&"mi"), "{:?}", dims[0].1);
+        assert_eq!(dims[14].0, "fuel");
+        assert_eq!(dim_key(D_TEMP), "temperature");
+    }
+
+    #[test]
+    fn shortened_currency_spellings_resolve() {
+        let r = rates();
+        // Explicit local abbreviations, symbols and words.
+        for (tok, want) in [
+            ("tl", "try"),
+            ("₺", "try"),
+            ("dolar", "usd"),
+            ("avro", "eur"),
+            ("sterlin", "gbp"),
+            ("rp", "idr"),
+            ("kč", "czk"),
+            ("r$", "brl"),
+            ("c$", "cad"),
+            ("a$", "aud"),
+            ("s$", "sgd"),
+            ("hk$", "hkd"),
+            ("nz$", "nzd"),
+            ("rm", "myr"),
+        ] {
+            assert_eq!(
+                currency_code(tok, Some(&r)).as_deref(),
+                Some(want),
+                "token {tok}"
+            );
+        }
+        // Initials of known names work even before rates land.
+        assert_eq!(currency_code("cd", None).as_deref(), Some("cad"));
+        assert_eq!(
+            currency_code("sf", Some(&r)).as_deref(),
+            Some("chf"),
+            "swiss franc"
+        );
+        // Ambiguous initials resolve to nothing.
+        assert!(currency_code("ud", Some(&r)).is_none(), "usd vs aed");
+        // Long or non-alphabetic tokens never take the initials path.
+        assert!(currency_code("toolbox", Some(&r)).is_none());
+        assert!(currency_code("t1", Some(&r)).is_none());
+    }
+
+    #[test]
+    fn shortened_spellings_drive_real_conversions() {
+        let c = cfg();
+        currency::commit_for_test(rates());
+        // The local short form as the source.
+        let r = convert("20 tl to usd", &c).expect("tl source");
+        assert!(r.title.starts_with("20 TRY = "), "{}", r.title);
+        // Words instead of codes on both sides, connector omitted.
+        let r = convert("20 dolar avro", &c).expect("word pair");
+        assert!(
+            r.title.starts_with("20 USD = ") && r.title.ends_with(" EUR"),
+            "{}",
+            r.title
+        );
+        // Initials as the target ("japanese yen" → "jy").
+        let r = convert("20 eur to jy", &c).expect("initials target");
+        assert!(r.title.ends_with(" JPY"), "{}", r.title);
+    }
+
+    #[test]
     fn no_target_shows_equivalents() {
         let c = cfg();
         let r = convert("10 km", &c).expect("equivalents row");
@@ -954,6 +1572,13 @@ mod tests {
         assert_eq!(convert("5 kg = lb", &c).unwrap().title, "5 kg = 11.023113 lb");
         assert_eq!(convert("5 kg->lb", &c).unwrap().title, "5 kg = 11.023113 lb");
         assert_eq!(convert("5 kg → lb", &c).unwrap().title, "5 kg = 11.023113 lb");
+        // Word separators match in any case.
+        assert_eq!(convert("10 KM TO MI", &c).unwrap().title, "10 km = 6.213712 mi");
+        assert_eq!(convert("10 CM IN IN", &c).unwrap().title, "10 cm = 3.937008 in");
+        // A separator needs a source: "10 in"/"10 min" are the unit,
+        // not a split at their own first word.
+        assert!(convert("10 in", &c).unwrap().title.starts_with("10 in ="));
+        assert!(convert("10 min", &c).unwrap().title.starts_with("10 min ="));
         // A half-typed target falls back to equivalents instead of flickering.
         assert!(convert("10 km to", &c).unwrap().title.starts_with("10 km ="));
     }
@@ -1020,6 +1645,100 @@ mod tests {
         assert!(currency_code("", Some(&r)).is_none());
         // No rates → intent still detected for fetch, no row yet.
         assert_eq!(currency_code("usd", None).as_deref(), Some("usd"));
+    }
+
+    #[test]
+    fn natural_currency_names_resolve() {
+        let r = rates();
+        for (tok, want) in [
+            ("turkish lira", "try"),
+            ("US Dollar", "usd"),
+            ("british pound", "gbp"),
+            ("japanese yen", "jpy"),
+            ("saudi riyal", "sar"),
+            ("uae dirham", "aed"),
+            ("buck", "usd"),
+            ("quid", "gbp"),
+        ] {
+            assert_eq!(
+                currency_code(tok, Some(&r)).as_deref(),
+                Some(want),
+                "token {tok}"
+            );
+        }
+        // A plural typed by hand strips its trailing s…
+        assert_eq!(
+            currency_code("turkish liras", Some(&r)).as_deref(),
+            Some("try")
+        );
+        assert_eq!(currency_code("bucks", Some(&r)).as_deref(), Some("usd"));
+        // …and the API's long tail resolves through its name list.
+        let mut r = r;
+        r.names = currency::parse_names(
+            r#"{"idr":"Indonesian Rupiah","ltl":"Lithuanian Litas"}"#,
+        );
+        assert_eq!(
+            currency_code("indonesian rupiah", Some(&r)).as_deref(),
+            Some("idr")
+        );
+        assert_eq!(
+            currency_code("Indonesian Rupiah", Some(&r)).as_deref(),
+            Some("idr")
+        );
+        assert_eq!(
+            currency_code("lithuanian litas", Some(&r)).as_deref(),
+            Some("ltl")
+        );
+        assert!(currency_code("zorp lira", Some(&r)).is_none());
+    }
+
+    #[test]
+    fn natural_names_and_any_case_separators_show_the_money_row() {
+        let c = cfg();
+        currency::commit_for_test(rates());
+        let row = convert("10 dollars to turkish lira", &c).expect("money row");
+        assert_eq!(row.title, "10 USD = 342 TRY");
+        assert_eq!(row.action, Action::InsertCalculatorResult("342 TRY".into()));
+        // The separator and the names both match in any case…
+        assert_eq!(
+            convert("10 USD IN TURKISH LIRA", &c).unwrap().title,
+            "10 USD = 342 TRY"
+        );
+        // …and so do plurals.
+        assert_eq!(
+            convert("10 dollars to turkish liras", &c).unwrap().title,
+            "10 USD = 342 TRY"
+        );
+        // Unknown names stay silent.
+        assert!(convert("10 dollars to zorp lira", &c).is_none());
+    }
+
+    #[test]
+    fn shared_words_fall_back_to_money_when_the_target_is_money() {
+        let c = cfg();
+        currency::commit_for_test(rates());
+        // "pounds" is a mass unit and a currency: with a currency
+        // target the money reading is the only one with an answer…
+        let row = convert("10 pounds to dollars", &c).expect("money row");
+        assert_eq!(row.title, "10 GBP = 13.333333 USD");
+        // …while the unit reading keeps its unit target.
+        assert_eq!(
+            convert("10 pounds to kg", &c).unwrap().title,
+            "10 lb = 4.535924 kg"
+        );
+        // Currency off → the shared word answers nothing.
+        let mut off = cfg();
+        off.calc_currency = false;
+        assert!(convert("10 pounds to dollars", &off).is_none());
+        // Converter off, currency on → still the money row: the unit
+        // reading was never in play.
+        let mut off = cfg();
+        off.calc_converter = false;
+        assert_eq!(
+            convert("10 pounds to dollars", &off).unwrap().title,
+            "10 GBP = 13.333333 USD"
+        );
+        assert!(convert("10 pounds to kg", &off).is_none());
     }
 
     #[test]

@@ -105,6 +105,10 @@ const SWIPE_COMMIT_PX: f64 = 140.0;
 /// Past this the row has left the popover, so a drag commits without waiting
 /// for release.
 const SWIPE_OFFSCREEN_PX: f64 = 260.0;
+/// How far a swiped-away row is parked. Must clear the popover's 360 px
+/// width for ANY row width; the width watcher below refines it to the
+/// measured width + 2 once the row has been allocated.
+const SWIPE_PARK_PX: f64 = 420.0;
 /// Final slide target used once a swipe commits.
 const SWIPE_SETTLE_PX: f64 = 500.0;
 /// A single large side-scroll delta counts as a fling and commits immediately.
@@ -146,8 +150,33 @@ fn pending_row_tx(row_rest: f64, dismiss_dir: f64, offset: f64) -> f64 {
     }
 }
 
+/// Where the undo bar sits while a dismissed row is dragged back in.
+/// The row comes back from the side it was dismissed to; the bar slides out the
+/// opposite side, so the two are complementary and never overlap (a "sliding
+/// door"): with `R = row_rest` the row spans `[R(1-p), R(1-p)+R]` and the bar
+/// `[-Rp, -Rp+R]`, so the bar's trailing edge always meets the row's leading
+/// edge. Forward drags (re-dismissing) keep following the finger.
+fn pending_bar_tx(row_rest: f64, dismiss_dir: f64, offset: f64) -> f64 {
+    if offset * dismiss_dir >= 0.0 {
+        offset
+    } else {
+        let progress = (offset.abs() / SWIPE_COMMIT_PX).clamp(0.0, 1.0);
+        -dismiss_dir * row_rest * progress
+    }
+}
+
 pub struct SearchWindow {
     pub(crate) window: gtk::Window,
+    /// The window-level key controller — kept so `destroy` can detach it
+    /// (its closures hold clones of the window: without detaching, every
+    /// replaced window would leak).
+    window_kc: gtk::EventControllerKey,
+    /// Handler ids detached again in `destroy`: they close the reference
+    /// cycles (the entry's changed closure captures the entry itself plus
+    /// list/results/preview; the window's is-active closure clones the
+    /// window) that would otherwise leak one ~1 MB widget graph per show.
+    entry_changed_h: std::cell::Cell<Option<glib::SignalHandlerId>>,
+    is_active_h: std::cell::Cell<Option<glib::SignalHandlerId>>,
     entry: gtk::Entry,
     mode_chip: gtk::Box,
     mode_icon: gtk::Image,
@@ -571,6 +600,9 @@ impl SearchWindow {
             let shown = shown.clone();
             ops_popover.connect_closed(move |_| {
                 f.set(false);
+                // A close cancels any in-flight swipe without its end event, so
+                // release the refresh lock here instead of waiting it out.
+                ops_gesture_end();
                 // If the popover closed because the user clicked outside the
                 // whole window, finish the job and hide the window too.
                 if !w.is_active() {
@@ -578,275 +610,66 @@ impl SearchWindow {
                 }
             });
         }
-        // build_ops_content: (re)builds the Operations popover widget tree and
-        // calls popover.set_child(). Does NOT popup/popdown — callers do that.
+        // ops_state: the Operations popover's persistent widget tree, shared with
+        // the open/close paths below.
+        let ops_state: Rc<RefCell<Option<OpsPopover>>> = Rc::new(RefCell::new(None));
+
+        // build_ops_content: refresh the Operations popover. The tree is built
+        // once and then updated in place; only a structural change (item added,
+        // removed, or its state/dismissal flipped) rebuilds the rows. Rebuilding
+        // on every refresh recreated the pending undo bars ~8x/sec while an
+        // operation ran — replaying their slide-down, resetting the scroll, and
+        // destroying whatever row a swipe gesture was attached to.
+        // Does NOT popup/popdown — callers do that.
         let build_ops_content: Rc<dyn Fn()> = {
             let popover = ops_popover.clone();
             let entry = entry.clone();
+            let state = ops_state.clone();
             Rc::new(move || {
-                let list = gtk::Box::builder()
-                    .orientation(gtk::Orientation::Vertical)
-                    .spacing(2)
-                    .width_request(360)
-                    .build();
-                let header = gtk::Label::builder()
-                    .label(gettext("Operations"))
-                    .xalign(0.0)
-                    .css_classes(["heading"])
-                    .margin_bottom(4)
-                    .build();
-                list.append(&header);
-
-                // top_slot: now-playing music card OR music undo bar.
-                let top_slot = gtk::Box::builder()
-                    .orientation(gtk::Orientation::Vertical)
-                    .build();
-                list.append(&top_slot);
-
-                // undo_slot: brief toast after a history/running item is swiped away.
-                let undo_slot = gtk::Box::builder()
-                    .orientation(gtk::Orientation::Vertical)
-                    .build();
-                list.append(&undo_slot);
-
+                {
+                    let mut slot = state.borrow_mut();
+                    if slot.is_none() {
+                        *slot = Some(OpsPopover::new());
+                        let fresh = slot.as_ref().expect("tree just inserted");
+                        popover.set_child(Some(&fresh.list));
+                    }
+                }
                 let items = crate::operations::popover_items();
-                if items.is_empty() {
-                    list.append(
-                        &gtk::Label::builder()
-                            .label(gettext("No operations yet"))
-                            .xalign(0.0)
-                            .css_classes(["dim-label"])
-                            .build(),
-                    );
-                } else if !items.is_empty() {
-                    let scroll = gtk::ScrolledWindow::builder()
-                        .hscrollbar_policy(gtk::PolicyType::Never)
-                        .min_content_height(0)
-                        .max_content_height(360)
-                        .propagate_natural_height(true)
-                        .build();
-                    let rows = gtk::Box::builder()
-                        .orientation(gtk::Orientation::Vertical)
-                        .spacing(2)
-                        .build();
+                let sig = ops_signature(&items);
+                let mut slot = state.borrow_mut();
+                let st = slot.as_mut().expect("ops popover tree built above");
+                st.empty.set_visible(items.is_empty());
+                st.scroll.set_visible(!items.is_empty());
+                if st.sig == sig && st.handles.len() == items.len() {
+                    // Nothing structural changed: refresh only the live parts, so
+                    // no widget — and no in-flight gesture — is disturbed.
+                    for (h, it) in st.handles.iter_mut().zip(items.iter()) {
+                        ops_row_update(h, it);
+                    }
+                } else {
+                    for h in st.handles.drain(..) {
+                        if let Some(c) = h.cleanup {
+                            c();
+                        }
+                    }
+                    while let Some(child) = st.rows.first_child() {
+                        st.rows.remove(&child);
+                    }
                     // When natural scroll is OFF, GTK reports dx opposite to the
                     // finger direction (traditional: finger right → scroll left →
                     // dx negative). Negate so the row always follows the finger.
                     let scroll_sign: f64 = if touchpad_natural_scroll() { -1.0 } else { 1.0 };
-                    for it in items {
-                        if it.dismissed_dir.is_some() {
-                            rows.append(&build_ops_pending_bar(&it));
-                            continue;
-                        }
-
-                        let row = gtk::Box::builder()
-                            .orientation(gtk::Orientation::Horizontal)
-                            .spacing(10)
-                            .margin_top(4)
-                            .margin_bottom(4)
-                            .margin_start(4)
-                            .margin_end(4)
-                            .build();
-                        let img = gtk::Image::builder().pixel_size(20).build();
-                        crate::ui::result_row::set_op_row_icon(&img, &it.icon);
-                        // ponhytail: wrap icon in ring during install; drop the linear bar.
-                        let icon_widget: gtk::Widget = if it.state == "running" {
-                            let ring = crate::ui::circular_progress::progress_ring(
-                                32,
-                                it.progress,
-                                crate::ui::circular_progress::RingState::Running,
-                            );
-                            let overlay = gtk::Overlay::new();
-                            overlay.set_child(Some(&img));
-                            overlay.add_overlay(&ring);
-                            overlay.upcast()
-                        } else {
-                            img.upcast()
+                    for it in &items {
+                        let w = match it.dismissed_dir {
+                            Some(_) => build_ops_pending_bar(it),
+                            None => build_ops_row(it, scroll_sign),
                         };
-                        row.append(&icon_widget);
-                        let textbox = gtk::Box::builder()
-                            .orientation(gtk::Orientation::Vertical)
-                            .hexpand(true)
-                            .build();
-                        textbox.append(&gtk::Label::builder().label(&it.title).xalign(0.0).build());
-                        textbox.append(
-                            &gtk::Label::builder()
-                                .label(&it.detail)
-                                .xalign(0.0)
-                                .css_classes(["dim-label", "caption"])
-                                .build(),
-                        );
-                        row.append(&textbox);
-                        let (badge, css) = match it.state {
-                            "running" => ("● Running", "accent"),
-                            "failed" => ("Failed", "error"),
-                            "cancelled" => ("Cancelled", "warning"),
-                            _ => ("✓ Done", "success"),
-                        };
-                        row.append(
-                            &gtk::Label::builder()
-                                .label(badge)
-                                .css_classes(["caption", css])
-                                .valign(gtk::Align::Center)
-                                .build(),
-                        );
-                        // ponhytail: pulse the whole row when progress is unknown.
-                        if it.state == "running" && it.progress.is_none() {
-                            row.add_css_class("op-pulse");
-                        }
-
-                        let op_id = it.op_id;
-                        let hist_id = it.hist_id;
-                        let row_cls =
-                            format!("swrow{}", SWIPE_ROW_CTR.fetch_add(1, Ordering::Relaxed));
-                        row.add_css_class(&row_cls);
-                        let set_css = {
-                            let rc = row_cls.clone();
-                            move |tx: f64, transition: &str| swipe_apply(&rc, tx, transition)
-                        };
-                        let row_rev = gtk::Revealer::builder()
-                            .transition_type(gtk::RevealerTransitionType::SlideUp)
-                            .transition_duration(240)
-                            .reveal_child(true)
-                            .child(&row)
-                            .build();
-                        let dismissed = Rc::new(Cell::new(false));
-
-                        let do_dismiss: Rc<dyn Fn(f64)> = {
-                            let set_css = set_css.clone();
-                            let rev_d = row_rev.clone();
-                            let dis = dismissed.clone();
-                            let cls = row_cls.clone();
-                            Rc::new(move |dx: f64| {
-                                if dis.get() {
-                                    return;
-                                }
-                                dis.set(true);
-                                let target = if dx >= 0.0 { 500.0 } else { -500.0 };
-                                set_css(target, "transform 300ms ease-out");
-                                let rev2 = rev_d.clone();
-                                let cls = cls.clone();
-                                glib::timeout_add_local_once(
-                                    Duration::from_millis(310),
-                                    move || {
-                                        rev2.set_reveal_child(false);
-                                        glib::timeout_add_local_once(
-                                            Duration::from_millis(250),
-                                            move || {
-                                                crate::operations::dismiss_item(
-                                                    op_id,
-                                                    hist_id,
-                                                    dx.signum(),
-                                                );
-                                                swipe_clear(&cls);
-                                            },
-                                        );
-                                    },
-                                );
-                            })
-                        };
-
-                        if it.state == "running" && op_id.is_some() {
-                            let cancel_btn = gtk::Button::builder()
-                                .icon_name("process-stop-symbolic")
-                                .css_classes(["flat", "circular"])
-                                .valign(gtk::Align::Center)
-                                .tooltip_text(gettext("Cancel"))
-                                .build();
-                            cancel_btn.connect_clicked(move |_| {
-                                if let Some(id) = op_id {
-                                    crate::operations::cancel(id);
-                                }
-                            });
-                            row.append(&cancel_btn);
-                        }
-
-                        let drag = gtk::GestureDrag::new();
-                        drag.set_touch_only(false);
-                        drag.set_propagation_phase(gtk::PropagationPhase::Bubble);
-                        {
-                            let set_css = set_css.clone();
-                            let dismiss = do_dismiss.clone();
-                            let dis = dismissed.clone();
-                            drag.connect_drag_update(move |_, dx, _| {
-                                if dis.get() {
-                                    return;
-                                }
-                                set_css(dx, "");
-                                if dx.abs() >= SWIPE_OFFSCREEN_PX {
-                                    dismiss(dx);
-                                }
-                            });
-                        }
-                        {
-                            let set_css = set_css.clone();
-                            let dismiss = do_dismiss.clone();
-                            let dis = dismissed.clone();
-                            drag.connect_drag_end(move |_, dx, _| {
-                                if dis.get() {
-                                    return;
-                                }
-                                if dx.abs() >= SWIPE_COMMIT_PX {
-                                    dismiss(dx);
-                                } else {
-                                    set_css(0.0, SWIPE_SPRING);
-                                }
-                            });
-                        }
-                        row_rev.add_controller(drag);
-
-                        let scroll_ctl = gtk::EventControllerScroll::new(
-                            gtk::EventControllerScrollFlags::HORIZONTAL,
-                        );
-                        scroll_ctl.set_propagation_phase(gtk::PropagationPhase::Bubble);
-                        let scroll_acc = Rc::new(Cell::new(0.0_f64));
-                        {
-                            let set_css = set_css.clone();
-                            let dismiss = do_dismiss.clone();
-                            let acc = scroll_acc.clone();
-                            let dis = dismissed.clone();
-                            scroll_ctl.connect_scroll(move |_, dx, _dy| {
-                                if dis.get() {
-                                    return glib::Propagation::Stop;
-                                }
-                                if dx.abs() < 0.005 {
-                                    return glib::Propagation::Proceed;
-                                }
-                                if let Some(fling) = scroll_fling_offset(dx * scroll_sign) {
-                                    acc.set(0.0);
-                                    dismiss(fling);
-                                    return glib::Propagation::Stop;
-                                }
-                                let new_acc = acc.get() + dx * scroll_sign;
-                                acc.set(new_acc);
-                                let px = new_acc * SWIPE_SCALE;
-                                set_css(px, "");
-                                if px.abs() >= SWIPE_COMMIT_PX {
-                                    dismiss(px);
-                                }
-                                glib::Propagation::Stop
-                            });
-                        }
-                        {
-                            let set_css = set_css.clone();
-                            let acc = scroll_acc.clone();
-                            let dis = dismissed.clone();
-                            scroll_ctl.connect_scroll_end(move |_| {
-                                if dis.get() {
-                                    return;
-                                }
-                                acc.set(0.0);
-                                set_css(0.0, SWIPE_SPRING);
-                            });
-                        }
-                        row.add_controller(scroll_ctl);
-
-                        rows.append(&row_rev);
+                        st.rows.append(&w.widget);
+                        st.handles.push(w);
                     }
-                    scroll.set_child(Some(&rows));
-                    list.append(&scroll);
+                    st.sig = sig;
                 }
-                popover.set_child(Some(&list));
+                drop(slot);
                 // Restore focus to the search entry so shortcuts keep working.
                 entry.grab_focus();
             })
@@ -858,6 +681,7 @@ impl SearchWindow {
             let popover = ops_popover.clone();
             let popover_open = popover_open.clone();
             let build = build_ops_content.clone();
+            let state = ops_state.clone();
             Rc::new(move || {
                 if popover.is_visible() {
                     popover.popdown();
@@ -865,6 +689,11 @@ impl SearchWindow {
                     return;
                 }
                 popover_open.set(true);
+                // A fresh open re-renders from scratch so the list starts at the top; the
+                // in-place path only serves refreshes while the popover is open.
+                if let Some(st) = state.borrow_mut().as_mut() {
+                    st.sig.clear();
+                }
                 build();
                 popover.popup();
             })
@@ -877,9 +706,16 @@ impl SearchWindow {
             let popover = ops_popover.clone();
             let build = build_ops_content.clone();
             Rc::new(move || {
-                if popover.is_visible() {
-                    build();
+                if !popover.is_visible() {
+                    return;
                 }
+                // Never rebuild the rows out from under a live swipe — that is
+                // what made the undo bar flicker and the swipe-back impossible.
+                if ops_gesture_active() {
+                    ops_refresh_deferred();
+                    return;
+                }
+                build();
             })
         };
 
@@ -1049,6 +885,16 @@ impl SearchWindow {
                                     if !kaccel.is_empty() {
                                         entries.push((gettext("Kill app"), kaccel));
                                     }
+                                }
+                            } else if matches!(res.action, Action::LaunchAppImage(_)) {
+                                // Same shortcut as uninstall: it trashes the file.
+                                let uaccel = accel_or(
+                                    &config,
+                                    |c| c.uninstall_shortcut.as_str(),
+                                    "<Control>u",
+                                );
+                                if !uaccel.is_empty() {
+                                    entries.push((gettext("Remove AppImage"), uaccel));
                                 }
                             }
                         }
@@ -1604,6 +1450,10 @@ impl SearchWindow {
         // Debounce state: trailing 120 ms.
         let search_dispatch_now: Rc<Cell<bool>> = Rc::new(Cell::new(false));
         let search_debounce_id: Rc<Cell<Option<glib::SourceId>>> = Rc::new(Cell::new(None));
+        // Filled with the changed handler's id below; `destroy` detaches it
+        // to break the entry's self-cycle.
+        #[allow(unused_assignments)] // the block below always fills it
+        let mut entry_changed_h: Option<glib::SignalHandlerId> = None;
         {
             let list = list.clone();
             let results = results.clone();
@@ -1636,7 +1486,7 @@ impl SearchWindow {
             let last_q = last_rendered_query.clone();
             let ops_ring_c = ops_ring.clone();
 
-            entry.connect_changed(move |e| {
+            entry_changed_h = Some(entry.connect_changed(move |e| {
                 if suppress.get() {
                     return;
                 }
@@ -2105,7 +1955,7 @@ impl SearchWindow {
                 }
                 // Track the last rendered query for the next rebuild.
                 *last_q.borrow_mut() = q.to_string();
-            });
+            }));
         }
 
         // ── Row activated (click) ──
@@ -2181,6 +2031,14 @@ impl SearchWindow {
                             }
                         });
                         dialog.present();
+                        drop(rs);
+                        return;
+                    } else if let Action::RemoveAppImage(path) = &res.action {
+                        // Local file delete: the same "moved to the Trash"
+                        // dialog Find mode uses for files.
+                        let name = crate::search::appimage::display_name(path);
+                        confirm_delete_path(&w, &popover_open_click, &e, path, &name);
+                        crate::history::record(&query, &res.title);
                         drop(rs);
                         return;
                     } else {
@@ -2358,6 +2216,12 @@ impl SearchWindow {
                                     "Couldn't determine how this app was installed.",
                                     String::new(),
                                 );
+                                return glib::Propagation::Stop;
+                            } else if let Action::LaunchAppImage(path) = &res.action {
+                                // AppImage launch row: the file itself goes to
+                                // the Trash — no package manager involved.
+                                let name = res.title.clone();
+                                confirm_delete_path(&w, &popover_open_kc, &e, path, &name);
                                 return glib::Propagation::Stop;
                             }
                         }
@@ -2539,6 +2403,14 @@ impl SearchWindow {
                             }
                         }
                     }
+                }
+
+                // Undo — a pending Operations dismissal wins over text/file undo: it is the
+                // most recent thing the user did, and it only lives for the
+                // dismiss grace window (a committed dismissal is gone). When the
+                // bar is on screen the row slides back in from the side it left.
+                if undo_hit && ops_undo_last_dismiss() {
+                    return glib::Propagation::Stop;
                 }
 
                 // Undo — if deleting a clipboard entry was the user's last
@@ -3162,6 +3034,14 @@ impl SearchWindow {
                                     crate::history::record(&query, &res.title);
                                     return glib::Propagation::Stop;
                                 }
+                                if let Action::RemoveAppImage(path) = &res.action {
+                                    // Local file delete: the same "moved to
+                                    // the Trash" dialog Find mode uses for files.
+                                    let name = crate::search::appimage::display_name(path);
+                                    confirm_delete_path(&w, &popover_open_kc, &e, path, &name);
+                                    crate::history::record(&query, &res.title);
+                                    return glib::Propagation::Stop;
+                                }
                                 activate(res, &rs, &e, &w, &shown_kc);
                                 crate::history::record(&query, &res.title);
                             }
@@ -3172,28 +3052,33 @@ impl SearchWindow {
                 }
             });
         }
-        window.add_controller(kc);
+        window.add_controller(kc.clone());
 
         // ── Hide on focus loss ──
         // But not while a footer popover is open (it grabs input, dropping
         // :active) or while a command is running in the progress pane — in
         // those cases the focus change is internal, not the user dismissing
         // the window.
+        #[allow(unused_assignments)] // the block below always fills it
+        let mut is_active_h: Option<glib::SignalHandlerId> = None;
         {
             let w = window.clone();
             let popover_open = popover_open.clone();
             let progress_active = progress_active.clone();
             let shown = shown.clone();
-            window.connect_is_active_notify(move |win| {
+            is_active_h = Some(window.connect_is_active_notify(move |win| {
                 if shown.get() && !win.is_active() && !popover_open.get() && !progress_active.get()
                 {
                     dismiss(&w, &shown, true);
                 }
-            });
+            }));
         }
 
         Self {
             window,
+            window_kc: kc,
+            entry_changed_h: std::cell::Cell::new(entry_changed_h),
+            is_active_h: std::cell::Cell::new(is_active_h),
             entry,
             mode_chip,
             mode_icon,
@@ -3376,6 +3261,31 @@ impl SearchWindow {
     pub fn hide(&self) {
         dismiss(&self.window, &self.shown, true);
     }
+
+    /// Tear this instance down for good — it's being replaced by a fresh
+    /// window. The cycles have to be cut by hand: the key controller and
+    /// in-tree closures hold clones of this window (and the window holds
+    /// them), so `destroy` alone frees the surface but leaks the whole
+    /// ~1 MB widget tree per show. Re-arming `shown` first tells an
+    /// in-flight hide fade to stop touching the window on its next tick.
+    pub fn destroy(&self) {
+        self.shown.set(true);
+        // Cut the cycles first: the changed closure holds the entry (and
+        // through it list/results/preview — the whole ~1 MB graph), the
+        // is-active closure holds the window itself.
+        if let Some(h) = self.entry_changed_h.take() {
+            self.entry.disconnect(h);
+        }
+        if let Some(h) = self.is_active_h.take() {
+            self.window.disconnect(h);
+        }
+        // The preview pane's payload/staleness timers are infinite — stop
+        // them or they'd outlive this window and pin its graph forever.
+        self.preview.stop_polling();
+        self.window.remove_controller(&self.window_kc);
+        self.window.set_child(None::<&gtk::Box>);
+        self.window.destroy();
+    }
     /// Toggle source of truth: `shown` flag, NOT GTK visibility — GTK stays
     /// "visible" during the fade-out (see [`dismiss`]).
     pub fn is_visible(&self) -> bool {
@@ -3434,9 +3344,8 @@ impl SearchWindow {
         self.update_badge
             .set_visible(!orb_busy && (notice.is_some() || reboot));
         if reboot {
-            self.update_badge.set_tooltip_text(Some(&gettext(
-                "Restart required to finish the update",
-            )));
+            let (title, _) = crate::search::cmd::reboot_notice();
+            self.update_badge.set_tooltip_text(Some(&title));
         } else if let Some((n, _)) = &notice {
             let tip = if *n == 1 {
                 gettext("One update available")
@@ -4530,6 +4439,612 @@ fn attach_two_way_swipe(
     area.add_controller(scroll);
 }
 
+/// How far a swiped-away row parks offscreen: its own width + 2 px, so no
+/// part of it peeks out beside the undo bar. (The popover is only 360 px
+/// wide — the old fixed 260 px left ~100 px of the row visible on top of
+/// "Undo", garbling the bar.) Before the first measurement we fall back to
+/// the fixed offset.
+fn swipe_hidden_offset(row_width: f64, dismiss_dir: f64) -> f64 {
+    if row_width > 0.0 {
+        dismiss_dir * (row_width + 2.0)
+    } else {
+        dismiss_dir * SWIPE_PARK_PX
+    }
+}
+
+// ───────────────────────── Operations popover refresh ─────────────────────────
+// The popover is refreshed roughly 8×/second while an operation runs: `nudge_ui`
+// fires on the 120 ms progress tick in `operations::run_process`. Rebuilding the
+// widget tree on every refresh recreated each pending undo bar — replaying its
+// slide-down animation — and destroyed whatever row a swipe gesture was attached
+// to, so a swipe-back never survived long enough to be seen. The popover now
+// keeps ONE tree alive and refreshes it in place: `ops_signature` decides whether
+// anything structural changed, and only that case rebuilds the rows.
+
+thread_local! {
+    /// A pointer is currently driving a row in the Operations popover.
+    static OPS_GESTURE_ACTIVE: Cell<bool> = const { Cell::new(false) };
+    /// A refresh arrived while a gesture was live, so it had to wait.
+    static OPS_REFRESH_DIRTY: Cell<bool> = const { Cell::new(false) };
+    /// Bumped per gesture so the safety timeout can't clobber a newer one.
+    static OPS_GESTURE_SEQ: Cell<u64> = const { Cell::new(0) };
+}
+
+fn ops_gesture_active() -> bool {
+    OPS_GESTURE_ACTIVE.with(|c| c.get())
+}
+
+/// Block structural rebuilds while the user drags a row: replacing a row under a
+/// live gesture is exactly what made the swipe-back glitch.
+fn ops_gesture_begin() {
+    // Only the event that takes the lock arms the safety timeout — a touchpad
+    // swipe fires one event per delta, and each must not schedule its own.
+    if OPS_GESTURE_ACTIVE.with(|c| c.replace(true)) {
+        return;
+    }
+    let seq = OPS_GESTURE_SEQ.with(|c| {
+        c.set(c.get() + 1);
+        c.get()
+    });
+    // Safety net: a gesture that never reports its end (popover closed mid-drag,
+    // sequence cancelled elsewhere) must not freeze the popover's refreshes.
+    glib::timeout_add_local_once(Duration::from_millis(5000), move || {
+        if OPS_GESTURE_SEQ.with(|c| c.get()) == seq && ops_gesture_active() {
+            ops_gesture_end();
+        }
+    });
+}
+
+/// Release the gesture lock and run any refresh that was waiting on it.
+fn ops_gesture_end() {
+    let dirty = OPS_REFRESH_DIRTY.with(|c| c.replace(false));
+    OPS_GESTURE_ACTIVE.with(|c| c.set(false));
+    if dirty {
+        // Deferred to idle: we run inside a gesture callback, and rebuilding the
+        // rows from there would re-enter the widgets currently emitting.
+        glib::idle_add_once(crate::app::refresh_search_window);
+    }
+}
+
+/// Note a refresh that could not run because a gesture is live.
+fn ops_refresh_deferred() {
+    OPS_REFRESH_DIRTY.with(|c| c.set(true));
+}
+
+thread_local! {
+    /// Restore motions of the pending undo bars currently on screen, keyed by
+    /// `(op_id, hist_id)`, so a keyboard undo (Ctrl+Z) can slide the row back
+    /// from the side it left instead of just re-materialising it.
+    static OPS_RESTORE_MOTIONS: RefCell<
+        std::collections::HashMap<(Option<u64>, Option<u64>), Rc<dyn Fn()>>,
+    > = RefCell::new(std::collections::HashMap::new());
+}
+
+fn ops_register_restore(key: (Option<u64>, Option<u64>), motion: Rc<dyn Fn()>) {
+    OPS_RESTORE_MOTIONS.with(|m| m.borrow_mut().insert(key, motion));
+}
+
+fn ops_unregister_restore(key: (Option<u64>, Option<u64>)) {
+    OPS_RESTORE_MOTIONS.with(|m| m.borrow_mut().remove(&key));
+}
+
+fn ops_take_restore(key: (Option<u64>, Option<u64>)) -> Option<Rc<dyn Fn()>> {
+    OPS_RESTORE_MOTIONS.with(|m| m.borrow().get(&key).cloned())
+}
+
+/// Undo the newest Operations dismissal, animated the way it left: the pending
+/// bar plays its row back in if it is on screen, otherwise the item is simply
+/// restored. Returns whether a dismissal was undone.
+fn ops_undo_last_dismiss() -> bool {
+    let Some(key) = crate::operations::latest_dismissed() else {
+        return false;
+    };
+    if let Some(motion) = ops_take_restore(key) {
+        motion();
+        return true;
+    }
+    crate::operations::restore_item(key.0, key.1)
+}
+
+/// Structural fingerprint of the Operations popover's rows. Progress and the live
+/// status line are deliberately excluded: they change on every tick and are
+/// refreshed in place, whereas including them would rebuild the tree 8×/sec.
+fn ops_signature(items: &[crate::operations::OpItem]) -> String {
+    let mut sig = String::with_capacity(items.len() * 32);
+    for it in items {
+        sig.push_str(&format!(
+            "{:?}/{:?}/{}/{:?}/{};",
+            it.op_id, it.hist_id, it.state, it.dismissed_dir, it.title
+        ));
+    }
+    sig
+}
+
+fn ops_badge(state: &str) -> (&'static str, &'static str) {
+    match state {
+        "running" => ("● Running", "accent"),
+        "failed" => ("Failed", "error"),
+        "cancelled" => ("Cancelled", "warning"),
+        _ => ("✓ Done", "success"),
+    }
+}
+
+/// Widgets of one Operations row, kept so a refresh can update the live parts in
+/// place instead of rebuilding — rebuilding a row destroys a swipe gesture on it.
+struct OpsRowWidgets {
+    /// What the rows box holds (a Revealer for both row kinds).
+    widget: gtk::Revealer,
+    /// The row box itself — owns the `op-pulse` class.
+    row: gtk::Widget,
+    title: gtk::Label,
+    detail: gtk::Label,
+    badge: gtk::Label,
+    /// Running rows only: kept so progress ticks update it in place. A fresh
+    /// ring every tick restarts its animation, which reads as a stutter.
+    ring: Option<crate::ui::circular_progress::Ring>,
+    /// Drop this row's swipe CSS rules when the row is destroyed.
+    cleanup: Option<Rc<dyn Fn()>>,
+    /// Whether this row kind ever pulses (live rows only).
+    pulseable: bool,
+    pulsing: bool,
+}
+
+/// Update the live parts of a row (status text, badge, progress, pulse). Anything
+/// structural is the rebuild path's job.
+fn ops_row_update(h: &mut OpsRowWidgets, it: &crate::operations::OpItem) {
+    if h.title.text().as_str() != it.title {
+        h.title.set_text(&it.title);
+    }
+    if h.detail.text().as_str() != it.detail {
+        h.detail.set_text(&it.detail);
+    }
+    let (badge, _) = ops_badge(&it.state);
+    if h.badge.text().as_str() != badge {
+        h.badge.set_text(badge);
+    }
+    if let Some(ring) = &h.ring {
+        ring.set(it.progress, crate::ui::circular_progress::RingState::Running);
+    }
+    let want_pulse = h.pulseable && it.state == "running" && it.progress.is_none();
+    if want_pulse != h.pulsing {
+        if want_pulse {
+            h.row.add_css_class("op-pulse");
+        } else {
+            h.row.remove_css_class("op-pulse");
+        }
+        h.pulsing = want_pulse;
+    }
+}
+
+/// The popover's persistent widget tree plus what the last refresh rendered.
+struct OpsPopover {
+    list: gtk::Box,
+    scroll: gtk::ScrolledWindow,
+    rows: gtk::Box,
+    empty: gtk::Label,
+    /// Structural fingerprint the current `handles` were built from.
+    sig: String,
+    handles: Vec<OpsRowWidgets>,
+}
+
+impl OpsPopover {
+    /// Build the tree once. Later refreshes mutate it instead of handing the
+    /// popover a brand-new child, which is what caused the flicker, the scroll
+    /// reset and the lost gestures.
+    fn new() -> Self {
+        let list = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(2)
+            .width_request(360)
+            .build();
+        list.append(
+            &gtk::Label::builder()
+                .label(gettext("Operations"))
+                .xalign(0.0)
+                .css_classes(["heading"])
+                .margin_bottom(4)
+                .build(),
+        );
+        // top_slot: now-playing music card OR music undo bar.
+        let top_slot = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .build();
+        list.append(&top_slot);
+        // undo_slot: brief toast after a history/running item is swiped away.
+        let undo_slot = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .build();
+        list.append(&undo_slot);
+        let empty = gtk::Label::builder()
+            .label(gettext("No operations yet"))
+            .xalign(0.0)
+            .css_classes(["dim-label"])
+            .build();
+        list.append(&empty);
+        let scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .min_content_height(0)
+            .max_content_height(360)
+            .propagate_natural_height(true)
+            .build();
+        let rows = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(2)
+            .build();
+        scroll.set_child(Some(&rows));
+        list.append(&scroll);
+        Self {
+            list,
+            scroll,
+            rows,
+            empty,
+            sig: String::new(),
+            handles: Vec::new(),
+        }
+    }
+}
+
+/// One live Operations row (icon, status, badge, cancel) with its dismiss
+/// gesture. Returns the widgets so refreshes can update them in place.
+/// Where the peek bar sits while a live row is dragged away.
+///
+/// The row travels `offset` under the finger while the bar enters from the
+/// opposite side at a complementary rate — the swipe-back's sliding door,
+/// mirrored — so the two never overlap: the row spans `[offset, offset+W]` and
+/// the bar `[-(R-|offset|), …]`, leaving a `R - W` (2 px) gap throughout. At
+/// rest the bar is parked off-screen, so it only ever appears because the
+/// gesture revealed it.
+fn ops_peek_bar_tx(offset: f64, row_rest: f64) -> f64 {
+    let dir = if offset < 0.0 { -1.0 } else { 1.0 };
+    -dir * (row_rest - offset.abs()).max(0.0)
+}
+
+/// The "Hidden — swipe back to restore" bar with its Undo button. The caller
+/// decides what Undo does (and whether it can be pressed at all): the pending
+/// bar's button plays the restore motion, the peek inside a live row is
+/// pointer-transparent but styled identically, so the hand-off is invisible.
+fn build_undo_bar() -> (gtk::Box, gtk::Button) {
+    let bar = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .margin_start(6)
+        .margin_end(6)
+        .margin_top(4)
+        .margin_bottom(4)
+        // Hug its natural height and centre in the (taller) row instead of
+        // stretching — a stretched bar cramped its label and Undo button.
+        .valign(gtk::Align::Center)
+        .css_classes(["ops-undo-bar"])
+        .build();
+    bar.append(
+        &gtk::Label::builder()
+            .label(gettext("Hidden — swipe back to restore"))
+            .hexpand(true)
+            .xalign(0.0)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .css_classes(["caption"])
+            .build(),
+    );
+    let btn = gtk::Button::builder()
+        .label(gettext("Undo"))
+        .valign(gtk::Align::Center)
+        .css_classes(["flat"])
+        .build();
+    bar.append(&btn);
+    (bar, btn)
+}
+
+/// One live Operations row with its dismiss gesture. The row slides under the
+/// finger while the undo bar peeks in behind it, so a dismissal is a single
+/// continuous motion and the pending state it hands off to is already in place.
+fn build_ops_row(it: &crate::operations::OpItem, scroll_sign: f64) -> OpsRowWidgets {
+    let row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(10)
+        .margin_top(4)
+        .margin_bottom(4)
+        .margin_start(4)
+        .margin_end(4)
+        .build();
+    let img = gtk::Image::builder().pixel_size(20).build();
+    crate::ui::result_row::set_op_row_icon(&img, &it.icon);
+    // ponhytail: wrap icon in ring during install; drop the linear bar. The ring
+    // is kept (not re-created per tick) so its animation doesn't restart.
+    let mut ring: Option<crate::ui::circular_progress::Ring> = None;
+    let icon_widget: gtk::Widget = if it.state == "running" {
+        let r = crate::ui::circular_progress::Ring::new(32);
+        r.snap(it.progress, crate::ui::circular_progress::RingState::Running);
+        r.area().set_can_target(false);
+        let overlay = gtk::Overlay::new();
+        overlay.set_child(Some(&img));
+        overlay.add_overlay(r.area());
+        ring = Some(r);
+        overlay.upcast()
+    } else {
+        img.upcast()
+    };
+    row.append(&icon_widget);
+    let title = gtk::Label::builder()
+        .label(&it.title)
+        .xalign(0.0)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .build();
+    let detail = gtk::Label::builder()
+        .label(&it.detail)
+        .xalign(0.0)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .css_classes(["dim-label", "caption"])
+        .build();
+    let textbox = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .hexpand(true)
+        .build();
+    textbox.append(&title);
+    textbox.append(&detail);
+    row.append(&textbox);
+    let (badge_text, badge_css) = ops_badge(&it.state);
+    let badge = gtk::Label::builder()
+        .label(badge_text)
+        .css_classes(["caption", badge_css])
+        .valign(gtk::Align::Center)
+        .build();
+    row.append(&badge);
+    // ponhytail: pulse the whole row when progress is unknown.
+    let pulsing = it.state == "running" && it.progress.is_none();
+    if pulsing {
+        row.add_css_class("op-pulse");
+    }
+
+    let op_id = it.op_id;
+    let hist_id = it.hist_id;
+    let (peek_bar, peek_btn) = build_undo_bar();
+    // Pointer-transparent, not insensitive: a greyed-out Undo would give the
+    // hand-off away a beat before the pending bar's real one replaces it.
+    peek_btn.set_can_target(false);
+
+    let row_cls = format!("swrow{}", SWIPE_ROW_CTR.fetch_add(1, Ordering::Relaxed));
+    let bar_cls = format!("swrow{}", SWIPE_ROW_CTR.fetch_add(1, Ordering::Relaxed));
+    row.add_css_class(&row_cls);
+    peek_bar.add_css_class(&bar_cls);
+    let set_css = {
+        let rc = row_cls.clone();
+        move |tx: f64, transition: &str| swipe_apply(&rc, tx, transition)
+    };
+    let set_bar_css = {
+        let rc = bar_cls.clone();
+        move |tx: f64, transition: &str| swipe_apply(&rc, tx, transition)
+    };
+    // Park distance for the peek: the bar has to travel the row's own width to
+    // end up centred, and clear it by 2 px so the two never touch.
+    let row_rest = Rc::new(Cell::new(swipe_hidden_offset(0.0, 1.0)));
+    {
+        let row_rest = row_rest.clone();
+        row.connect_notify_local(Some("width"), move |w, _| {
+            let rest = swipe_hidden_offset(w.width() as f64, 1.0);
+            if row_rest.get() != rest {
+                row_rest.set(rest);
+            }
+        });
+    }
+    // Which side the bar waits on; it flips (off-screen, so unseen) when the
+    // gesture heads the other way.
+    let park_side = Rc::new(Cell::new(-1.0_f64));
+    set_bar_css(-swipe_hidden_offset(0.0, 1.0), "");
+
+    let overlay = gtk::Overlay::new();
+    // Clip: the peek bar enters from beyond the edge, so without this it would
+    // paint over the row it is supposed to appear behind.
+    overlay.set_overflow(gtk::Overflow::Hidden);
+    overlay.set_child(Some(&row));
+    overlay.add_overlay(&peek_bar);
+    // Measure the bar too, so a live row's slot is exactly as tall as the
+    // pending row's slot it is replaced by — otherwise the hand-off nudges the
+    // whole list.
+    overlay.set_measure_overlay(&peek_bar, true);
+
+    let row_rev = gtk::Revealer::builder()
+        .transition_type(gtk::RevealerTransitionType::SlideUp)
+        .transition_duration(240)
+        .reveal_child(true)
+        .child(&overlay)
+        .build();
+    let dismissed = Rc::new(Cell::new(false));
+
+    // Park the bar on the side the row is leaving towards before mapping it.
+    let park_bar_for: Rc<dyn Fn(f64)> = {
+        let set_bar_css = set_bar_css.clone();
+        let row_rest = row_rest.clone();
+        let park_side = park_side.clone();
+        Rc::new(move |dir: f64| {
+            if park_side.get() != -dir {
+                park_side.set(-dir);
+                set_bar_css(-dir * row_rest.get(), "");
+            }
+        })
+    };
+    // Move the row and the bar together.
+    let move_to: Rc<dyn Fn(f64, f64, &str)> = {
+        let set_css = set_css.clone();
+        let set_bar_css = set_bar_css.clone();
+        Rc::new(move |row_tx: f64, bar_tx: f64, transition: &str| {
+            set_css(row_tx, transition);
+            set_bar_css(bar_tx, transition);
+        })
+    };
+
+    let do_dismiss: Rc<dyn Fn(f64)> = {
+        let park_bar_for = park_bar_for.clone();
+        let move_to = move_to.clone();
+        let dis = dismissed.clone();
+        let row_cls = row_cls.clone();
+        let bar_cls = bar_cls.clone();
+        Rc::new(move |dx: f64| {
+            if dis.get() {
+                return;
+            }
+            dis.set(true);
+            let dir = if dx >= 0.0 { 1.0 } else { -1.0 };
+            park_bar_for(dir);
+            // One motion: the row leaves as the bar arrives in its place, so
+            // the pending bar built below is already sitting where this ended.
+            move_to(dir * SWIPE_SETTLE_PX, 0.0, "transform 300ms ease-out");
+            let row_cls = row_cls.clone();
+            let bar_cls = bar_cls.clone();
+            glib::timeout_add_local_once(Duration::from_millis(310), move || {
+                crate::operations::dismiss_item(op_id, hist_id, dir);
+                swipe_clear(&row_cls);
+                swipe_clear(&bar_cls);
+            });
+        })
+    };
+
+    if it.state == "running" && op_id.is_some() {
+        let cancel_btn = gtk::Button::builder()
+            .icon_name("process-stop-symbolic")
+            .css_classes(["flat", "circular"])
+            .valign(gtk::Align::Center)
+            .tooltip_text(gettext("Cancel"))
+            .build();
+        cancel_btn.connect_clicked(move |_| {
+            if let Some(id) = op_id {
+                crate::operations::cancel(id);
+            }
+        });
+        row.append(&cancel_btn);
+    }
+    // Close button: the same dismissal a swipe performs, without a gesture.
+    {
+        let dismiss = do_dismiss.clone();
+        let close_btn = gtk::Button::builder()
+            .icon_name("window-close-symbolic")
+            .css_classes(["flat", "circular"])
+            .valign(gtk::Align::Center)
+            .tooltip_text(gettext("Dismiss"))
+            .build();
+        close_btn.connect_clicked(move |_| {
+            // Exit leftwards by default; the bar therefore enters from the right.
+            dismiss(-1.0);
+        });
+        row.append(&close_btn);
+    }
+
+    let drag = gtk::GestureDrag::new();
+    drag.set_touch_only(false);
+    drag.set_propagation_phase(gtk::PropagationPhase::Bubble);
+    drag.connect_drag_begin(move |_, _, _| ops_gesture_begin());
+    {
+        let park_bar_for = park_bar_for.clone();
+        let move_to = move_to.clone();
+        let row_rest = row_rest.clone();
+        let dismiss = do_dismiss.clone();
+        let dis = dismissed.clone();
+        drag.connect_drag_update(move |_, dx, _| {
+            if dis.get() {
+                return;
+            }
+            park_bar_for(if dx < 0.0 { -1.0 } else { 1.0 });
+            move_to(dx, ops_peek_bar_tx(dx, row_rest.get()), "");
+            if dx.abs() >= SWIPE_OFFSCREEN_PX {
+                dismiss(dx);
+            }
+        });
+    }
+    {
+        let move_to = move_to.clone();
+        let row_rest = row_rest.clone();
+        let park_side = park_side.clone();
+        let dismiss = do_dismiss.clone();
+        let dis = dismissed.clone();
+        drag.connect_drag_end(move |_, dx, _| {
+            ops_gesture_end();
+            if dis.get() {
+                return;
+            }
+            if dx.abs() >= SWIPE_COMMIT_PX {
+                dismiss(dx);
+            } else {
+                move_to(0.0, park_side.get() * row_rest.get(), SWIPE_SPRING);
+            }
+        });
+    }
+    row_rev.add_controller(drag);
+
+    let scroll_ctl =
+        gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::HORIZONTAL);
+    scroll_ctl.set_propagation_phase(gtk::PropagationPhase::Bubble);
+    let scroll_acc = Rc::new(Cell::new(0.0_f64));
+    {
+        let park_bar_for = park_bar_for.clone();
+        let move_to = move_to.clone();
+        let row_rest = row_rest.clone();
+        let dismiss = do_dismiss.clone();
+        let acc = scroll_acc.clone();
+        let dis = dismissed.clone();
+        scroll_ctl.connect_scroll(move |_, dx, _dy| {
+            if dis.get() {
+                return glib::Propagation::Stop;
+            }
+            if dx.abs() < 0.005 {
+                return glib::Propagation::Proceed;
+            }
+            ops_gesture_begin();
+            let raw = dx * scroll_sign;
+            if let Some(fling) = scroll_fling_offset(raw) {
+                acc.set(0.0);
+                dismiss(fling);
+                return glib::Propagation::Stop;
+            }
+            let new_acc = acc.get() + raw;
+            acc.set(new_acc);
+            let px = new_acc * SWIPE_SCALE;
+            park_bar_for(if px < 0.0 { -1.0 } else { 1.0 });
+            move_to(px, ops_peek_bar_tx(px, row_rest.get()), "");
+            if px.abs() >= SWIPE_COMMIT_PX {
+                dismiss(px);
+            }
+            glib::Propagation::Stop
+        });
+    }
+    {
+        let move_to = move_to.clone();
+        let row_rest = row_rest.clone();
+        let park_side = park_side.clone();
+        let acc = scroll_acc.clone();
+        let dis = dismissed.clone();
+        scroll_ctl.connect_scroll_end(move |_| {
+            ops_gesture_end();
+            if dis.get() {
+                return;
+            }
+            acc.set(0.0);
+            move_to(0.0, park_side.get() * row_rest.get(), SWIPE_SPRING);
+        });
+    }
+    row_rev.add_controller(scroll_ctl);
+
+    let cleanup: Rc<dyn Fn()> = {
+        let row_cls = row_cls.clone();
+        let bar_cls = bar_cls.clone();
+        Rc::new(move || {
+            swipe_clear(&row_cls);
+            swipe_clear(&bar_cls);
+        })
+    };
+
+    OpsRowWidgets {
+        widget: row_rev,
+        row: row.clone().upcast(),
+        title,
+        detail,
+        badge,
+        ring,
+        cleanup: Some(cleanup),
+        pulsing,
+        pulseable: true,
+    }
+}
+
+
 fn attach_ops_pending_swipe(
     area: &impl IsA<gtk::Widget>,
     undo_feedback: &impl IsA<gtk::Widget>,
@@ -4537,17 +5052,44 @@ fn attach_ops_pending_swipe(
     dismiss_dir: f64,
     on_reverse: Rc<dyn Fn()>,
     on_forward: Rc<dyn Fn()>,
-) {
+) -> (Rc<dyn Fn()>, Rc<dyn Fn()>) {
     let undo_cls = format!("swrow{}", SWIPE_ROW_CTR.fetch_add(1, Ordering::Relaxed));
     let row_cls = format!("swrow{}", SWIPE_ROW_CTR.fetch_add(1, Ordering::Relaxed));
     undo_feedback.add_css_class(&undo_cls);
     row_feedback.add_css_class(&row_cls);
-    let set_undo_css = move |tx: f64, transition: &str| swipe_apply(&undo_cls, tx, transition);
-    let set_row_css = move |tx: f64, transition: &str| swipe_apply(&row_cls, tx, transition);
+    let set_undo_css = {
+        let cls = undo_cls.clone();
+        move |tx: f64, transition: &str| swipe_apply(&cls, tx, transition)
+    };
+    let set_row_css = {
+        let cls = row_cls.clone();
+        move |tx: f64, transition: &str| swipe_apply(&cls, tx, transition)
+    };
     let committed = Rc::new(Cell::new(false));
-    let row_rest = dismiss_dir * SWIPE_OFFSCREEN_PX;
+    // Owned handle: the row is fully transparent while parked (so nothing of
+    // it can ever show through in the popover) and fades in while a
+    // swipe-back drags it. Opacity, not visibility — hiding the row would
+    // collapse the overlay (and with it the Undo bar), because GtkOverlay
+    // sizes from its main child.
+    let row_widget: gtk::Widget = row_feedback.upcast_ref::<gtk::Widget>().clone();
+    // Park the row by its ACTUAL width and refresh it whenever the width
+    // changes (a popover rebuild re-creates the widgets, and the first
+    // measurement lands right after the row is mapped).
+    let row_rest = Rc::new(Cell::new(dismiss_dir * SWIPE_PARK_PX));
+    {
+        let row_rest = row_rest.clone();
+        let set_row_css = set_row_css.clone();
+        row_feedback.connect_notify_local(Some("width"), move |w, _| {
+            let rest = swipe_hidden_offset(w.width() as f64, dismiss_dir);
+            if row_rest.get() != rest {
+                row_rest.set(rest);
+                set_row_css(rest, "");
+            }
+        });
+    }
 
-    set_row_css(row_rest, "");
+    set_row_css(row_rest.get(), "");
+    row_widget.set_opacity(0.0);
 
     let commit: Rc<dyn Fn(f64)> = {
         let set_undo_css = set_undo_css.clone();
@@ -4555,6 +5097,8 @@ fn attach_ops_pending_swipe(
         let committed = committed.clone();
         let on_reverse = on_reverse.clone();
         let on_forward = on_forward.clone();
+        let row_rest = row_rest.clone();
+        let row_widget = row_widget.clone();
         Rc::new(move |offset: f64| {
             if committed.get() {
                 return;
@@ -4566,12 +5110,17 @@ fn attach_ops_pending_swipe(
                 -SWIPE_SETTLE_PX
             };
             let reverse = offset * dismiss_dir < 0.0;
+            // A reverse settle brings the row home — make sure it is visible
+            // (a fling can commit without a single drag/scroll update).
+            if reverse {
+                row_widget.set_opacity(1.0);
+            }
             set_undo_css(target, "transform 300ms ease-out");
             set_row_css(
                 if reverse {
                     0.0
                 } else {
-                    pending_row_tx(row_rest, dismiss_dir, target)
+                    pending_row_tx(row_rest.get(), dismiss_dir, target)
                 },
                 "transform 300ms ease-out",
             );
@@ -4592,16 +5141,22 @@ fn attach_ops_pending_swipe(
     let drag = gtk::GestureDrag::new();
     drag.set_touch_only(false);
     drag.set_propagation_phase(gtk::PropagationPhase::Bubble);
+    drag.connect_drag_begin(move |_, _, _| ops_gesture_begin());
     {
         let set_undo_css = set_undo_css.clone();
         let set_row_css = set_row_css.clone();
         let committed = committed.clone();
+        let row_rest = row_rest.clone();
+        let row_widget = row_widget.clone();
         drag.connect_drag_update(move |_, dx, _| {
             if committed.get() {
                 return;
             }
-            set_undo_css(dx, "");
-            set_row_css(pending_row_tx(row_rest, dismiss_dir, dx), "");
+            // Show the row only while it is actually coming back (reverse
+            // drag); on a forward drag it is off-screen and stays hidden.
+            row_widget.set_opacity(if dx * dismiss_dir < 0.0 { 1.0 } else { 0.0 });
+            set_undo_css(pending_bar_tx(row_rest.get(), dismiss_dir, dx), "");
+            set_row_css(pending_row_tx(row_rest.get(), dismiss_dir, dx), "");
         });
     }
     {
@@ -4609,7 +5164,10 @@ fn attach_ops_pending_swipe(
         let set_row_css = set_row_css.clone();
         let commit = commit.clone();
         let committed = committed.clone();
+        let row_rest = row_rest.clone();
+        let row_widget = row_widget.clone();
         drag.connect_drag_end(move |_, dx, _| {
+            ops_gesture_end();
             if committed.get() {
                 return;
             }
@@ -4617,7 +5175,16 @@ fn attach_ops_pending_swipe(
                 commit(dx);
             } else {
                 set_undo_css(0.0, SWIPE_SPRING);
-                set_row_css(row_rest, SWIPE_SPRING);
+                set_row_css(row_rest.get(), SWIPE_SPRING);
+                // The row is visible while it springs back out — hide it again
+                // once the spring has settled, so the rest state stays clean.
+                let row_widget = row_widget.clone();
+                let committed = committed.clone();
+                glib::timeout_add_local_once(Duration::from_millis(320), move || {
+                    if !committed.get() {
+                        row_widget.set_opacity(0.0);
+                    }
+                });
             }
         });
     }
@@ -4632,6 +5199,8 @@ fn attach_ops_pending_swipe(
         let acc = acc.clone();
         let commit = commit.clone();
         let committed = committed.clone();
+        let row_rest = row_rest.clone();
+        let row_widget = row_widget.clone();
         scroll.connect_scroll(move |_, dx, _| {
             if committed.get() {
                 return glib::Propagation::Stop;
@@ -4639,6 +5208,7 @@ fn attach_ops_pending_swipe(
             if dx.abs() < 0.005 {
                 return glib::Propagation::Proceed;
             }
+            ops_gesture_begin();
             if let Some(fling) = scroll_fling_offset(dx * scroll_sign) {
                 acc.set(0.0);
                 commit(fling);
@@ -4647,8 +5217,11 @@ fn attach_ops_pending_swipe(
             let v = acc.get() + dx * scroll_sign;
             acc.set(v);
             let px = v * SWIPE_SCALE;
-            set_undo_css(px, "");
-            set_row_css(pending_row_tx(row_rest, dismiss_dir, px), "");
+            // Show the row only while it is actually coming back (reverse
+            // scroll); on a forward scroll it is off-screen and stays hidden.
+            row_widget.set_opacity(if px * dismiss_dir < 0.0 { 1.0 } else { 0.0 });
+            set_undo_css(pending_bar_tx(row_rest.get(), dismiss_dir, px), "");
+            set_row_css(pending_row_tx(row_rest.get(), dismiss_dir, px), "");
             glib::Propagation::Stop
         });
     }
@@ -4656,7 +5229,10 @@ fn attach_ops_pending_swipe(
         let acc = acc.clone();
         let commit = commit.clone();
         let committed = committed.clone();
+        let row_rest = row_rest.clone();
+        let row_widget = row_widget.clone();
         scroll.connect_scroll_end(move |_| {
+            ops_gesture_end();
             if committed.get() {
                 return;
             }
@@ -4666,14 +5242,47 @@ fn attach_ops_pending_swipe(
             } else {
                 acc.set(0.0);
                 set_undo_css(0.0, SWIPE_SPRING);
-                set_row_css(row_rest, SWIPE_SPRING);
+                set_row_css(row_rest.get(), SWIPE_SPRING);
+                // Visible while it springs back out — hide it again once the
+                // spring has settled, so the rest state stays clean.
+                let row_widget = row_widget.clone();
+                let committed = committed.clone();
+                glib::timeout_add_local_once(Duration::from_millis(320), move || {
+                    if !committed.get() {
+                        row_widget.set_opacity(0.0);
+                    }
+                });
             }
         });
     }
     area.add_controller(scroll);
+
+    // Undo without a gesture must retrace the same path the row took on its way
+    // out: it slides back in from the side it was dismissed to while the bar
+    // leaves the way it came in. Used by the bar's Undo button and Ctrl+Z.
+    let restore: Rc<dyn Fn()> = {
+        let commit = commit.clone();
+        Rc::new(move || commit(-dismiss_dir * SWIPE_COMMIT_PX))
+    };
+
+    // Drop this row's swipe CSS rules when the row is destroyed, so a popover
+    // that rebuilds its rows on structural changes can't leave rules behind.
+    let cleanup: Rc<dyn Fn()> = Rc::new(move || {
+        swipe_clear(&undo_cls);
+        swipe_clear(&row_cls);
+    });
+    (cleanup, restore)
 }
 
-fn build_ops_pending_bar(it: &crate::operations::OpItem) -> gtk::Revealer {
+/// The undo bar that replaces a dismissed Operations row: the row itself (parked
+/// off-screen and transparent, so it can slide back in) under an overlay bar.
+/// `animate` is false for rebuilds that aren't the bar's first appearance, so a
+/// progress tick can't replay the slide-down.
+/// The undo bar that replaces a dismissed Operations row: the row itself
+/// (parked off-screen and transparent, so a swipe-back can slide it in) under an
+/// overlay bar. It is built already revealed — the live row's peek animation has
+/// just placed the bar exactly here, so playing an entrance would double up.
+fn build_ops_pending_bar(it: &crate::operations::OpItem) -> OpsRowWidgets {
     let row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .spacing(10)
@@ -4689,28 +5298,27 @@ fn build_ops_pending_bar(it: &crate::operations::OpItem) -> gtk::Revealer {
         .orientation(gtk::Orientation::Vertical)
         .hexpand(true)
         .build();
-    textbox.append(&gtk::Label::builder().label(&it.title).xalign(0.0).build());
-    textbox.append(
-        &gtk::Label::builder()
-            .label(&it.detail)
-            .xalign(0.0)
-            .css_classes(["dim-label", "caption"])
-            .build(),
-    );
+    let title = gtk::Label::builder()
+        .label(&it.title)
+        .xalign(0.0)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .build();
+    let detail = gtk::Label::builder()
+        .label(&it.detail)
+        .xalign(0.0)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .css_classes(["dim-label", "caption"])
+        .build();
+    textbox.append(&title);
+    textbox.append(&detail);
     row.append(&textbox);
-    let (badge, css) = match it.state {
-        "running" => ("● Running", "accent"),
-        "failed" => ("Failed", "error"),
-        "cancelled" => ("Cancelled", "warning"),
-        _ => ("✓ Done", "success"),
-    };
-    row.append(
-        &gtk::Label::builder()
-            .label(badge)
-            .css_classes(["caption", css])
-            .valign(gtk::Align::Center)
-            .build(),
-    );
+    let (badge_text, badge_css) = ops_badge(&it.state);
+    let badge = gtk::Label::builder()
+        .label(badge_text)
+        .css_classes(["caption", badge_css])
+        .valign(gtk::Align::Center)
+        .build();
+    row.append(&badge);
     if it.state == "running" && it.op_id.is_some() {
         row.append(
             &gtk::Button::builder()
@@ -4722,44 +5330,42 @@ fn build_ops_pending_bar(it: &crate::operations::OpItem) -> gtk::Revealer {
         );
     }
 
-    let bar = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .spacing(8)
-        .margin_start(6)
-        .margin_end(6)
-        .margin_top(4)
-        .margin_bottom(4)
-        .css_classes(["ops-undo-bar"])
-        .build();
-    let text = if it.op_id.is_some() {
-        "Operation hidden — swipe back to restore"
-    } else {
-        "Item hidden — swipe back to restore"
-    };
-    bar.append(
-        &gtk::Label::builder()
-            .label(text)
-            .hexpand(true)
-            .xalign(0.0)
-            .css_classes(["caption"])
-            .build(),
-    );
+    let (bar, btn) = build_undo_bar();
     let op_id = it.op_id;
     let hist_id = it.hist_id;
-    let btn = gtk::Button::builder()
-        .label(gettext("Undo"))
-        .css_classes(["flat"])
-        .build();
-    btn.connect_clicked(move |_| {
-        crate::operations::restore_item(op_id, hist_id);
-    });
-    bar.append(&btn);
+    {
+        // The hidden row keeps the same close button a live row has, so a
+        // swipe-back reveal shows the row exactly as it was. Closing it again
+        // commits the dismissal instead of restoring it.
+        let close_btn = gtk::Button::builder()
+            .icon_name("window-close-symbolic")
+            .css_classes(["flat", "circular"])
+            .valign(gtk::Align::Center)
+            .tooltip_text(gettext("Dismiss"))
+            .build();
+        close_btn.connect_clicked(move |_| {
+            crate::operations::commit_item(op_id, hist_id);
+        });
+        row.append(&close_btn);
+    }
 
     let overlay = gtk::Overlay::new();
+    // Clip to the popover: the parked row is translated past the edge, so
+    // without this it stays visible outside the clip and paints over the
+    // bar's Undo button (the "Uninstall/Fluffy" tangle). Clipping also makes
+    // a swipe-back slide in cleanly from the edge.
+    overlay.set_overflow(gtk::Overflow::Hidden);
     overlay.set_child(Some(&row));
     overlay.add_overlay(&bar);
+    // Insurance: also measure the bar. A GtkOverlay sizes itself from its
+    // main child only, and that child is the (fully transparent) row here —
+    // if the row is ever not laid out, the overlay collapses to zero and the
+    // Undo bar gets no allocation and vanishes. Measuring the bar too makes
+    // the bar define the size whenever the row doesn't. Measuring it in the
+    // live row's overlay too keeps both slots the same height.
+    overlay.set_measure_overlay(&bar, true);
 
-    attach_ops_pending_swipe(
+    let (cleanup, restore) = attach_ops_pending_swipe(
         &overlay,
         &bar,
         &row,
@@ -4771,18 +5377,36 @@ fn build_ops_pending_bar(it: &crate::operations::OpItem) -> gtk::Revealer {
             crate::operations::commit_item(op_id, hist_id);
         }),
     );
+    // Undo retraces the way in rather than snapping the row back, and Ctrl+Z
+    // finds the same motion through this registry.
+    btn.connect_clicked({
+        let restore = restore.clone();
+        move |_| restore()
+    });
+    let key = (op_id, hist_id);
+    ops_register_restore(key, restore);
+    let cleanup: Rc<dyn Fn()> = {
+        let inner = cleanup;
+        Rc::new(move || {
+            ops_unregister_restore(key);
+            inner();
+        })
+    };
 
-    let rev = gtk::Revealer::builder()
-        .transition_type(gtk::RevealerTransitionType::SlideDown)
-        .transition_duration(200)
-        .reveal_child(false)
-        .child(&overlay)
-        .build();
-    {
-        let rev = rev.clone();
-        glib::idle_add_local_once(move || rev.set_reveal_child(true));
+    OpsRowWidgets {
+        widget: gtk::Revealer::builder()
+            .reveal_child(true)
+            .child(&overlay)
+            .build(),
+        row: row.clone().upcast(),
+        title,
+        detail,
+        badge,
+        ring: None,
+        cleanup: Some(cleanup),
+        pulseable: false,
+        pulsing: false,
     }
-    rev
 }
 
 
@@ -4807,9 +5431,15 @@ fn previewable(r: &SearchResult) -> bool {
             crate::search::cmd::is_update_run(title, args)
         }
         Action::CheckUpdates => true,
-        Action::ConfirmRunCommand(cmd) => *cmd == crate::search::system::reboot_command(),
+        Action::ConfirmRunCommand(cmd) => is_restart_command(cmd),
         _ => false,
     }
+}
+
+/// True for the confirmed-reboot row (the one that says the updates are waiting
+/// for a restart).
+fn is_restart_command(cmd: &str) -> bool {
+    cmd == crate::search::system::reboot_command()
 }
 
 fn upd_preview(row: &gtk::ListBoxRow, rs: &[SearchResult], p: &PreviewPane) {
@@ -4853,12 +5483,16 @@ fn upd_preview(row: &gtk::ListBoxRow, rs: &[SearchResult], p: &PreviewPane) {
             p.show_update(&r.title, r.subtitle.as_deref().unwrap_or(""), &[]);
         }
         // The restart row: say why it's there and what pressing Enter does.
-        Action::ConfirmRunCommand(cmd) if *cmd == crate::search::system::reboot_command() => {
-            p.show_update(
-                &gettext("Restart required to finish the update"),
-                &gettext("Press Enter to restart"),
-                &[],
-            );
+        // Only a *required* restart gets the notice wording — the plain
+        // Restart row (shown again while nothing is pending) just says what
+        // Enter does.
+        Action::ConfirmRunCommand(cmd) if is_restart_command(cmd) => {
+            let head = if crate::search::cmd::reboot_pending() {
+                gettext("Restart required to finish the update")
+            } else {
+                gettext("Restart")
+            };
+            p.show_update(&head, &gettext("Press Enter to restart"), &[]);
         }
         // Triggers: installed ones show usage instructions (+ screenshot once
         // its help_image is cached).
@@ -4969,6 +5603,15 @@ fn activate(
                 }
             }
             dismiss(window, shown, false);
+        }
+        Action::LaunchAppImage(p) => {
+            // Detached host run (chmod + extract-and-run fallback live in
+            // the appimage module) — the window closes right away.
+            crate::search::appimage::launch(p);
+            dismiss(window, shown, false);
+        }
+        Action::RemoveAppImage(_) => {
+            // Handled in the row-activation / key paths (which own popover_open).
         }
         Action::OpenPath(p) => {
             crate::recent_paths::record(p);
@@ -5406,5 +6049,159 @@ mod previewable_tests {
         })));
         assert!(!previewable(&row(Action::EnterMode("files".into()))));
         assert!(!previewable(&row(Action::ToggleUpdates)));
+    }
+}
+
+#[cfg(test)]
+mod swipe_tests {
+    use super::*;
+
+    #[test]
+    fn hidden_rows_park_by_their_own_width() {
+        // A hidden row must clear its own width (plus 2 px), otherwise it
+        // peeks out over the undo bar inside the 360 px popover.
+        assert_eq!(swipe_hidden_offset(350.0, 1.0), 352.0);
+        assert_eq!(swipe_hidden_offset(350.0, -1.0), -352.0);
+        assert_eq!(swipe_hidden_offset(100.0, 1.0), 102.0);
+        // Before/without a measurement the parking fallback applies — it
+        // must clear the 360 px popover even for the widest row.
+        assert_eq!(swipe_hidden_offset(0.0, 1.0), SWIPE_PARK_PX);
+        assert_eq!(swipe_hidden_offset(0.0, -1.0), -SWIPE_PARK_PX);
+        assert!(SWIPE_PARK_PX > 360.0, "must clear the popover width");
+    }
+
+    #[test]
+    fn pending_bar_slides_out_as_the_row_slides_back_in() {
+        let r = 352.0; // measured row width + 2
+        // Reverse: dismissed to the right, dragged left.
+        assert_eq!(pending_bar_tx(r, 1.0, -140.0), -r);
+        assert_eq!(pending_bar_tx(r, 1.0, -70.0), -r / 2.0);
+        assert_eq!(pending_bar_tx(r, 1.0, -400.0), -r); // clamped past the commit
+        // Reverse, dismissed to the left: the mirror image.
+        assert_eq!(pending_bar_tx(r, -1.0, 140.0), r);
+        assert_eq!(pending_bar_tx(r, -1.0, 70.0), r / 2.0);
+        // Forward (re-dismissing) keeps following the finger.
+        assert_eq!(pending_bar_tx(r, 1.0, 30.0), 30.0);
+        assert_eq!(pending_bar_tx(r, -1.0, -30.0), -30.0);
+    }
+
+    #[test]
+    fn swipe_back_never_overlaps_row_and_bar() {
+        // The bar's trailing edge must meet the row's leading edge at every
+        // point of a reverse swipe — that is what keeps the two texts from
+        // painting over each other inside the popover.
+        for &r in &[100.0_f64, 352.0, SWIPE_PARK_PX] {
+            for step in 0..=10 {
+                let offset = -(step as f64) * 14.0; // 0 … -140 (dismissed right)
+                let row_left = pending_row_tx(r, 1.0, offset);
+                let bar_right = pending_bar_tx(r, 1.0, offset) + r;
+                assert!(
+                    bar_right <= row_left + 0.001,
+                    "overlap: bar right {bar_right} > row left {row_left} at offset {offset}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn peek_bar_never_overlaps_the_row_it_reveals() {
+        // While a live row is swiped away the undo bar enters from the opposite
+        // side. With `r` = row width + 2 the row spans 2 px of clear space from
+        // the bar at every offset — the forward mirror of the swipe-back.
+        let r = 352.0;
+        let w = r - 2.0;
+        assert_eq!(ops_peek_bar_tx(0.0, r), -r, "parked off-screen at rest");
+        assert_eq!(
+            ops_peek_bar_tx(500.0, r),
+            0.0,
+            "centred once the row has left"
+        );
+        for step in 0..=10 {
+            let right = step as f64 * 14.0; // 0 … 140
+            let bar = ops_peek_bar_tx(right, r);
+            assert!(
+                bar + w <= right + 0.001,
+                "row leaving right overlaps the bar at {right}: bar right {}",
+                bar + w
+            );
+            let left = -right; // mirror image (step 0 has no direction yet)
+            if step == 0 {
+                continue;
+            }
+            let bar = ops_peek_bar_tx(left, r);
+            assert!(
+                bar >= left + w - 0.001,
+                "row leaving left overlaps the bar at {left}: bar left {bar}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod ops_refresh_tests {
+    use super::*;
+    use crate::operations::OpItem;
+
+    fn item(op_id: Option<u64>, hist_id: Option<u64>, state: &'static str) -> OpItem {
+        OpItem {
+            title: "Install: Firefox".into(),
+            detail: "flatpak · 42%".into(),
+            state,
+            icon: "org.mozilla.firefox".into(),
+            progress: Some(0.42),
+            op_id,
+            hist_id,
+            dismissed_dir: None,
+        }
+    }
+
+    #[test]
+    fn progress_and_status_only_change_keeps_the_signature() {
+        // The popover refreshes ~8x/sec while an operation runs. If these were
+        // part of the signature, every tick would rebuild the rows — replaying
+        // the undo bar's slide-down and killing any swipe in flight.
+        let a = item(Some(7), None, "running");
+        let mut b = a.clone();
+        b.detail = "flatpak · 91%".into();
+        b.progress = Some(0.91);
+        assert_eq!(ops_signature(&[a.clone()]), ops_signature(&[b]));
+
+        // Losing determinate progress (pulse on/off) is equally non-structural.
+        let mut c = a.clone();
+        c.progress = None;
+        assert_eq!(ops_signature(&[a.clone()]), ops_signature(&[c]));
+    }
+
+    #[test]
+    fn structural_changes_alter_the_signature() {
+        let base = item(Some(7), None, "running");
+        let sig = ops_signature(std::slice::from_ref(&base));
+
+        let mut dismissed = base.clone();
+        dismissed.dismissed_dir = Some(1.0);
+        assert_ne!(sig, ops_signature(&[dismissed]), "dismissal rebuilds");
+
+        let mut state = base.clone();
+        state.state = "done";
+        assert_ne!(sig, ops_signature(&[state]), "state change rebuilds");
+
+        assert_ne!(sig, ops_signature(&[item(Some(8), None, "running")]), "id");
+        assert_ne!(sig, ops_signature(&[item(None, Some(3), "running")]), "history");
+
+        let mut retitled = base.clone();
+        retitled.title = "Install: Thunderbird".into();
+        assert_ne!(sig, ops_signature(&[retitled]), "title change rebuilds");
+
+        // Order and membership matter too.
+        let a = item(Some(1), None, "running");
+        let b = item(Some(2), None, "running");
+        assert_ne!(
+            ops_signature(&[a.clone(), b.clone()]),
+            ops_signature(&[b.clone(), a.clone()])
+        );
+        assert_ne!(
+            ops_signature(std::slice::from_ref(&a)),
+            ops_signature(&[a.clone(), b.clone()])
+        );
     }
 }

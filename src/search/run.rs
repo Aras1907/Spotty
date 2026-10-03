@@ -96,7 +96,15 @@ pub fn search(query: &str) -> Vec<SearchResult> {
     let r = recent().lock().unwrap();
     for (i, c) in r
         .iter()
-        .filter(|c| c.as_str() != q && c.to_lowercase().contains(&ql))
+        .filter(|c| {
+            if c.as_str() == q {
+                return false;
+            }
+            let lc = c.to_lowercase();
+            // Recent commands: substring first, then a fuzzy pass so a
+            // typo'd command ("dcoker ps") still resurfaces.
+            lc.contains(&ql) || crate::search::fuzzy_match(&ql, &lc)
+        })
         .enumerate()
     {
         if out.len() >= LIMIT {

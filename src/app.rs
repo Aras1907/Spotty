@@ -532,7 +532,7 @@ pub fn on_startup(app: &adw::Application) {
         }
     }
     let config = Rc::new(RefCell::new(Config::load()));
-    crate::search::cmd::preload_install_cache_async(config.borrow().package_manager);
+    crate::search::cmd::preload_install_cache_async(config.borrow().app_sources());
     // Background update check: once shortly after startup, then hourly
     // ticks that honour the user-configured interval (Settings → Updates).
     // Reboot pending? Evaluate once at startup — the live state clears
@@ -555,7 +555,25 @@ pub fn on_startup(app: &adw::Application) {
         config.borrow().clipboard_history_limit,
         config.borrow().clipboard_retention_days,
     )));
+    // Publish the app state BEFORE any background thread that talks to it:
+    // the clipboard watcher calls `with_state` from its own thread, so a
+    // clipboard event in the first milliseconds used to panic that thread
+    // ("not init") and drop the entry. The Rcs are cloned so later code
+    // here can keep using the locals.
+    STATE.with(|s| {
+        *s.borrow_mut() = Some(AppState {
+            config: config.clone(),
+            indexer: indexer.clone(),
+            clipboard: clipboard.clone(),
+            search_win: RefCell::new(None),
+            settings_win: RefCell::new(None),
+        })
+    });
     clipboard.borrow_mut().start_watching();
+    // Ask dnf5daemon whether it is there, off the main thread: the update rows
+    // are built while the user types, and they need that answer (which update
+    // path to use) on the very first keystroke.
+    crate::dnf5daemon::warmup();
     // Backfill OCR text for pre-existing clipboard images: capture-time OCR
     // only covers new copies, and the background indexer skips ~/.cache.
     // Delayed so startup indexing finishes first; nudges the UI when done.
@@ -647,15 +665,6 @@ pub fn on_startup(app: &adw::Application) {
             log::info!("ocr-sweep: done");
         });
     }
-    STATE.with(|s| {
-        *s.borrow_mut() = Some(AppState {
-            config: config.clone(),
-            indexer,
-            clipboard,
-            search_win: RefCell::new(None),
-            settings_win: RefCell::new(None),
-        })
-    });
     // Load installed triggers (trigger keywords from imported manifests) before
     // anything wires up keyword actions/keybindings.
     crate::triggers::load_all();
@@ -714,7 +723,11 @@ pub fn on_startup(app: &adw::Application) {
 
     std::thread::spawn(move || {
         setup_autostart();
-        crate::keybindings::uninstall_old_extension();
+        // Keep the GNOME Shell extension installed and current: shortcuts
+        // are gsettings keybindings now, but the extension is what places
+        // the window on Wayland. (This used to delete the old
+        // shortcut-only extension — don't: that removed the placement.)
+        crate::shell_extension::install();
         crate::keybindings::register_all();
     });
 }
@@ -865,9 +878,17 @@ pub fn show_search(app: &adw::Application) {
                 win.present_and_focus();
                 return;
             }
-            // ponytail: reuse existing window (built once at startup)
-            win.present_and_focus();
-            return;
+        }
+        // Hidden windows are dropped, never re-shown: a fresh toplevel gets
+        // Mutter's new-window placement (centered — `center-new-windows`),
+        // while a reused one keeps whatever position the compositor last
+        // gave it — that is the "opens in the top-left corner" bug, usually
+        // after the window first appeared inside the overview. A fresh
+        // surface is also what regains focus on Wayland (see the doc above).
+        if let Some(old) = w.take() {
+            // Destroy the stale instance: its widget closures hold clones of
+            // the window, so a plain drop leaks one window per show.
+            old.destroy();
         }
         let win = SearchWindow::new(
             app,
@@ -892,9 +913,17 @@ pub fn show_clipboard_search(app: &adw::Application) {
                 win.present_clipboard_mode();
                 return;
             }
-            // ponytail: reuse existing window
-            win.present_clipboard_mode();
-            return;
+        }
+        // Hidden windows are dropped, never re-shown: a fresh toplevel gets
+        // Mutter's new-window placement (centered — `center-new-windows`),
+        // while a reused one keeps whatever position the compositor last
+        // gave it — that is the "opens in the top-left corner" bug, usually
+        // after the window first appeared inside the overview. A fresh
+        // surface is also what regains focus on Wayland (see the doc above).
+        if let Some(old) = w.take() {
+            // Destroy the stale instance: its widget closures hold clones of
+            // the window, so a plain drop leaks one window per show.
+            old.destroy();
         }
         let win = SearchWindow::new(
             app,
@@ -955,9 +984,17 @@ pub fn show_keyword_search(app: &adw::Application, keyword_id: &str) {
                 win.present_keyword_mode(keyword);
                 return;
             }
-            // ponytail: reuse existing window
-            win.present_keyword_mode(keyword);
-            return;
+        }
+        // Hidden windows are dropped, never re-shown: a fresh toplevel gets
+        // Mutter's new-window placement (centered — `center-new-windows`),
+        // while a reused one keeps whatever position the compositor last
+        // gave it — that is the "opens in the top-left corner" bug, usually
+        // after the window first appeared inside the overview. A fresh
+        // surface is also what regains focus on Wayland (see the doc above).
+        if let Some(old) = w.take() {
+            // Destroy the stale instance: its widget closures hold clones of
+            // the window, so a plain drop leaks one window per show.
+            old.destroy();
         }
         let win = SearchWindow::new(
             app,
@@ -978,7 +1015,12 @@ pub fn show_keyword_search(app: &adw::Application, keyword_id: &str) {
 /// flag is still true until the fade completes), which prevents an accidental
 /// show/hide race from keyboard spam.
 pub fn toggle_search(app: &adw::Application) {
-    const REUSE_WINDOW: bool = true; // ponytail: flip to false if Wayland refocus breaks
+    // Fresh window on every re-show: a reused toplevel keeps whatever
+    // position the compositor last assigned (the "opens in the top-left
+    // corner" bug — typically after the window first appeared inside the
+    // overview), while a fresh one is always centered. Flip back to `true`
+    // only if fresh surfaces ever regress the Wayland refocus behavior.
+    const REUSE_WINDOW: bool = false;
     let t0 = Instant::now();
     STATE.with(|s| {
         let borrow = s.borrow();
@@ -994,6 +1036,10 @@ pub fn toggle_search(app: &adw::Application) {
                 w.as_ref().unwrap().present_and_focus();
                 return;
             }
+        }
+        if let Some(old) = w.take() {
+            // Destroy the stale instance — see `SearchWindow::destroy`.
+            old.destroy();
         }
         // ponytail: fresh window — only when no reusable window or REUSE_WINDOW=false
         let win = SearchWindow::new(

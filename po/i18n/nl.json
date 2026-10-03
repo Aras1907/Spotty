@@ -275,7 +275,6 @@
   "Redo": "Opnieuw doen",
   "Delete word": "Woord verwijderen",
   "Delete file / folder": "Bestand / map verwijderen",
-  "Calculator & Conversions": "Rekenmachine en conversies",
   "Arithmetic, units, currency and number bases": "Rekenkunde, eenheden, valuta's en talstelsels",
   "Conversions": "Conversies",
   "Currency conversion": "Valutaconversie",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Wisselkoersen worden bij het omrekenen opgehaald van een gratis openbare API",
   "Scientific notation": "Wetenschappelijke notatie",
   "Show equivalents when no target unit is given": "Equivalenten tonen wanneer geen doeleenheid is opgegeven",
-  "Unit conversions": "Eenheden omrekenen"
+  "Unit conversions": "Eenheden omrekenen",
+  "Calculator & Converter": "Rekenmachine en converter",
+  "Arithmetic": "Rekenkunde"
 }

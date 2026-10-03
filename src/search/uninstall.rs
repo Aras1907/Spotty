@@ -55,6 +55,29 @@ fn flatpak_app_id(desktop: &Path) -> Option<String> {
     None
 }
 
+/// The snap to remove for a snapd desktop entry: `X-SnapInstanceName`
+/// when written, else the filename's first `_` component ("<snap>_<app>"
+/// — only a best effort, instance installs contain `_` themselves).
+fn snap_instance_name(desktop: &Path) -> Option<String> {
+    if let Ok(content) = std::fs::read_to_string(desktop) {
+        for line in content.lines() {
+            if let Some((k, v)) = line.split_once('=') {
+                if k.trim() == "X-SnapInstanceName" {
+                    let v = v.trim();
+                    if !v.is_empty() {
+                        return Some(v.to_string());
+                    }
+                }
+            }
+        }
+    }
+    let stem = desktop.file_stem()?.to_str()?;
+    stem.split('_')
+        .next()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 pub fn plan_for_app(desktop: &Path, name: &str, icon: &str) -> Option<Plan> {
     // Flatpak first — deterministic from the path.
     if let Some(app_id) = flatpak_app_id(desktop) {
@@ -72,6 +95,42 @@ pub fn plan_for_app(desktop: &Path, name: &str, icon: &str) -> Option<Plan> {
             icon: icon.to_string(),
             args,
         });
+    }
+
+    // Snap: its desktop files live under /var/lib/snapd/desktop/applications
+    // and carry the snap name in `X-SnapInstanceName`. Removing needs root —
+    // same pkexec route as the cmd trigger's snap uninstall.
+    if desktop.to_string_lossy().contains("/snapd/desktop/applications/") {
+        if let Some(snap_name) = snap_instance_name(desktop) {
+            let mut args = host_prefix();
+            args.extend([
+                "pkexec".into(),
+                "snap".into(),
+                "remove".into(),
+                snap_name,
+            ]);
+            return Some(Plan {
+                title: format!("Uninstalling {name}"),
+                source: "Snap".into(),
+                icon: icon.to_string(),
+                args,
+            });
+        }
+    }
+
+    // AppImage: the entry's Exec points at a portable file — "uninstall"
+    // trashes the file (and the entry, which exists only to launch it).
+    if let Ok(content) = std::fs::read_to_string(desktop) {
+        if let Some((_, _, appimage_path)) =
+            crate::search::appimage::parse_appimage_desktop(&content)
+        {
+            return Some(Plan {
+                title: format!("Uninstalling {name}"),
+                source: "AppImage".into(),
+                icon: icon.to_string(),
+                args: crate::search::appimage::remove_args(&appimage_path, Some(desktop)),
+            });
+        }
     }
 
     // Distro: find the package that owns the .desktop file.
@@ -230,5 +289,81 @@ fn distro_plan(pm: &str, pkg: &str, name: &str, icon: &str) -> Plan {
         source: pm.to_string(),
         icon: icon.to_string(),
         args,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("spotty-uninstall-{}-{tag}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn snap_desktop_entry_plans_pkexec_snap_remove() {
+        // The path check is a substring match, so a scratch dir that ends
+        // in snapd's applications folder exercises the real branch.
+        let dir = scratch_dir("snap")
+            .join("var/lib/snapd/desktop/applications");
+        std::fs::create_dir_all(&dir).unwrap();
+        let desktop = dir.join("code_code.desktop");
+
+        // With the key: the instance name wins over the filename.
+        std::fs::write(
+            &desktop,
+            "[Desktop Entry]\nName=VS Code\nX-SnapInstanceName=code\nExec=/snap/bin/code %F\n",
+        )
+        .unwrap();
+        let plan = plan_for_app(&desktop, "VS Code", "vscode").unwrap();
+        assert_eq!(plan.source, "Snap");
+        assert_eq!(plan.title, "Uninstalling VS Code");
+        let tail: Vec<&str> = plan.args.iter().map(String::as_str).collect();
+        assert!(
+            tail.ends_with(&["pkexec", "snap", "remove", "code"]),
+            "{:?}",
+            plan.args
+        );
+
+        // Without the key: the filename's first `_` component is the snap.
+        std::fs::write(&desktop, "[Desktop Entry]\nName=VS Code\nExec=/snap/bin/code %F\n")
+            .unwrap();
+        let plan = plan_for_app(&desktop, "VS Code", "vscode").unwrap();
+        let tail: Vec<&str> = plan.args.iter().map(String::as_str).collect();
+        assert!(
+            tail.ends_with(&["pkexec", "snap", "remove", "code"]),
+            "{:?}",
+            plan.args
+        );
+        let _ = std::fs::remove_dir_all(&scratch_dir("snap"));
+    }
+
+    #[test]
+    fn appimage_desktop_entry_plans_trash_of_file_and_entry() {
+        let dir = scratch_dir("appimage");
+        let desktop = dir.join("krita.desktop");
+        let appimage = dir.join("Krita-5.2.6-x86_64.AppImage");
+        std::fs::write(
+            &desktop,
+            format!(
+                "[Desktop Entry]\nType=Application\nName=Krita\nExec={} %U\n",
+                appimage.display()
+            ),
+        )
+        .unwrap();
+
+        let plan = plan_for_app(&desktop, "Krita", "krita").unwrap();
+        assert_eq!(plan.source, "AppImage");
+        assert_eq!(plan.title, "Uninstalling Krita");
+        let sh = plan.args.last().unwrap();
+        assert!(sh.starts_with("gio trash "), "{sh}");
+        // The generated entry goes to the trash with the file, or the app
+        // index would keep offering a launcher for a file that is gone.
+        assert!(sh.contains("&& gio trash "), "{sh}");
+        assert!(sh.contains("krita.desktop"), "{sh}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

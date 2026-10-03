@@ -275,7 +275,6 @@
   "Redo": "Ulangi",
   "Delete word": "Hapus kata",
   "Delete file / folder": "Hapus file / folder",
-  "Calculator & Conversions": "Kalkulator & Konversi",
   "Arithmetic, units, currency and number bases": "Aritmetika, satuan, mata uang, dan basis bilangan",
   "Conversions": "Konversi",
   "Currency conversion": "Konversi mata uang",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Kurs diambil dari API publik gratis saat Anda mengonversi",
   "Scientific notation": "Notasi ilmiah",
   "Show equivalents when no target unit is given": "Tampilkan ekuivalen saat satuan tujuan tidak diberikan",
-  "Unit conversions": "Konversi satuan"
+  "Unit conversions": "Konversi satuan",
+  "Calculator & Converter": "Kalkulator & konverter",
+  "Arithmetic": "Aritmetika"
 }

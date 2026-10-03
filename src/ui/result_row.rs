@@ -753,6 +753,94 @@ fn resolve_host_app_icon_async(icon: &gtk::Image, name: &str) {
     });
 }
 
+/// The host-side lookup script: find a file named after `name` (any common
+/// image extension) under the user's icon dirs, both Flatpak appstream
+/// caches, and the system icon dirs. The `/var/lib/flatpak` locations matter
+/// for *not-installed* catalog apps: system-scope Flatpak apps keep their
+/// appstream icons there (regular files) and their exports as symlinks —
+/// hence `-type l` alongside `-type f`.
+fn host_icon_lookup_script(name: &str) -> String {
+    let escaped = name.replace('\'', "'\\''");
+    format!(
+        "name='{name}'; \
+         for d in \"$HOME/.local/share/icons\" \"$HOME/.local/share/flatpak/appstream\" \"$HOME/.local/share/flatpak/app\" \"$HOME/.local/share/flatpak/exports/share/icons\" /var/lib/flatpak/appstream /var/lib/flatpak/exports/share/icons /var/lib/flatpak/app /usr/share/icons /usr/local/share/icons /usr/share/pixmaps; do \
+           [ -d \"$d\" ] || continue; \
+           find \"$d\" \\( -type f -o -type l \\) \\( -iname \"$name.png\" -o -iname \"$name.svg\" -o -iname \"$name.xpm\" -o -iname \"$name-symbolic.png\" -o -iname \"$name-symbolic.svg\" \\) -print -quit; \
+         done",
+        name = escaped
+    )
+}
+
+/// Flathub's appstream CDN, biggest size first: the repo publishes a
+/// 128x128 (and 64x64) PNG per published app id.
+fn flathub_icon_urls(app_id: &str) -> [String; 2] {
+    [
+        format!(
+            "https://dl.flathub.org/repo/appstream/x86_64/icons/128x128/{app_id}.png"
+        ),
+        format!(
+            "https://dl.flathub.org/repo/appstream/x86_64/icons/64x64/{app_id}.png"
+        ),
+    ]
+}
+
+/// Last resort for an app-id shaped icon: when nothing local matches, the
+/// icon may simply not be exported on this machine — Flathub serves it from
+/// its appstream CDN (downloaded once, then cached in `host-icons` like any
+/// locally found icon). Non-app-id names and 404s (CLI-only packages,
+/// BaseApps) return `None` and keep the row's generic icon.
+fn flathub_icon_fallback(
+    name: &str,
+    cache_dir: &std::path::Path,
+    hash: &str,
+) -> Option<String> {
+    if !is_app_id(name) {
+        log::debug!("icon: nothing local for {name}");
+        return None;
+    }
+    for url in flathub_icon_urls(name) {
+        let mut cmd = if crate::app::is_flatpak() {
+            let mut c = std::process::Command::new("flatpak-spawn");
+            c.args(["--host", "curl"]);
+            c
+        } else {
+            std::process::Command::new("curl")
+        };
+        let output = cmd
+            .args([
+                "-fsSL",
+                "--max-time",
+                "5",
+                "-A",
+                "Mozilla/5.0 (compatible; Spotty)",
+                &url,
+            ])
+            .output();
+        let Ok(out) = output else {
+            continue;
+        };
+        if !out.status.success() || out.stdout.len() <= 100 {
+            continue;
+        }
+        // Trust magic bytes, not the URL — same rule as the favicon fetch.
+        let ext = if out.stdout.starts_with(b"\x89PNG\r\n\x1a\n") {
+            "png"
+        } else if out.stdout.starts_with(b"<svg") || out.stdout.starts_with(b"<?xml") {
+            "svg"
+        } else {
+            continue;
+        };
+        let path = cache_dir.join(format!("{}.{}", hash, ext));
+        if std::fs::write(&path, &out.stdout).is_ok() {
+            return Some(path.to_string_lossy().to_string());
+        }
+    }
+    // Local search and the Flathub CDN both missed — the row keeps the
+    // generic icon; log it so "icon missing" reports name the app id.
+    log::debug!("icon: no app icon for {name} (local + Flathub CDN miss)");
+    None
+}
+
 fn resolve_host_app_icon(name: &str) -> Option<String> {
     let cache_dir = dirs::cache_dir()?.join("spotty/host-icons");
     let _ = std::fs::create_dir_all(&cache_dir);
@@ -767,50 +855,88 @@ fn resolve_host_app_icon(name: &str) -> Option<String> {
         }
     }
 
-    let escaped = name.replace('\'', "'\\''");
-    let script = format!(
-        "name='{name}'; \
-         for d in \"$HOME/.local/share/icons\" \"$HOME/.local/share/flatpak/appstream\" \"$HOME/.local/share/flatpak/app\" /usr/share/icons /usr/local/share/icons /usr/share/pixmaps; do \
-           [ -d \"$d\" ] || continue; \
-           find \"$d\" -type f \\( -iname \"$name.png\" -o -iname \"$name.svg\" -o -iname \"$name.xpm\" -o -iname \"$name-symbolic.png\" -o -iname \"$name-symbolic.svg\" \\) -print -quit; \
-         done",
-        name = escaped
-    );
+    let script = host_icon_lookup_script(name);
     let found = if crate::app::is_flatpak() {
         std::process::Command::new("flatpak-spawn")
             .args(["--host", "sh", "-lc", &script])
             .output()
+            .ok()
     } else {
         std::process::Command::new("sh")
             .args(["-lc", &script])
             .output()
-    }
-    .ok()?;
-    if !found.status.success() {
-        return None;
-    }
-    let host_path = String::from_utf8_lossy(&found.stdout)
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())?
-        .to_string();
+            .ok()
+    };
+    let host_path = found.and_then(|out| {
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .map(str::to_string)
+    });
+    let Some(host_path) = host_path else {
+        // Nothing local — a Flatpak app id's icon may still be published on
+        // Flathub's appstream CDN (one download, then cached like the rest).
+        return flathub_icon_fallback(name, &cache_dir, &hash);
+    };
     let ext = std::path::Path::new(&host_path)
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("png");
     let out = cache_dir.join(format!("{}.{}", hash, ext));
     let file_bytes: Vec<u8> = if crate::app::is_flatpak() {
-        let output = std::process::Command::new("flatpak-spawn")
+        match std::process::Command::new("flatpak-spawn")
             .args(["--host", "cat", &host_path])
             .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
+        {
+            Ok(o) if o.status.success() => o.stdout,
+            _ => return flathub_icon_fallback(name, &cache_dir, &hash),
         }
-        output.stdout
     } else {
-        std::fs::read(&host_path).ok()?
+        match std::fs::read(&host_path) {
+            Ok(b) => b,
+            Err(_) => return flathub_icon_fallback(name, &cache_dir, &hash),
+        }
     };
-    std::fs::write(&out, &file_bytes).ok()?;
+    if std::fs::write(&out, &file_bytes).is_err() {
+        return flathub_icon_fallback(name, &cache_dir, &hash);
+    }
     Some(out.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_icon_lookup_covers_the_system_flatpak_dirs() {
+        let script = host_icon_lookup_script("org.kde.kdiff3");
+        // System-scope Flatpak apps keep their appstream icons and their
+        // exports under /var/lib/flatpak — the search used to miss both,
+        // which is why catalog rows showed the generic package icon.
+        assert!(script.contains("/var/lib/flatpak/appstream"), "{script}");
+        assert!(script.contains("/var/lib/flatpak/exports/share/icons"), "{script}");
+        // The exports dir is full of symlinks into /var/lib/flatpak/app,
+        // which the old `-type f` predicate skipped.
+        assert!(script.contains("-type l"), "{script}");
+        // The app id lands in the script's shell variable (after escaping);
+        // `$name` expands to it inside `sh` at runtime.
+        assert!(script.contains("name='org.kde.kdiff3'"), "{script}");
+        assert!(script.contains("$name.png"), "{script}");
+    }
+
+    #[test]
+    fn flathub_cdn_urls_cover_both_appstream_sizes() {
+        let [big, small] = flathub_icon_urls("org.kde.krita");
+        assert_eq!(
+            big,
+            "https://dl.flathub.org/repo/appstream/x86_64/icons/128x128/org.kde.krita.png"
+        );
+        assert_eq!(
+            small,
+            "https://dl.flathub.org/repo/appstream/x86_64/icons/64x64/org.kde.krita.png"
+        );
+        // Not an app id → no CDN attempt (falls straight to the generic icon).
+        assert!(!is_app_id("firefox-langpacks-en-us"));
+    }
 }

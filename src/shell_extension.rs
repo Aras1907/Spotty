@@ -4,8 +4,8 @@
 //! `~/.local/share/gnome-shell/extensions/spotty@spotty/`, writes the
 //! binary-launch command to `~/.config/spotty/spotty_bin` (the extension
 //! reads it back), and enables the extension via
-//! `org.gnome.Shell.Extensions` D-Bus. `sync()` is called after any
-//! shortcut/keyword mutation so the extension re-reads config and re-grabs.
+//! `org.gnome.Shell.Extensions` D-Bus. Called once at startup — a freshly
+//! written extension is picked up by the Shell on the next session start.
 use std::fs;
 use std::path::PathBuf;
 
@@ -105,12 +105,3 @@ pub fn install() {
     }
 }
 
-/// Re-sync after shortcut/keyword mutations: the extension re-reads config
-/// and re-grabs accelerators on reload/enable.
-pub fn sync() {
-    write_extension_files();
-    write_bin_file();
-    if !gdbus_call("ReloadExtension") {
-        gdbus_call("EnableExtension");
-    }
-}

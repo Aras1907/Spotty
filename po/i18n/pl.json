@@ -275,7 +275,6 @@
   "Redo": "Ponów",
   "Delete word": "Usuń słowo",
   "Delete file / folder": "Usuń plik / folder",
-  "Calculator & Conversions": "Kalkulator i przeliczenia",
   "Arithmetic, units, currency and number bases": "Arytmetyka, jednostki, waluty i systemy liczbowe",
   "Conversions": "Przeliczenia",
   "Currency conversion": "Przeliczanie walut",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Kursy są pobierane z bezpłatnego publicznego API podczas przeliczania",
   "Scientific notation": "Notacja naukowa",
   "Show equivalents when no target unit is given": "Pokazuj odpowiedniki, gdy nie podano jednostki docelowej",
-  "Unit conversions": "Przeliczanie jednostek"
+  "Unit conversions": "Przeliczanie jednostek",
+  "Calculator & Converter": "Kalkulator i konwerter",
+  "Arithmetic": "Arytmetyka"
 }

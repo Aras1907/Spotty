@@ -274,7 +274,6 @@
   "Redo": "Wiederholen",
   "Delete word": "Wort löschen",
   "Delete file / folder": "Datei / Ordner löschen",
-  "Calculator & Conversions": "Taschenrechner & Umrechnungen",
   "Arithmetic, units, currency and number bases": "Rechnen, Einheiten, Währungen und Zahlensysteme",
   "Conversions": "Umrechnungen",
   "Currency conversion": "Währungsumrechnung",
@@ -282,5 +281,7 @@
   "Rates are fetched from a free public API when you convert": "Wechselkurse werden beim Umrechnen von einer kostenlosen öffentlichen API geladen",
   "Scientific notation": "Wissenschaftliche Schreibweise",
   "Show equivalents when no target unit is given": "Äquivalente anzeigen, wenn keine Zieleinheit angegeben ist",
-  "Unit conversions": "Einheitenumrechnung"
+  "Unit conversions": "Einheitenumrechnung",
+  "Calculator & Converter": "Taschenrechner & Konverter",
+  "Arithmetic": "Rechnen"
 }

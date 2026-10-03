@@ -1,6 +1,6 @@
 {
   "name": "Spotty",
-  "description": "Global shortcuts for the Spotty launcher",
+  "description": "Positions the Spotty launcher window on screen",
   "uuid": "spotty@spotty",
   "shell-version": ["45", "46", "47", "48", "49", "50"],
   "url": ""

@@ -275,7 +275,6 @@
   "Redo": "Làm lại",
   "Delete word": "Xóa từ",
   "Delete file / folder": "Xóa tệp / thư mục",
-  "Calculator & Conversions": "Máy tính và chuyển đổi",
   "Arithmetic, units, currency and number bases": "Toán học, đơn vị, tiền tệ và cơ số",
   "Conversions": "Chuyển đổi",
   "Currency conversion": "Chuyển đổi tiền tệ",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Tỷ giá được lấy từ API công khai miễn phí khi bạn chuyển đổi",
   "Scientific notation": "Ký hiệu khoa học",
   "Show equivalents when no target unit is given": "Hiển thị giá trị tương đương khi không cho đơn vị đích",
-  "Unit conversions": "Chuyển đổi đơn vị"
+  "Unit conversions": "Chuyển đổi đơn vị",
+  "Calculator & Converter": "Máy tính và bộ chuyển đổi",
+  "Arithmetic": "Số học"
 }

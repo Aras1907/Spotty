@@ -27,14 +27,23 @@ fn cmd_shutdown(de: Desktop) -> String {
     }
 }
 
+/// The reboot itself, portable across init systems: systemd →
+/// logind/elogind (Artix, Void, Devuan, …) → OpenRC → sysvinit/BusyBox.
+/// The last three need root, which the launcher's privileged paths give us.
+pub(crate) fn reboot_chain() -> &'static str {
+    "systemctl reboot || loginctl reboot || openrc-shutdown -r now \
+     || shutdown -r now || reboot"
+}
+
 fn cmd_reboot(de: Desktop) -> String {
     match de {
         Desktop::Kde => format!(
             "qdbus6 org.kde.Shutdown /Shutdown logoutAndReboot 2>/dev/null \
              || qdbus org.kde.Shutdown /Shutdown logoutAndReboot 2>/dev/null \
-             || systemctl reboot || loginctl reboot"
+             || {}",
+            reboot_chain()
         ),
-        _ => "systemctl reboot || loginctl reboot".into(),
+        _ => reboot_chain().into(),
     }
 }
 
@@ -174,6 +183,15 @@ pub fn reboot_command() -> String {
 }
 
 pub fn search(query: &str, _cfg: &Config) -> Vec<SearchResult> {
+    search_with_state(query, crate::search::cmd::reboot_pending())
+}
+
+/// The session rows for `query`. While a reboot is pending to finish an update,
+/// the plain "Restart" row is replaced by the notice that says the updates are
+/// waiting for a restart ("Restart required to finish the update") — a bare
+/// "Restart" would restart without saying what it applies. The flag is a
+/// parameter so the swap is unit-testable without touching globals.
+fn search_with_state(query: &str, reboot_needed: bool) -> Vec<SearchResult> {
     let ql = query.to_lowercase();
     if ql.is_empty() {
         return vec![];
@@ -224,6 +242,13 @@ pub fn search(query: &str, _cfg: &Config) -> Vec<SearchResult> {
         } else {
             continue;
         };
+
+        // A pending reboot turns the query's plain Restart row into the
+        // update-aware notice (the same row the "update" verb shows on top).
+        if cmd.title == "Restart" && reboot_needed {
+            results.push(crate::search::cmd::restart_required_row());
+            continue;
+        }
 
         let command_str = action_command(cmd.title, de);
         results.push(SearchResult {
@@ -311,9 +336,49 @@ mod tests {
         assert!(shutdown.contains("poweroff"));
         let reboot = action_command("Restart", classify("GNOME"));
         assert!(reboot.contains("reboot"));
+        // …and it still reboots where systemd isn't the init system:
+        // elogind, OpenRC, sysvinit/BusyBox fallbacks, in that order.
+        assert!(reboot.contains("loginctl reboot"), "{reboot}");
+        assert!(reboot.contains("openrc-shutdown -r now"), "{reboot}");
+        assert!(reboot.contains("shutdown -r now"), "{reboot}");
+        assert!(reboot.ends_with("|| reboot"), "{reboot}");
         let lock = action_command("Lock Screen", classify("GNOME"));
         assert!(lock.contains("lock-session"));
         let logout = action_command("Log Out", classify("GNOME"));
         assert!(logout.contains("gnome-session-quit"));
+    }
+
+    #[test]
+    fn reboot_kde_keeps_graceful_logout_then_the_generic_chain() {
+        let cmd = action_command("Restart", classify("KDE"));
+        assert!(cmd.contains("logoutAndReboot"), "{cmd}");
+        assert!(cmd.ends_with("|| reboot"), "{cmd}");
+    }
+
+    #[test]
+    fn pending_reboot_replaces_the_plain_restart_row() {
+        let titles = |q: &str, reboot: bool| -> Vec<String> {
+            search_with_state(q, reboot)
+                .into_iter()
+                .map(|r| r.title)
+                .collect()
+        };
+        // Nothing pending: the plain Restart row as always.
+        assert!(titles("restart", false).contains(&"Restart".to_string()));
+        // Reboot pending → the update-aware notice instead of plain Restart,
+        // and no chained update anywhere.
+        let t = titles("restart", true);
+        assert!(!t.contains(&"Restart".to_string()), "{t:?}");
+        assert!(
+            t.contains(&crate::i18n::gettext("Restart required to finish the update")),
+            "{t:?}"
+        );
+        assert!(!t.iter().any(|x| x.contains("Update & Restart")), "{t:?}");
+        // "reboot" is the same row.
+        assert!(titles("reboot", true).iter().any(|x| x.contains("Restart required")));
+        // Other session rows stay untouched.
+        assert!(titles("shutdown", true).contains(&"Shut Down".to_string()));
+        // Unrelated queries gain nothing.
+        assert!(titles("zzz", true).is_empty());
     }
 }

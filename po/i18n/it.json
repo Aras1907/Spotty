@@ -275,7 +275,6 @@
   "Redo": "Ripeti",
   "Delete word": "Elimina parola",
   "Delete file / folder": "Elimina file / cartella",
-  "Calculator & Conversions": "Calcolatore e conversioni",
   "Arithmetic, units, currency and number bases": "Aritmetica, unità, valute e basi numeriche",
   "Conversions": "Conversioni",
   "Currency conversion": "Conversione valute",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "I tassi vengono recuperati da un'API pubblica gratuita durante la conversione",
   "Scientific notation": "Notazione scientifica",
   "Show equivalents when no target unit is given": "Mostra gli equivalenti quando non è indicata l'unità di destinazione",
-  "Unit conversions": "Conversione unità"
+  "Unit conversions": "Conversione unità",
+  "Calculator & Converter": "Calcolatore e convertitore",
+  "Arithmetic": "Aritmetica"
 }

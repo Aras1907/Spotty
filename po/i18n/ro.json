@@ -275,7 +275,6 @@
   "Redo": "Refă",
   "Delete word": "Șterge cuvântul",
   "Delete file / folder": "Șterge fișierul / dosarul",
-  "Calculator & Conversions": "Calculator și conversii",
   "Arithmetic, units, currency and number bases": "Aritmetică, unități, valute și baze numerice",
   "Conversions": "Conversii",
   "Currency conversion": "Conversie valutară",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Cursurile sunt preluate de la un API public gratuit la conversie",
   "Scientific notation": "Notație științifică",
   "Show equivalents when no target unit is given": "Afișează echivalente când nu se indică unitatea țintă",
-  "Unit conversions": "Conversie de unități"
+  "Unit conversions": "Conversie de unități",
+  "Calculator & Converter": "Calculator și convertor",
+  "Arithmetic": "Aritmetică"
 }

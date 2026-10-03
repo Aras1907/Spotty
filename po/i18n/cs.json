@@ -275,7 +275,6 @@
   "Redo": "Zopakovat",
   "Delete word": "Smazat slovo",
   "Delete file / folder": "Smazat soubor / složku",
-  "Calculator & Conversions": "Kalkulačka a převody",
   "Arithmetic, units, currency and number bases": "Aritmetika, jednotky, měny a číselné soustavy",
   "Conversions": "Převody",
   "Currency conversion": "Převod měn",
@@ -283,5 +282,7 @@
   "Rates are fetched from a free public API when you convert": "Kurzy se při převodu stáhnou z bezplatného veřejného API",
   "Scientific notation": "Vědecký zápis",
   "Show equivalents when no target unit is given": "Zobrazit ekvivalenty, když není zadána cílová jednotka",
-  "Unit conversions": "Převody jednotek"
+  "Unit conversions": "Převody jednotek",
+  "Calculator & Converter": "Kalkulačka a převodník",
+  "Arithmetic": "Aritmetika"
 }
