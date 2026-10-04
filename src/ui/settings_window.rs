@@ -851,7 +851,9 @@ fn rebuild_trigger_rows(
 
     // Result types first: what the universal search shows.
     for id in crate::config::RESULT_IDS {
-        if config.borrow().is_uninstalled(id) {
+        if config.borrow().is_uninstalled(id)
+            || !config.borrow().command_keywords.iter().any(|k| k.id == id)
+        {
             continue;
         }
         let row = result_type_row(id, window, config);
@@ -1192,9 +1194,8 @@ fn finish_trigger_install(
     // Native manifests enable the shipped backend, preserving customized words,
     // shortcuts and ordering. They are never copied into the custom registry.
     let installed = crate::triggers::parse_manifest(path).and_then(|m| {
-        if matches!(m.action, crate::triggers::TriggerAction::Builtin) {
-            if !crate::trigger_defaults::supports_builtin(&m.id)
-                || !config.borrow().command_keywords.iter().any(|k| k.id == m.id) {
+        if matches!(m.action, crate::triggers::TriggerAction::Native) {
+            if !crate::trigger_defaults::supports_native(&m.id) {
                 return Err(format!("This version of Spotty does not support '{}'", m.id));
             }
             save_and_refresh(config, |c| c.install_builtin(&m.id));
@@ -1584,22 +1585,22 @@ fn server_trigger_row(
         img.set_pixel_size(24);
         action.add_prefix(&img);
     }
-    if t.builtin {
-        let supported = crate::trigger_defaults::supports_builtin(&t.id)
-            && config.borrow().command_keywords.iter().any(|k| k.id == t.id);
-        let uninstalled = config.borrow().is_uninstalled(&t.id);
+    if t.native {
+        let supported = crate::trigger_defaults::supports_native(&t.id);
+        let installed = config.borrow().command_keywords.iter().any(|k| k.id == t.id)
+            && !config.borrow().is_uninstalled(&t.id);
         let label = if t.id == "cmd" {
             gettext("Installed")
         } else if !supported {
             gettext("Unavailable")
-        } else if uninstalled {
+        } else if !installed {
             gettext("Install")
         } else {
             gettext("Uninstall")
         };
         let btn = gtk::Button::builder()
             .label(label)
-            .css_classes([if uninstalled { "suggested-action" } else { "flat" }])
+            .css_classes([if !installed { "suggested-action" } else { "flat" }])
             .valign(gtk::Align::Center)
             .sensitive(supported && t.id != "cmd")
             .build();
@@ -1612,12 +1613,12 @@ fn server_trigger_row(
         let refresh = refresh.clone();
         btn.connect_clicked(move |_| {
             save_and_refresh(&cfg, |c| {
-                if uninstalled { c.install_builtin(&id); }
+                if !installed { c.install_builtin(&id); }
                 else { c.uninstall_builtin(&id); }
             });
             rebuild_trigger_rows(&g2, &win, &cfg, &rows2);
             std::thread::spawn(crate::keybindings::register_all);
-            let text = if uninstalled { gettext("Installed \"{name}\"") }
+            let text = if !installed { gettext("Installed \"{name}\"") }
                 else { gettext("Removed \"{name}\"") };
             win.add_toast(adw::Toast::new(&text.replace("{name}", &name)));
             refresh();

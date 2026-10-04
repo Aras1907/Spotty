@@ -851,15 +851,16 @@ impl Config {
 
     /// A result type's switch.
     pub fn result_enabled(&self, id: &str) -> bool {
-        match id {
-            "apps" => self.enable_apps,
-            "newapps" => self.enable_new_apps,
-            "web" => self.enable_web,
-            "calc" => self.enable_calculator,
-            "convert" => self.converter_enabled(),
-            "updates" => self.enable_updates,
-            _ => false,
-        }
+        self.command_keywords.iter().any(|kw| kw.id == id)
+            && match id {
+                "apps" => self.enable_apps,
+                "newapps" => self.enable_new_apps,
+                "web" => self.enable_web,
+                "calc" => self.enable_calculator,
+                "convert" => self.converter_enabled(),
+                "updates" => self.enable_updates,
+                _ => false,
+            }
     }
 
     pub fn set_result_enabled(&mut self, id: &str, on: bool) {
@@ -1001,8 +1002,11 @@ impl Config {
         self.uninstalled_builtins.retain(|u| u != id);
         if RESULT_IDS.contains(&id) {
             self.set_result_enabled(id, true);
-        } else if let Some(k) = self.command_keywords.iter_mut().find(|k| k.id == id) {
+        }
+        if let Some(k) = self.command_keywords.iter_mut().find(|k| k.id == id) {
             k.enabled = true;
+        } else if let Some(k) = crate::trigger_defaults::command_keyword(id) {
+            self.command_keywords.push(k);
         }
     }
 
@@ -1034,13 +1038,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn result_types_are_keywords_with_no_word_or_shortcut() {
-        let c = Config::default();
+    fn result_types_are_store_installs_and_begin_unavailable() {
+        let mut c = Config::default();
         for id in RESULT_IDS {
+            assert!(!c.command_keywords.iter().any(|k| k.id == id), "{id} starts uninstalled");
+            assert!(!c.result_enabled(id), "{id} is unavailable until installed");
+            c.install_builtin(id);
             let kw = c.command_keywords.iter().find(|k| k.id == id).expect(id);
             assert!(kw.is_result(), "{id}");
-            assert!(kw.word.is_empty() && kw.shortcut.is_empty(), "{id} starts empty");
-            // No word: reachable by id (its shortcut), never by typing "".
+            assert!(kw.word.is_empty() && kw.shortcut.is_empty(), "{id} starts without a trigger word");
             assert_eq!(kw.mode_key(), id);
             assert!(!kw.chip_label().is_empty(), "{id} has a chip label");
         }
@@ -1051,6 +1057,7 @@ mod tests {
     #[test]
     fn the_regular_search_switch_only_means_something_with_a_word() {
         let mut c = Config::default();
+        c.install_builtin("calc");
         // No word: the regular search is the only door, so it is always on —
         // whatever was stored.
         assert!(c.in_regular_search("calc"));
@@ -1075,6 +1082,7 @@ mod tests {
     #[test]
     fn a_trigger_shows_in_the_regular_search_only_when_it_opts_in() {
         let mut c = Config::default();
+        c.install_builtin("web");
         for id in ["files", "clipboard", "run", "emoji", "bluetooth", "dictionary"] {
             assert!(!c.in_regular_search(id), "{id} is reached by its word");
             c.set_in_regular_search(id, true);
@@ -1161,18 +1169,19 @@ mod tests {
     }
 
     #[test]
-    fn an_older_config_gains_the_result_types() {
+    fn result_types_are_not_added_during_config_migration() {
         let mut c = Config::default();
         c.command_keywords.retain(|k| !k.is_result());
         c.migrate_keywords();
         for id in RESULT_IDS {
-            assert!(c.command_keywords.iter().any(|k| k.id == id), "{id}");
+            assert!(!c.command_keywords.iter().any(|k| k.id == id), "{id} stays opt-in");
         }
     }
 
     #[test]
     fn a_result_type_follows_its_switch() {
         let mut c = Config::default();
+        c.install_builtin("web");
         if let Some(k) = c.command_keywords.iter_mut().find(|k| k.id == "web") {
             k.word = "web".into();
         }

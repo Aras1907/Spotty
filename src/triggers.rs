@@ -50,6 +50,9 @@ pub struct RepoTrigger {
     /// This entry enables a backend shipped in Spotty rather than installing code.
     #[serde(default)]
     pub builtin: bool,
+    /// This entry requires a Rust backend compiled into Spotty.
+    #[serde(default)]
+    pub native: bool,
 }
 
 /// What a trigger does with the user's typed query.
@@ -57,7 +60,8 @@ pub struct RepoTrigger {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum TriggerAction {
     /// Enable an existing native backend through Config, never the registry.
-    Builtin,
+    #[serde(alias = "builtin")]
+    Native,
     /// Open a URL with `{query}` substituted (URL-encoded).
     Web { url: String },
     /// Search files filtered by the given extensions. An empty list means
@@ -113,7 +117,7 @@ pub fn help_text(m: &TriggerManifest) -> String {
         return m.help.clone();
     }
     match &m.action {
-        TriggerAction::Builtin => m.description.clone(),
+        TriggerAction::Native => m.description.clone(),
         TriggerAction::Web { url } => format!(
             "Trigger: {}\n\nType \"{} <query>\" in the search bar to search {}.\n\nOpens: {}",
             m.word, m.word, m.name, url
@@ -297,8 +301,8 @@ pub fn parse_manifest(path: &Path) -> Result<TriggerManifest, String> {
 /// id charset (must be a legal GTK action name), non-empty word, known
 /// action, no word collision with built-ins or other triggers.
 pub fn validate(m: &TriggerManifest) -> Result<(), String> {
-    if matches!(m.action, TriggerAction::Builtin) {
-        return Err("Built-in manifests must be installed through Spotty Settings.".into());
+    if matches!(m.action, TriggerAction::Native) {
+        return Err("Native manifests must be installed through Spotty Settings.".into());
     }
     if m.id.is_empty()
         || !m
@@ -314,7 +318,7 @@ pub fn validate(m: &TriggerManifest) -> Result<(), String> {
     if m.word.trim().is_empty() {
         return Err(gettext("missing 'word' (the trigger text)"));
     }
-    if crate::trigger_defaults::supports_builtin(&m.id) {
+    if crate::trigger_defaults::supports_native(&m.id) {
         return Err(gettext("id '{id}' is a built-in trigger").replace("{id}", &m.id));
     }
     if by_id(&m.id).is_some() {
