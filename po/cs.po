@@ -16,7 +16,7 @@ msgstr ""
 msgid "    “{ex}”"
 msgstr ""
 
-#: src/preview.rs:471
+#: trigger-backends/src/features/preview.rs:471
 msgid "1 / 1"
 msgstr ""
 
@@ -191,7 +191,7 @@ msgstr "Vyberte, které typy výsledků se zobrazí"
 msgid "Clipboard"
 msgstr "Schránka"
 
-#: src/preview.rs:602
+#: trigger-backends/src/features/preview.rs:602
 msgid "Clipped {time}"
 msgstr "Zkopírováno {time}"
 
@@ -467,7 +467,7 @@ msgstr ""
 msgid "Hide the update notice for 24 hours"
 msgstr "Skrýt oznámení o aktualizaci na 24 hodin"
 
-#: src/preview.rs:209
+#: trigger-backends/src/features/preview.rs:209
 msgid "Highlight a result\nto preview"
 msgstr "Zvýrazněte výsledek\\npro náhled"
 
@@ -835,7 +835,7 @@ msgstr "Spustit příkaz"
 msgid "Run {name}"
 msgstr "Spustit {name}"
 
-#: src/operations.rs:126
+#: trigger-backends/src/features/operations.rs:126
 msgid "Run: {command}"
 msgstr "Spustit: {command}"
 
@@ -1004,8 +1004,8 @@ msgstr ""
 msgid "Spotty Settings"
 msgstr "Nastavení Spotty"
 
-#: src/preview.rs:2844
-#: src/preview.rs:4706
+#: trigger-backends/src/features/preview.rs:2844
+#: trigger-backends/src/features/preview.rs:4706
 msgid "Spreadsheet"
 msgstr "Tabulka"
 
@@ -1285,7 +1285,7 @@ msgstr "install <app>  —  instalace z Flatpak, distribuce nebo Snap"
 msgid "invalid id '{id}': use only letters, digits, '_', '-' or '.'"
 msgstr "neplatné id '{id}': povolena jsou pouze písmena, číslice, '_', '-' a '.'"
 
-#: src/operations.rs:157
+#: trigger-backends/src/features/operations.rs:157
 msgid "just now"
 msgstr "právě teď"
 
@@ -1351,7 +1351,7 @@ msgstr ""
 msgid "{name}: {query}"
 msgstr ""
 
-#: src/operations.rs:651
+#: trigger-backends/src/features/operations.rs:651
 msgid "{noun} {target} {suffix}"
 msgstr ""
 
@@ -1361,15 +1361,15 @@ msgstr ""
 msgid "{n} updates available"
 msgstr "Dostupné aktualizace: {n}"
 
-#: src/operations.rs:163
+#: trigger-backends/src/features/operations.rs:163
 msgid "{n}d ago"
 msgstr "před {n} d"
 
-#: src/operations.rs:161
+#: trigger-backends/src/features/operations.rs:161
 msgid "{n}h ago"
 msgstr "před {n} h"
 
-#: src/operations.rs:159
+#: trigger-backends/src/features/operations.rs:159
 msgid "{n}m ago"
 msgstr "před {n} min"
 
@@ -1383,11 +1383,11 @@ msgstr ""
 msgid "{source} Update"
 msgstr "Aktualizace {source}"
 
-#: src/operations.rs:175
-#: src/operations.rs:195
-#: src/operations.rs:952
-#: src/operations.rs:978
-#: src/operations.rs:1003
+#: trigger-backends/src/features/operations.rs:175
+#: trigger-backends/src/features/operations.rs:195
+#: trigger-backends/src/features/operations.rs:952
+#: trigger-backends/src/features/operations.rs:978
+#: trigger-backends/src/features/operations.rs:1003
 msgid "{source} · {status}"
 msgstr ""
 
@@ -1397,7 +1397,7 @@ msgstr ""
 msgid "{src} → {tgt}"
 msgstr "{src} → {tgt}"
 
-#: src/operations.rs:654
+#: trigger-backends/src/features/operations.rs:654
 msgid "{title} {suffix}"
 msgstr ""
 
@@ -1417,14 +1417,14 @@ msgstr ""
 msgid "• {text}"
 msgstr ""
 
-#: src/preview.rs:651
+#: trigger-backends/src/features/preview.rs:651
 msgid "…and {n} more"
 msgstr "…a dalších {n}"
 
-#: src/preview.rs:476
+#: trigger-backends/src/features/preview.rs:476
 msgid "▶"
 msgstr ""
 
-#: src/preview.rs:466
+#: trigger-backends/src/features/preview.rs:466
 msgid "◀"
 msgstr ""

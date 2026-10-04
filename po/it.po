@@ -16,7 +16,7 @@ msgstr ""
 msgid "    “{ex}”"
 msgstr ""
 
-#: src/preview.rs:471
+#: trigger-backends/src/features/preview.rs:471
 msgid "1 / 1"
 msgstr ""
 
@@ -191,7 +191,7 @@ msgstr "Scegli quali tipi di risultati mostrare"
 msgid "Clipboard"
 msgstr "Appunti"
 
-#: src/preview.rs:602
+#: trigger-backends/src/features/preview.rs:602
 msgid "Clipped {time}"
 msgstr "Copiato {time}"
 
@@ -467,7 +467,7 @@ msgstr ""
 msgid "Hide the update notice for 24 hours"
 msgstr "Nascondi la notifica di aggiornamento per 24 ore"
 
-#: src/preview.rs:209
+#: trigger-backends/src/features/preview.rs:209
 msgid "Highlight a result\nto preview"
 msgstr "Evidenzia un risultato\\nper l'anteprima"
 
@@ -835,7 +835,7 @@ msgstr "Esegui un comando"
 msgid "Run {name}"
 msgstr "Esegui {name}"
 
-#: src/operations.rs:126
+#: trigger-backends/src/features/operations.rs:126
 msgid "Run: {command}"
 msgstr "Esegui: {command}"
 
@@ -1004,8 +1004,8 @@ msgstr ""
 msgid "Spotty Settings"
 msgstr "Impostazioni di Spotty"
 
-#: src/preview.rs:2844
-#: src/preview.rs:4706
+#: trigger-backends/src/features/preview.rs:2844
+#: trigger-backends/src/features/preview.rs:4706
 msgid "Spreadsheet"
 msgstr "Foglio di calcolo"
 
@@ -1285,7 +1285,7 @@ msgstr "install <app>  —  installa da Flatpak, distribuzione o Snap"
 msgid "invalid id '{id}': use only letters, digits, '_', '-' or '.'"
 msgstr "id non valido '{id}': usa solo lettere, cifre, '_', '-' o '.'"
 
-#: src/operations.rs:157
+#: trigger-backends/src/features/operations.rs:157
 msgid "just now"
 msgstr "proprio adesso"
 
@@ -1351,7 +1351,7 @@ msgstr ""
 msgid "{name}: {query}"
 msgstr ""
 
-#: src/operations.rs:651
+#: trigger-backends/src/features/operations.rs:651
 msgid "{noun} {target} {suffix}"
 msgstr ""
 
@@ -1361,15 +1361,15 @@ msgstr ""
 msgid "{n} updates available"
 msgstr "{n} aggiornamenti disponibili"
 
-#: src/operations.rs:163
+#: trigger-backends/src/features/operations.rs:163
 msgid "{n}d ago"
 msgstr "{n} g fa"
 
-#: src/operations.rs:161
+#: trigger-backends/src/features/operations.rs:161
 msgid "{n}h ago"
 msgstr "{n} h fa"
 
-#: src/operations.rs:159
+#: trigger-backends/src/features/operations.rs:159
 msgid "{n}m ago"
 msgstr "{n} min fa"
 
@@ -1383,11 +1383,11 @@ msgstr ""
 msgid "{source} Update"
 msgstr "Aggiornamento {source}"
 
-#: src/operations.rs:175
-#: src/operations.rs:195
-#: src/operations.rs:952
-#: src/operations.rs:978
-#: src/operations.rs:1003
+#: trigger-backends/src/features/operations.rs:175
+#: trigger-backends/src/features/operations.rs:195
+#: trigger-backends/src/features/operations.rs:952
+#: trigger-backends/src/features/operations.rs:978
+#: trigger-backends/src/features/operations.rs:1003
 msgid "{source} · {status}"
 msgstr ""
 
@@ -1397,7 +1397,7 @@ msgstr ""
 msgid "{src} → {tgt}"
 msgstr "{src} → {tgt}"
 
-#: src/operations.rs:654
+#: trigger-backends/src/features/operations.rs:654
 msgid "{title} {suffix}"
 msgstr ""
 
@@ -1417,14 +1417,14 @@ msgstr ""
 msgid "• {text}"
 msgstr ""
 
-#: src/preview.rs:651
+#: trigger-backends/src/features/preview.rs:651
 msgid "…and {n} more"
 msgstr "…e altri {n}"
 
-#: src/preview.rs:476
+#: trigger-backends/src/features/preview.rs:476
 msgid "▶"
 msgstr ""
 
-#: src/preview.rs:466
+#: trigger-backends/src/features/preview.rs:466
 msgid "◀"
 msgstr ""

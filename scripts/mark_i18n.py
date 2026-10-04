@@ -47,11 +47,11 @@ FILES = [
     "trigger-backends/src/search/system.rs",
     "trigger-backends/src/search/emoji.rs",
     "trigger-backends/src/search/run.rs",
-    "src/operations.rs",
+    "trigger-backends/src/features/operations.rs",
     "src/triggers.rs",
-    "src/preview.rs",
+    "trigger-backends/src/features/preview.rs",
     "src/app.rs",
-    "src/clipboard.rs",
+    "trigger-backends/src/features/clipboard.rs",
 ]
 
 

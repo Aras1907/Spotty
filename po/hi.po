@@ -16,7 +16,7 @@ msgstr ""
 msgid "    “{ex}”"
 msgstr ""
 
-#: src/preview.rs:471
+#: trigger-backends/src/features/preview.rs:471
 msgid "1 / 1"
 msgstr ""
 
@@ -191,7 +191,7 @@ msgstr "चुनें कि किस प्रकार के परिण�
 msgid "Clipboard"
 msgstr "क्लिपबोर्ड"
 
-#: src/preview.rs:602
+#: trigger-backends/src/features/preview.rs:602
 msgid "Clipped {time}"
 msgstr "कॉपी किया गया {time}"
 
@@ -467,7 +467,7 @@ msgstr ""
 msgid "Hide the update notice for 24 hours"
 msgstr "अपडेट सूचना 24 घंटे तक छिपाएँ"
 
-#: src/preview.rs:209
+#: trigger-backends/src/features/preview.rs:209
 msgid "Highlight a result\nto preview"
 msgstr "पूर्वावलोकन के लिए\\nपरिणाम हाइलाइट करें"
 
@@ -835,7 +835,7 @@ msgstr "कमांड चलाएँ"
 msgid "Run {name}"
 msgstr "{name} चलाएँ"
 
-#: src/operations.rs:126
+#: trigger-backends/src/features/operations.rs:126
 msgid "Run: {command}"
 msgstr "चलाएँ: {command}"
 
@@ -1004,8 +1004,8 @@ msgstr ""
 msgid "Spotty Settings"
 msgstr "Spotty सेटिंग्स"
 
-#: src/preview.rs:2844
-#: src/preview.rs:4706
+#: trigger-backends/src/features/preview.rs:2844
+#: trigger-backends/src/features/preview.rs:4706
 msgid "Spreadsheet"
 msgstr "स्प्रेडशीट"
 
@@ -1285,7 +1285,7 @@ msgstr "install <app>  —  Flatpak, डिस्ट्रो या Snap से
 msgid "invalid id '{id}': use only letters, digits, '_', '-' or '.'"
 msgstr "अमान्य id '{id}': केवल अक्षर, अंक, '_', '-' और '.' प्रयोग करें"
 
-#: src/operations.rs:157
+#: trigger-backends/src/features/operations.rs:157
 msgid "just now"
 msgstr "अभी-अभी"
 
@@ -1351,7 +1351,7 @@ msgstr ""
 msgid "{name}: {query}"
 msgstr ""
 
-#: src/operations.rs:651
+#: trigger-backends/src/features/operations.rs:651
 msgid "{noun} {target} {suffix}"
 msgstr ""
 
@@ -1361,15 +1361,15 @@ msgstr ""
 msgid "{n} updates available"
 msgstr "{n} अपडेट उपलब्ध हैं"
 
-#: src/operations.rs:163
+#: trigger-backends/src/features/operations.rs:163
 msgid "{n}d ago"
 msgstr "{n} दिन पहले"
 
-#: src/operations.rs:161
+#: trigger-backends/src/features/operations.rs:161
 msgid "{n}h ago"
 msgstr "{n} घंटे पहले"
 
-#: src/operations.rs:159
+#: trigger-backends/src/features/operations.rs:159
 msgid "{n}m ago"
 msgstr "{n} मिनट पहले"
 
@@ -1383,11 +1383,11 @@ msgstr ""
 msgid "{source} Update"
 msgstr "{source} अपडेट"
 
-#: src/operations.rs:175
-#: src/operations.rs:195
-#: src/operations.rs:952
-#: src/operations.rs:978
-#: src/operations.rs:1003
+#: trigger-backends/src/features/operations.rs:175
+#: trigger-backends/src/features/operations.rs:195
+#: trigger-backends/src/features/operations.rs:952
+#: trigger-backends/src/features/operations.rs:978
+#: trigger-backends/src/features/operations.rs:1003
 msgid "{source} · {status}"
 msgstr ""
 
@@ -1397,7 +1397,7 @@ msgstr ""
 msgid "{src} → {tgt}"
 msgstr "{src} → {tgt}"
 
-#: src/operations.rs:654
+#: trigger-backends/src/features/operations.rs:654
 msgid "{title} {suffix}"
 msgstr ""
 
@@ -1417,14 +1417,14 @@ msgstr ""
 msgid "• {text}"
 msgstr ""
 
-#: src/preview.rs:651
+#: trigger-backends/src/features/preview.rs:651
 msgid "…and {n} more"
 msgstr "…और {n} और"
 
-#: src/preview.rs:476
+#: trigger-backends/src/features/preview.rs:476
 msgid "▶"
 msgstr ""
 
-#: src/preview.rs:466
+#: trigger-backends/src/features/preview.rs:466
 msgid "◀"
 msgstr ""

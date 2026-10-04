@@ -16,7 +16,7 @@ msgstr ""
 msgid "    “{ex}”"
 msgstr ""
 
-#: src/preview.rs:471
+#: trigger-backends/src/features/preview.rs:471
 msgid "1 / 1"
 msgstr ""
 
@@ -191,7 +191,7 @@ msgstr "表示する結果の種類を選択"
 msgid "Clipboard"
 msgstr "クリップボード"
 
-#: src/preview.rs:602
+#: trigger-backends/src/features/preview.rs:602
 msgid "Clipped {time}"
 msgstr "コピー済み {time}"
 
@@ -467,7 +467,7 @@ msgstr ""
 msgid "Hide the update notice for 24 hours"
 msgstr "更新のお知らせを 24 時間非表示"
 
-#: src/preview.rs:209
+#: trigger-backends/src/features/preview.rs:209
 msgid "Highlight a result\nto preview"
 msgstr "結果をハイライト\\nしてプレビュー"
 
@@ -835,7 +835,7 @@ msgstr "コマンドを実行"
 msgid "Run {name}"
 msgstr "{name} を実行"
 
-#: src/operations.rs:126
+#: trigger-backends/src/features/operations.rs:126
 msgid "Run: {command}"
 msgstr "実行: {command}"
 
@@ -1004,8 +1004,8 @@ msgstr ""
 msgid "Spotty Settings"
 msgstr "Spotty の設定"
 
-#: src/preview.rs:2844
-#: src/preview.rs:4706
+#: trigger-backends/src/features/preview.rs:2844
+#: trigger-backends/src/features/preview.rs:4706
 msgid "Spreadsheet"
 msgstr "表計算"
 
@@ -1285,7 +1285,7 @@ msgstr "install <app>  —  Flatpak、ディストリ、または Snap からイ
 msgid "invalid id '{id}': use only letters, digits, '_', '-' or '.'"
 msgstr "無効な id '{id}': 英数字、_、-、. のみ使用できます"
 
-#: src/operations.rs:157
+#: trigger-backends/src/features/operations.rs:157
 msgid "just now"
 msgstr "たった今"
 
@@ -1351,7 +1351,7 @@ msgstr ""
 msgid "{name}: {query}"
 msgstr ""
 
-#: src/operations.rs:651
+#: trigger-backends/src/features/operations.rs:651
 msgid "{noun} {target} {suffix}"
 msgstr ""
 
@@ -1361,15 +1361,15 @@ msgstr ""
 msgid "{n} updates available"
 msgstr "更新が {n} 件あります"
 
-#: src/operations.rs:163
+#: trigger-backends/src/features/operations.rs:163
 msgid "{n}d ago"
 msgstr "{n} 日前"
 
-#: src/operations.rs:161
+#: trigger-backends/src/features/operations.rs:161
 msgid "{n}h ago"
 msgstr "{n} 時間前"
 
-#: src/operations.rs:159
+#: trigger-backends/src/features/operations.rs:159
 msgid "{n}m ago"
 msgstr "{n} 分前"
 
@@ -1383,11 +1383,11 @@ msgstr ""
 msgid "{source} Update"
 msgstr "{source} の更新"
 
-#: src/operations.rs:175
-#: src/operations.rs:195
-#: src/operations.rs:952
-#: src/operations.rs:978
-#: src/operations.rs:1003
+#: trigger-backends/src/features/operations.rs:175
+#: trigger-backends/src/features/operations.rs:195
+#: trigger-backends/src/features/operations.rs:952
+#: trigger-backends/src/features/operations.rs:978
+#: trigger-backends/src/features/operations.rs:1003
 msgid "{source} · {status}"
 msgstr ""
 
@@ -1397,7 +1397,7 @@ msgstr ""
 msgid "{src} → {tgt}"
 msgstr "{src} → {tgt}"
 
-#: src/operations.rs:654
+#: trigger-backends/src/features/operations.rs:654
 msgid "{title} {suffix}"
 msgstr ""
 
@@ -1417,14 +1417,14 @@ msgstr ""
 msgid "• {text}"
 msgstr ""
 
-#: src/preview.rs:651
+#: trigger-backends/src/features/preview.rs:651
 msgid "…and {n} more"
 msgstr "…ほか {n} 件"
 
-#: src/preview.rs:476
+#: trigger-backends/src/features/preview.rs:476
 msgid "▶"
 msgstr ""
 
-#: src/preview.rs:466
+#: trigger-backends/src/features/preview.rs:466
 msgid "◀"
 msgstr ""

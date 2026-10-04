@@ -59,13 +59,13 @@ Keybindings are registered by writing GNOME custom-keybindings schemas via `gset
 |---|---|---|
 | Indexer | `src/index.rs` | Background thread, lazy file index, inotify watcher |
 | Search dispatch | `trigger-backends/src/search/mod.rs` | Routes queries to backends based on keyword trigger |
-| Distro | `src/distro.rs` | Which distro Spotty runs on (os-release, `/run/host/os-release` in Flatpak): family, package manager, image-based or not |
-| System packages | `src/packagekit.rs`, `src/dnf5daemon.rs` | Install/update distro packages over D-Bus, no pkexec: PackageKit on every distro, dnf5daemon for Fedora updates. Updates download, then the restart installs them |
+| Distro | `trigger-backends/src/features/distro.rs` | Which distro Spotty runs on (os-release, `/run/host/os-release` in Flatpak): family, package manager, image-based or not |
+| System packages | `trigger-backends/src/features/packagekit.rs`, `trigger-backends/src/features/dnf5daemon.rs` | Install/update distro packages over D-Bus, no pkexec: PackageKit on every distro, dnf5daemon for Fedora updates. Updates download, then the restart installs them |
 | Config | `src/config.rs` | JSON file, defines keywords, shortcuts, engines, flags |
-| Key synthesis | `src/keysynth.rs` | Auto-pastes via xdotool/wtype through flatpak-spawn |
-| Preview | `src/preview.rs` | Async: images, text, PDF (bundled pdftoppm), Office (zip/cfb — pure Rust, no external tool), video (bundled ffmpeg) |
-| Clipboard | `src/clipboard.rs` | History with auto-paste via key synthesis |
-| File ops | `src/fileops.rs` | Copy/cut/paste, state in thread-local |
+| Key synthesis | `trigger-backends/src/features/keysynth.rs` | Auto-pastes via xdotool/wtype through flatpak-spawn |
+| Preview | `trigger-backends/src/features/preview.rs` | Async: images, text, PDF (bundled pdftoppm), Office (zip/cfb — pure Rust, no external tool), video (bundled ffmpeg) |
+| Clipboard | `trigger-backends/src/features/clipboard.rs` | History with auto-paste via key synthesis |
+| File ops | `trigger-backends/src/features/fileops.rs` | Copy/cut/paste, state in thread-local |
 | MPRIS | `src/mpris.rs` | GNOME media controls integration for the music player |
 | OCR (image find) | `src/tesseract_ffi.rs` | dlopen libtesseract.so.5.5; preprocess, upscale, and run tesseract with PSM_AUTO |
 | Content search | `trigger-backends/src/search/files.rs` | Text extraction (PDF, Office, images via tesseract), fuzzy matching |

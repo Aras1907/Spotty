@@ -7,7 +7,8 @@ A Raycast-style launcher for GNOME Linux.
 The trigger and result implementations live in
 [spotty-triggers](https://github.com/Aras1907/spotty-triggers), pinned through
 the `trigger-backends` Git submodule. This repository contains Spotty's
-application, UI, indexer, and host services.
+application lifecycle, shared UI, configuration, indexer, and platform integration.
+Native feature services and their settings dialogs live in the submodule.
 
 ```sh
 git clone --recurse-submodules https://github.com/Aras1907/Spotty.git

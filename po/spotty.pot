@@ -12,31 +12,31 @@ msgstr ""
 msgid "    “{ex}”"
 msgstr ""
 
-#: src/preview.rs:471
+#: trigger-backends/src/features/preview.rs:471
 msgid "1 / 1"
 msgstr ""
 
-#: src/ui/settings_window.rs:296
-msgid "About"
+#: src/ui/settings_window.rs:347
+msgid "A trigger word is a single word"
 msgstr ""
 
-#: src/ui/settings_window.rs:299
+#: src/ui/settings_window.rs:177
 msgid "About Spotty"
 msgstr ""
 
-#: src/ui/settings_window.rs:1875
+#: src/ui/settings_window.rs:1310
 msgid "Add Trigger"
 msgstr ""
 
-#: src/ui/settings_window.rs:1600
+#: src/ui/settings_window.rs:1021
 msgid "Add Trigger Word"
 msgstr ""
 
-#: src/ui/settings_window.rs:2278
+#: src/ui/settings_window.rs:1748
 msgid "Add a local trigger"
 msgstr ""
 
-#: src/ui/settings_window.rs:2800
+#: src/ui/settings_window.rs:2244
 msgid "Allow typing / or ~/ to browse the filesystem directly"
 msgstr ""
 
@@ -44,19 +44,31 @@ msgstr ""
 msgid "Already {language}"
 msgstr ""
 
-#: src/ui/settings_window.rs:121
+#: src/ui/settings_window.rs:268
+msgid "Also list its results when you search without typing the trigger word"
+msgstr ""
+
+#: src/ui/settings_window.rs:266
+msgid "Also list these results when you search without the trigger word"
+msgstr ""
+
+#: trigger-backends/src/defaults.rs:86
 msgid "Also suggest installable apps as you type"
 msgstr ""
 
-#: src/ui/settings_window.rs:142
+#: src/ui/settings_window.rs:264
+msgid "Always on without a trigger word — it is the only way to find them"
+msgstr ""
+
+#: trigger-backends/src/defaults.rs:87
 msgid "Always show web search row"
 msgstr ""
 
-#: src/ui/settings_window.rs:933
+#: trigger-backends/src/ui/feature_settings.rs:660
 msgid "Angle"
 msgstr ""
 
-#: src/ui/settings_window.rs:352
+#: trigger-backends/src/ui/feature_settings.rs:36
 msgid "App Sources"
 msgstr ""
 
@@ -68,48 +80,48 @@ msgstr ""
 msgid "AppImage — {path}"
 msgstr ""
 
-#: src/ui/settings_window.rs:386
+#: trigger-backends/src/ui/feature_settings.rs:70
 msgid "AppImages"
 msgstr ""
 
-#: src/ui/settings_window.rs:99
-#: src/ui/settings_window.rs:629
+#: trigger-backends/src/defaults.rs:72
+#: trigger-backends/src/ui/feature_settings.rs:342
 msgid "Applications"
 msgstr ""
 
-#: src/ui/search_window.rs:2321
-#: src/ui/search_window.rs:3351
+#: src/ui/search_window.rs:2378
+#: src/ui/search_window.rs:3434
 msgid "Are you sure you want to install {name}?"
 msgstr ""
 
-#: src/ui/search_window.rs:2325
-#: src/ui/search_window.rs:3355
+#: src/ui/search_window.rs:2382
+#: src/ui/search_window.rs:3438
 msgid "Are you sure you want to uninstall {name}?"
 msgstr ""
 
-#: src/ui/search_window.rs:2336
-#: src/ui/search_window.rs:3395
-#: src/ui/settings_window.rs:1158
+#: src/ui/search_window.rs:2393
+#: src/ui/search_window.rs:3478
+#: trigger-backends/src/ui/feature_settings.rs:886
 msgid "Are you sure?"
 msgstr ""
 
-#: src/ui/settings_window.rs:925
+#: trigger-backends/src/ui/feature_settings.rs:652
 msgid "Area"
 msgstr ""
 
-#: src/ui/settings_window.rs:677
+#: trigger-backends/src/ui/feature_settings.rs:390
 msgid "Arithmetic"
 msgstr ""
 
-#: src/ui/settings_window.rs:163
-msgid "Arithmetic, units, currency and number bases"
+#: trigger-backends/src/defaults.rs:88
+msgid "Arithmetic as you type"
 msgstr ""
 
 #: trigger-backends/src/search/translate.rs:579
 #: trigger-backends/src/search/translate.rs:665
 #: trigger-backends/src/search/translate.rs:721
 #: trigger-backends/src/search/translate.rs:772
-#: src/ui/settings_window.rs:937
+#: trigger-backends/src/ui/feature_settings.rs:664
 msgid "Auto"
 msgstr ""
 
@@ -117,191 +129,209 @@ msgstr ""
 msgid "Back to Auto (system language)"
 msgstr ""
 
-#: src/config.rs:245
+#: trigger-backends/index.json
 msgid "Bluetooth devices"
 msgstr ""
 
-#: src/ui/settings_window.rs:1362
-msgid "Browse and install triggers"
+#: src/ui/settings_window.rs:520
+msgid "Browse, install and reinstall triggers"
 msgstr ""
 
-#: src/ui/settings_window.rs:162
-#: src/ui/settings_window.rs:669
-msgid "Calculator & Converter"
+#: src/ui/settings_window.rs:123
+msgid "Button Icons"
 msgstr ""
 
-#: src/ui/result_row.rs:312
-#: src/ui/search_window.rs:786
-#: src/ui/search_window.rs:2338
-#: src/ui/search_window.rs:3397
-#: src/ui/search_window.rs:5403
-#: src/ui/search_window.rs:5825
-#: src/ui/search_window.rs:6303
-#: src/ui/settings_window.rs:1160
-#: src/ui/settings_window.rs:1696
-#: src/ui/settings_window.rs:2461
+#: trigger-backends/index.json
+msgid "Calculate arithmetic"
+msgstr ""
+
+#: trigger-backends/src/defaults.rs:75
+#: trigger-backends/src/ui/feature_settings.rs:382
+msgid "Calculator"
+msgstr ""
+
+#: src/ui/result_row.rs:311
+#: src/ui/search_window.rs:825
+#: src/ui/search_window.rs:2395
+#: src/ui/search_window.rs:3480
+#: src/ui/search_window.rs:5471
+#: src/ui/search_window.rs:5893
+#: src/ui/search_window.rs:6371
+#: src/ui/settings_window.rs:553
+#: src/ui/settings_window.rs:1117
+#: src/ui/settings_window.rs:1936
+#: trigger-backends/src/ui/feature_settings.rs:888
 msgid "Cancel"
 msgstr ""
 
-#: src/ui/settings_window.rs:2234
+#: src/ui/settings_window.rs:1707
 msgid "Cannot save the manifest: {e}"
 msgstr ""
 
-#: src/ui/settings_window.rs:2025
+#: src/ui/settings_window.rs:1460
 msgid "Cannot save the trigger: {e}"
 msgstr ""
 
-#: src/ui/settings_window.rs:1073
+#: trigger-backends/index.json
+msgid "Check and install updates"
+msgstr ""
+
+#: trigger-backends/src/ui/feature_settings.rs:801
 msgid "Check every"
 msgstr ""
 
-#: src/ui/settings_window.rs:1023
-#: src/ui/settings_window.rs:1032
+#: trigger-backends/src/ui/feature_settings.rs:751
+#: trigger-backends/src/ui/feature_settings.rs:760
 msgid "Check now"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2030
+#: trigger-backends/src/search/cmd.rs:1962
 msgid "Check spelling or try a different name"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2192
+#: trigger-backends/src/search/cmd.rs:2124
 msgid "Check spelling or try fewer characters"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2247
-#: trigger-backends/src/search/cmd.rs:4693
-#: trigger-backends/src/search/cmd.rs:4703
+#: trigger-backends/src/search/cmd.rs:2176
+#: trigger-backends/src/search/cmd.rs:4469
+#: trigger-backends/src/search/cmd.rs:4479
 msgid "Checking for updates…"
 msgstr ""
 
-#: src/ui/settings_window.rs:371
-#: src/ui/settings_window.rs:408
+#: trigger-backends/src/ui/feature_settings.rs:55
+#: trigger-backends/src/ui/feature_settings.rs:92
 msgid "Checking…"
 msgstr ""
 
-#: src/ui/settings_window.rs:92
-msgid "Choose what types of results appear"
-msgstr ""
-
-#: src/ui/settings_window.rs:2696
+#: src/ui/settings_window.rs:2140
 msgid "Clipboard"
 msgstr ""
 
-#: src/preview.rs:602
+#: trigger-backends/src/features/preview.rs:594
 msgid "Clipped {time}"
 msgstr ""
 
-#: src/ui/settings_window.rs:3212
+#: src/ui/settings_window.rs:2673
 msgid "Close"
 msgstr ""
 
-#: src/ui/settings_window.rs:782
+#: trigger-backends/src/ui/feature_settings.rs:509
 msgid "Comma"
 msgstr ""
 
-#: src/ui/settings_window.rs:1924
+#: src/ui/settings_window.rs:1359
 msgid "Command"
 msgstr ""
 
-#: src/ui/settings_window.rs:1930
+#: src/ui/settings_window.rs:1365
 msgid "Command line"
 msgstr ""
 
-#: src/ui/search_window.rs:2339
-#: src/ui/search_window.rs:3398
-#: src/ui/settings_window.rs:1161
+#: src/ui/search_window.rs:2396
+#: src/ui/search_window.rs:3481
+#: trigger-backends/src/ui/feature_settings.rs:889
 msgid "Confirm"
 msgstr ""
 
-#: src/ui/settings_window.rs:773
+#: trigger-backends/src/ui/feature_settings.rs:500
 msgid "Conversion wording"
 msgstr ""
 
-#: src/ui/settings_window.rs:741
+#: trigger-backends/src/ui/feature_settings.rs:468
 msgid "Conversions"
 msgstr ""
 
-#: src/ui/search_window.rs:4419
+#: trigger-backends/index.json
+msgid "Convert units, currency and number bases"
+msgstr ""
+
+#: trigger-backends/src/defaults.rs:76
+#: trigger-backends/src/ui/feature_settings.rs:460
+msgid "Converter"
+msgstr ""
+
+#: src/ui/search_window.rs:4487
 msgid "Couldn't delete \"{name}\": {e}"
 msgstr ""
 
-#: src/ui/settings_window.rs:2051
+#: src/ui/settings_window.rs:1486
 msgid "Couldn't install"
 msgstr ""
 
-#: src/ui/settings_window.rs:2341
+#: src/ui/settings_window.rs:1809
 msgid "Couldn't load the trigger repository"
 msgstr ""
 
-#: src/ui/settings_window.rs:2431
+#: src/ui/settings_window.rs:1906
 msgid "Couldn't load {url}: {e}"
 msgstr ""
 
-#: src/ui/settings_window.rs:2176
+#: src/ui/settings_window.rs:1649
 msgid "Couldn't uninstall: {e}"
 msgstr ""
 
-#: src/ui/settings_window.rs:1860
+#: src/ui/settings_window.rs:1295
 msgid "Create a Trigger"
 msgstr ""
 
-#: src/ui/settings_window.rs:761
+#: trigger-backends/src/ui/feature_settings.rs:488
 msgid "Currency conversion"
 msgstr ""
 
-#: src/ui/settings_window.rs:536
+#: trigger-backends/src/ui/feature_settings.rs:248
 msgid "Custom Search URL"
 msgstr ""
 
-#: src/ui/settings_window.rs:827
+#: trigger-backends/src/ui/feature_settings.rs:554
 msgid "Custom wording"
 msgstr ""
 
-#: src/ui/settings_window.rs:784
+#: trigger-backends/src/ui/feature_settings.rs:511
 msgid "Custom…"
 msgstr ""
 
-#: src/ui/settings_window.rs:1083
+#: trigger-backends/src/ui/feature_settings.rs:811
 msgid "Daily"
 msgstr ""
 
-#: src/ui/settings_window.rs:928
+#: trigger-backends/src/ui/feature_settings.rs:655
 msgid "Data"
 msgstr ""
 
-#: src/ui/settings_window.rs:683
+#: trigger-backends/src/ui/feature_settings.rs:396
 msgid "Decimal places"
 msgstr ""
 
-#: src/ui/settings_window.rs:880
+#: trigger-backends/src/ui/feature_settings.rs:607
 msgid "Default currency"
 msgstr ""
 
-#: src/ui/settings_window.rs:917
+#: trigger-backends/src/ui/feature_settings.rs:644
 msgid "Default targets"
 msgstr ""
 
-#: src/ui/search_window.rs:4373
+#: src/ui/search_window.rs:4441
 msgid "Delete"
 msgstr ""
 
-#: src/ui/settings_window.rs:2747
+#: src/ui/settings_window.rs:2191
 msgid "Delete clipboard entries older than this (pinned items are exempt)"
 msgstr ""
 
-#: src/ui/search_window.rs:1196
+#: src/ui/search_window.rs:1239
 msgid "Delete file"
 msgstr ""
 
-#: src/ui/settings_window.rs:2834
+#: src/ui/settings_window.rs:2278
 msgid "Delete file / folder"
 msgstr ""
 
-#: src/ui/search_window.rs:1194
+#: src/ui/search_window.rs:1237
 msgid "Delete folder"
 msgstr ""
 
-#: src/ui/settings_window.rs:1910
+#: src/ui/settings_window.rs:1345
 msgid "Description (optional)"
 msgstr ""
 
@@ -313,103 +343,94 @@ msgstr ""
 msgid "Dictionary: {query}"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2442
+#: trigger-backends/src/search/cmd.rs:2363
 msgid "Disable update checks"
 msgstr ""
 
-#: src/ui/settings_window.rs:1231
+#: src/ui/settings_window.rs:2578
+msgid "Disabled"
+msgstr ""
+
+#: src/ui/settings_window.rs:472
 msgid "Disabled · {base}"
 msgstr ""
 
-#: src/ui/search_window.rs:5419
-#: src/ui/search_window.rs:5841
+#: src/ui/search_window.rs:5487
+#: src/ui/search_window.rs:5909
 msgid "Dismiss"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2334
-#: src/ui/settings_window.rs:1122
+#: trigger-backends/src/search/cmd.rs:2263
+#: trigger-backends/src/ui/feature_settings.rs:850
 msgid "Dismiss update notice"
 msgstr ""
 
-#: src/ui/settings_window.rs:2767
+#: src/ui/settings_window.rs:2211
 msgid "Display a hint bar in the clipboard manager"
 msgstr ""
 
-#: src/ui/search_window.rs:4354
+#: src/ui/search_window.rs:4422
 msgid "Do you want to delete \"{name}\"?"
 msgstr ""
 
-#: src/ui/search_window.rs:2318
-#: src/ui/search_window.rs:3347
+#: src/ui/search_window.rs:2375
+#: src/ui/search_window.rs:3430
 msgid "Do you want to update {name}?"
 msgstr ""
 
-#: src/ui/search_window.rs:2327
+#: src/ui/search_window.rs:2384
 msgid "Do you want to {action}?"
 msgstr ""
 
-#: src/ui/search_window.rs:790
+#: src/ui/search_window.rs:829
 msgid "Done"
 msgstr ""
 
-#: src/ui/settings_window.rs:2238
+#: src/ui/settings_window.rs:1711
 msgid "Download failed: {e}"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2367
+#: trigger-backends/src/search/cmd.rs:2296
 msgid "Downloaded and ready — they install with the restart"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2417
-msgid "Downloaded updates are waiting — install them now"
-msgstr ""
-
-#: trigger-backends/src/search/cmd.rs:2412
+#: trigger-backends/src/search/cmd.rs:2340
 msgid "Downloaded — restart to install them"
 msgstr ""
 
-#: src/ui/settings_window.rs:1246
-msgid "Edit \"Open Spotty\" shortcut"
+#: src/ui/settings_window.rs:717
+msgid "Drag to reorder (Alt+Up / Alt+Down)"
 msgstr ""
 
-#: src/ui/settings_window.rs:2542
-#: src/ui/settings_window.rs:2549
-msgid "Edit \"{name}\" trigger"
-msgstr ""
-
-#: src/ui/settings_window.rs:1332
-msgid "Edit trigger words, import a manifest with +, or delete installed triggers."
-msgstr ""
-
-#: trigger-backends/src/search/cmd.rs:2444
-#: trigger-backends/src/search/cmd.rs:4090
+#: trigger-backends/src/search/cmd.rs:2365
+#: trigger-backends/src/search/cmd.rs:3848
 msgid "Enable update checks"
 msgstr ""
 
-#: src/ui/settings_window.rs:2585
+#: src/ui/settings_window.rs:2028
 msgid "Enabled"
 msgstr ""
 
-#: src/ui/settings_window.rs:930
+#: trigger-backends/src/ui/feature_settings.rs:657
 msgid "Energy"
 msgstr ""
 
-#: src/ui/settings_window.rs:3251
+#: src/ui/settings_window.rs:2712
 msgid "Enter new shortcut to change {name}"
 msgstr ""
 
-#: src/ui/settings_window.rs:1082
+#: trigger-backends/src/ui/feature_settings.rs:810
 msgid "Every 12 hours"
 msgstr ""
 
-#: src/ui/settings_window.rs:1081
+#: trigger-backends/src/ui/feature_settings.rs:809
 msgid "Every 6 hours"
 msgstr ""
 
-#: src/ui/settings_window.rs:824
-#: src/ui/settings_window.rs:849
-#: src/ui/settings_window.rs:862
-#: src/ui/settings_window.rs:889
+#: trigger-backends/src/ui/feature_settings.rs:551
+#: trigger-backends/src/ui/feature_settings.rs:576
+#: trigger-backends/src/ui/feature_settings.rs:589
+#: trigger-backends/src/ui/feature_settings.rs:616
 msgid "Example: {example}"
 msgstr ""
 
@@ -417,163 +438,173 @@ msgstr ""
 msgid "Fetching the definition"
 msgstr ""
 
-#: src/ui/settings_window.rs:2331
+#: src/ui/settings_window.rs:1799
 msgid "Fetching triggers…"
 msgstr ""
 
-#: src/ui/settings_window.rs:2795
+#: src/ui/settings_window.rs:2239
 msgid "Find"
 msgstr ""
 
-#: src/ui/settings_window.rs:361
+#: trigger-backends/src/ui/feature_settings.rs:45
 msgid "Flatpak"
 msgstr ""
 
-#: src/ui/settings_window.rs:235
-msgid "Footer bar"
+#: trigger-backends/src/defaults.rs:90
+msgid "Flatpak, system, Snap and AppImage updates"
 msgstr ""
 
-#: src/ui/settings_window.rs:932
+#: trigger-backends/src/ui/feature_settings.rs:659
 msgid "Force"
 msgstr ""
 
-#: src/ui/settings_window.rs:934
+#: trigger-backends/src/ui/feature_settings.rs:661
 msgid "Frequency"
 msgstr ""
 
-#: src/ui/settings_window.rs:935
+#: trigger-backends/src/ui/feature_settings.rs:662
 msgid "Fuel economy"
 msgstr ""
 
-#: src/ui/settings_window.rs:84
+#: src/ui/settings_window.rs:78
 msgid "General"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2335
-#: src/ui/settings_window.rs:1123
+#: trigger-backends/src/search/cmd.rs:2264
+#: trigger-backends/src/ui/feature_settings.rs:851
 msgid "Hidden until a new update appears"
 msgstr ""
 
-#: src/ui/search_window.rs:5218
+#: src/ui/search_window.rs:5286
 msgid "Hidden — swipe back to restore"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2327
-#: src/ui/settings_window.rs:1113
+#: trigger-backends/src/search/cmd.rs:2256
+#: trigger-backends/src/ui/feature_settings.rs:841
 msgid "Hide the update notice for 24 hours"
 msgstr ""
 
-#: src/preview.rs:209
+#: trigger-backends/src/features/preview.rs:209
 msgid "Highlight a result\nto preview"
 msgstr ""
 
-#: src/ui/settings_window.rs:2730
+#: src/ui/settings_window.rs:143
+msgid "Hints Shortcut"
+msgstr ""
+
+#: src/ui/settings_window.rs:2174
 msgid "History Limit"
 msgstr ""
 
-#: src/ui/settings_window.rs:1080
+#: trigger-backends/src/ui/feature_settings.rs:808
 msgid "Hourly"
 msgstr ""
 
-#: src/ui/settings_window.rs:1914
+#: src/ui/settings_window.rs:1349
 msgid "Icon name (optional)"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:1717
-#: src/ui/settings_window.rs:1697
-#: src/ui/settings_window.rs:2182
+#: src/ui/settings_window.rs:1118
+#: src/ui/settings_window.rs:1596
+#: src/ui/settings_window.rs:1655
+#: trigger-backends/src/search/cmd.rs:1648
 msgid "Install"
 msgstr ""
 
-#: src/ui/settings_window.rs:1782
+#: src/ui/settings_window.rs:1217
 msgid "Install failed"
 msgstr ""
 
-#: src/ui/settings_window.rs:1693
+#: src/ui/settings_window.rs:1114
 msgid "Install {name}?"
 msgstr ""
 
-#: src/config.rs:215
+#: trigger-backends/index.json
 msgid "Install, uninstall, and manage apps"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2938
-#: trigger-backends/src/search/cmd.rs:3032
-#: trigger-backends/src/search/cmd.rs:3051
-#: trigger-backends/src/search/cmd.rs:3138
+#: trigger-backends/src/search/cmd.rs:2787
+#: trigger-backends/src/search/cmd.rs:2851
+#: trigger-backends/src/search/cmd.rs:2870
+#: trigger-backends/src/search/cmd.rs:2957
 msgid "Install: {name}"
 msgstr ""
 
-#: src/ui/settings_window.rs:1776
+#: src/ui/settings_window.rs:1592
+msgid "Installed"
+msgstr ""
+
+#: src/ui/settings_window.rs:1211
+#: src/ui/settings_window.rs:1620
 msgid "Installed \"{name}\""
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2372
+#: trigger-backends/src/search/cmd.rs:2301
 msgid "Installed — restart to start using them"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2944
+#: trigger-backends/src/search/cmd.rs:2793
 msgid "Installing {name}"
 msgstr ""
 
-#: src/ui/search_window.rs:4361
+#: src/ui/search_window.rs:4429
 msgid "It will be moved to the Trash."
 msgstr ""
 
-#: src/ui/search_window.rs:1582
+#: src/ui/search_window.rs:1625
 msgid "Item deleted"
 msgstr ""
 
-#: src/ui/search_window.rs:1623
+#: src/ui/search_window.rs:1666
 msgid "Item unpinned — Press Ctrl+Z to undo"
 msgstr ""
 
-#: src/ui/settings_window.rs:2459
+#: src/ui/settings_window.rs:1934
 msgid "Its trigger word and shortcut will be removed."
 msgstr ""
 
-#: src/ui/settings_window.rs:2746
+#: src/ui/settings_window.rs:2190
 msgid "Keep history"
 msgstr ""
 
-#: src/ui/settings_window.rs:1274
-#: src/ui/settings_window.rs:1936
-#: src/ui/settings_window.rs:2676
+#: src/ui/settings_window.rs:1371
 msgid "Keyboard Shortcut"
 msgstr ""
 
-#: src/ui/search_window.rs:1214
-#: src/ui/settings_window.rs:594
-#: src/ui/settings_window.rs:634
+#: src/ui/search_window.rs:1257
 msgid "Keyboard Shortcuts"
 msgstr ""
 
-#: src/ui/settings_window.rs:1908
+#: src/ui/settings_window.rs:1343
 msgid "Keyword"
 msgstr ""
 
-#: src/ui/settings_window.rs:1992
+#: src/ui/settings_window.rs:1427
 msgid "Keyword: letters, digits, -, _ and . only."
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:1709
+#: trigger-backends/src/search/cmd.rs:1640
 msgid "Kill"
 msgstr ""
 
-#: src/ui/search_window.rs:1134
-#: src/ui/settings_window.rs:639
+#: src/ui/search_window.rs:1177
+#: trigger-backends/src/ui/feature_settings.rs:352
 msgid "Kill app"
 msgstr ""
 
-#: src/ui/search_window.rs:2619
+#: src/ui/search_window.rs:2704
 msgid "Kill {name}?"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2895
+#: trigger-backends/src/search/cmd.rs:2744
 msgid "Kill: {name}"
 msgstr ""
 
-#: src/ui/settings_window.rs:921
+#: src/ui/settings_window.rs:87
+msgid "Launcher"
+msgstr ""
+
+#: trigger-backends/src/ui/feature_settings.rs:648
 msgid "Length"
 msgstr ""
 
@@ -585,110 +616,118 @@ msgstr ""
 msgid "Looking up \"{word}\"…"
 msgstr ""
 
-#: src/ui/settings_window.rs:922
+#: trigger-backends/src/ui/feature_settings.rs:649
 msgid "Mass"
 msgstr ""
 
-#: src/ui/settings_window.rs:2731
+#: src/ui/settings_window.rs:2175
 msgid "Maximum number of clipboard entries to keep"
 msgstr ""
 
-#: src/ui/settings_window.rs:1907
+#: src/ui/settings_window.rs:1342
 msgid "Name"
 msgstr ""
 
-#: src/ui/settings_window.rs:1984
+#: src/ui/settings_window.rs:1419
 msgid "Name, keyword and command are required."
 msgstr ""
 
-#: src/ui/search_window.rs:4243
-#: src/ui/search_window.rs:4377
+#: src/ui/search_window.rs:4311
+#: src/ui/search_window.rs:4445
 msgid "No"
 msgstr ""
 
-#: src/ui/settings_window.rs:393
+#: trigger-backends/src/ui/feature_settings.rs:77
 msgid "No Flatpak, package manager, Snap or AppImage found"
 msgstr ""
 
-#: src/ui/settings_window.rs:392
+#: trigger-backends/src/ui/feature_settings.rs:76
 msgid "No app sources available"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2029
+#: trigger-backends/src/search/cmd.rs:1961
 msgid "No apps found for \"{query}\""
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2191
+#: trigger-backends/src/search/cmd.rs:2123
 msgid "No installed app matching \"{query}\""
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2306
+#: trigger-backends/src/search/cmd.rs:2235
 msgid "No matching updates"
 msgstr ""
 
-#: src/ui/search_window.rs:5156
+#: src/ui/search_window.rs:5224
 msgid "No operations yet"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:1851
+#: trigger-backends/src/search/cmd.rs:1781
 msgid "No running app matching \"{query}\""
 msgstr ""
 
-#: src/ui/settings_window.rs:3165
-msgid "No shortcut"
-msgstr ""
-
-#: src/ui/settings_window.rs:2337
+#: src/ui/settings_window.rs:1805
 msgid "No triggers found"
 msgstr ""
 
-#: src/ui/settings_window.rs:2095
+#: src/ui/settings_window.rs:1530
 msgid "No triggers match \"{q}\"."
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:798
-#: trigger-backends/src/search/cmd.rs:2697
-#: trigger-backends/src/search/cmd.rs:3437
-#: trigger-backends/src/search/cmd.rs:4110
-#: trigger-backends/src/search/cmd.rs:4700
+#: trigger-backends/src/search/cmd.rs:789
+#: trigger-backends/src/search/cmd.rs:2544
+#: trigger-backends/src/search/cmd.rs:3246
+#: trigger-backends/src/search/cmd.rs:3868
+#: trigger-backends/src/search/cmd.rs:4476
 msgid "No updates available"
 msgstr ""
 
-#: src/ui/settings_window.rs:783
+#: trigger-backends/src/ui/feature_settings.rs:510
 msgid "None (space only)"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2699
-#: trigger-backends/src/search/cmd.rs:3438
-#: trigger-backends/src/search/cmd.rs:3439
+#: trigger-backends/src/search/cmd.rs:2546
+#: trigger-backends/src/search/cmd.rs:3247
+#: trigger-backends/src/search/cmd.rs:3248
 msgid "Nothing pending"
 msgstr ""
 
-#: src/ui/settings_window.rs:756
+#: trigger-backends/src/ui/feature_settings.rs:483
 msgid "Number base conversions"
 msgstr ""
 
-#: src/ui/settings_window.rs:1785
-#: src/ui/settings_window.rs:2054
+#: src/ui/settings_window.rs:1220
+#: src/ui/settings_window.rs:1489
 msgid "OK"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:3984
-#: trigger-backends/src/search/cmd.rs:4701
-#: src/ui/search_window.rs:3848
+#: trigger-backends/src/ui/feature_settings.rs:306
+msgid "On a Web Result"
+msgstr ""
+
+#: trigger-backends/src/ui/feature_settings.rs:347
+msgid "On an App Result"
+msgstr ""
+
+#: src/ui/search_window.rs:3916
+#: trigger-backends/src/search/cmd.rs:3742
+#: trigger-backends/src/search/cmd.rs:4477
 msgid "One update available"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:1852
+#: src/ui/settings_window.rs:500
+msgid "Only by Trigger Word"
+msgstr ""
+
+#: trigger-backends/src/search/cmd.rs:1782
 msgid "Only running apps can be killed"
 msgstr ""
 
-#: src/ui/settings_window.rs:1339
+#: src/ui/settings_window.rs:95
 msgid "Open Spotty"
 msgstr ""
 
-#: src/ui/search_window.rs:1183
-#: src/ui/settings_window.rs:2855
+#: src/ui/search_window.rs:1226
+#: src/ui/settings_window.rs:2299
 msgid "Open folder in terminal"
 msgstr ""
 
@@ -700,37 +739,41 @@ msgstr ""
 msgid "Open in GNOME Settings"
 msgstr ""
 
-#: src/ui/search_window.rs:1208
-#: src/ui/settings_window.rs:2844
+#: src/ui/search_window.rs:1251
+#: src/ui/settings_window.rs:2288
 msgid "Open location in file manager"
 msgstr ""
 
-#: src/ui/search_window.rs:5139
+#: src/ui/search_window.rs:5207
 msgid "Operations"
 msgstr ""
 
-#: src/ui/settings_window.rs:723
+#: src/ui/settings_window.rs:138
+msgid "Operations Shortcut"
+msgstr ""
+
+#: trigger-backends/src/ui/feature_settings.rs:436
 msgid "Paste the result automatically"
 msgstr ""
 
-#: src/ui/settings_window.rs:2586
+#: src/ui/settings_window.rs:2029
 msgid "Pause this trigger without uninstalling it"
 msgstr ""
 
-#: src/ui/search_window.rs:1109
+#: src/ui/search_window.rs:1152
 msgid "Pin / Unpin selected"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:1747
+#: trigger-backends/src/search/cmd.rs:1678
 msgid "Please wait…"
 msgstr ""
 
-#: src/ui/settings_window.rs:931
+#: trigger-backends/src/ui/feature_settings.rs:658
 msgid "Power"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2248
-#: trigger-backends/src/search/cmd.rs:2702
+#: trigger-backends/src/search/cmd.rs:2177
+#: trigger-backends/src/search/cmd.rs:2549
 msgid "Press Enter to check again"
 msgstr ""
 
@@ -742,32 +785,32 @@ msgstr ""
 msgid "Press Enter to detect automatically"
 msgstr ""
 
-#: src/ui/search_window.rs:5992
+#: src/ui/search_window.rs:6060
 msgid "Press Enter to restart"
 msgstr ""
 
-#: src/ui/settings_window.rs:3312
+#: src/ui/settings_window.rs:2736
 msgid "Press Esc to cancel or Backspace to disable the keyboard shortcut"
 msgstr ""
 
-#: src/ui/settings_window.rs:929
+#: trigger-backends/src/ui/feature_settings.rs:656
 msgid "Pressure"
 msgstr ""
 
-#: src/ui/settings_window.rs:742
+#: trigger-backends/src/ui/feature_settings.rs:469
 msgid "Rates are fetched from a free public API when you convert"
 msgstr ""
 
-#: src/ui/settings_window.rs:2815
+#: src/ui/settings_window.rs:2259
 msgid "Recent File/Folder Searches"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2326
-#: src/ui/settings_window.rs:1112
+#: trigger-backends/src/search/cmd.rs:2255
+#: trigger-backends/src/ui/feature_settings.rs:840
 msgid "Remind tomorrow"
 msgstr ""
 
-#: src/ui/search_window.rs:1145
+#: src/ui/search_window.rs:1188
 msgid "Remove AppImage"
 msgstr ""
 
@@ -775,67 +818,92 @@ msgstr ""
 msgid "Remove AppImage: {name}"
 msgstr ""
 
+#: src/ui/settings_window.rs:2591
+msgid "Remove Shortcut"
+msgstr ""
+
+#: src/ui/settings_window.rs:324
+msgid "Remove Word"
+msgstr ""
+
+#: src/ui/settings_window.rs:413
+msgid "Remove \"{name}\" from Spotty — reinstall it from the Store"
+msgstr ""
+
 #: src/ui/result_row.rs:190
 msgid "Remove from history"
 msgstr ""
 
-#: src/ui/settings_window.rs:2172
+#: src/ui/settings_window.rs:1621
+#: src/ui/settings_window.rs:1645
 msgid "Removed \"{name}\""
 msgstr ""
 
-#: src/ui/settings_window.rs:2875
-#: src/ui/settings_window.rs:3117
+#: src/ui/settings_window.rs:440
+msgid "Removed \"{name}\" — reinstall it from the Store"
+msgstr ""
+
+#: src/ui/settings_window.rs:554
 msgid "Reset"
 msgstr ""
 
-#: src/ui/settings_window.rs:1388
-msgid "Reset trigger words and shortcuts to defaults"
+#: src/ui/settings_window.rs:537
+msgid "Reset Words and Shortcuts"
 msgstr ""
 
-#: src/ui/search_window.rs:5990
-#: src/ui/settings_window.rs:1149
+#: src/ui/settings_window.rs:546
+msgid "Reset Words and Shortcuts?"
+msgstr ""
+
+#: src/ui/settings_window.rs:2318
+#: src/ui/settings_window.rs:2593
+msgid "Reset to Default"
+msgstr ""
+
+#: src/ui/search_window.rs:6058
+#: trigger-backends/src/ui/feature_settings.rs:877
 msgid "Restart"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2371
-#: trigger-backends/src/search/cmd.rs:3612
-#: trigger-backends/src/search/cmd.rs:3677
-#: trigger-backends/src/search/cmd.rs:4503
+#: src/ui/search_window.rs:6056
+#: trigger-backends/src/search/cmd.rs:2300
+#: trigger-backends/src/search/cmd.rs:3425
+#: trigger-backends/src/search/cmd.rs:3452
+#: trigger-backends/src/search/cmd.rs:4267
 #: trigger-backends/src/search/system.rs:373
-#: src/ui/search_window.rs:5988
 msgid "Restart required to finish the update"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2366
-#: trigger-backends/src/search/cmd.rs:3671
+#: trigger-backends/src/search/cmd.rs:2295
+#: trigger-backends/src/search/cmd.rs:3446
 msgid "Restart to install the updates"
 msgstr ""
 
-#: src/ui/settings_window.rs:91
-msgid "Results"
+#: src/ui/settings_window.rs:493
+msgid "Results & Triggers"
 msgstr ""
 
-#: src/ui/result_row.rs:328
+#: src/ui/result_row.rs:327
 msgid "Retry"
 msgstr ""
 
-#: src/ui/settings_window.rs:2799
+#: src/ui/settings_window.rs:2243
 msgid "Root Path Browsing"
 msgstr ""
 
-#: src/config.rs:225
+#: trigger-backends/index.json
 msgid "Run a command"
 msgstr ""
 
-#: trigger-backends/src/search/mod.rs:554
+#: trigger-backends/src/search/mod.rs:825
 msgid "Run {name}"
 msgstr ""
 
-#: src/operations.rs:126
+#: trigger-backends/src/features/operations.rs:126
 msgid "Run: {command}"
 msgstr ""
 
-#: src/ui/search_window.rs:752
+#: src/ui/search_window.rs:791
 msgid "Running…"
 msgstr ""
 
@@ -843,94 +911,105 @@ msgstr ""
 msgid "Runs through your shell, output shown here"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2185
+#: trigger-backends/src/search/cmd.rs:2117
 msgid "Scanning installed apps…"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:1828
+#: trigger-backends/src/search/cmd.rs:1758
 msgid "Scanning running processes…"
 msgstr ""
 
-#: src/ui/settings_window.rs:728
+#: trigger-backends/src/ui/feature_settings.rs:441
 msgid "Scientific notation"
 msgstr ""
 
-#: src/ui/search_window.rs:461
+#: src/ui/search_window.rs:500
+#: src/ui/settings_window.rs:484
 msgid "Search"
 msgstr ""
 
-#: src/ui/settings_window.rs:530
-#: src/ui/settings_window.rs:554
+#: trigger-backends/src/ui/feature_settings.rs:266
 msgid "Search Engine"
 msgstr ""
 
-#: src/config.rs:195
+#: src/ui/settings_window.rs:116
+msgid "Search Window"
+msgstr ""
+
+#: trigger-backends/index.json
 msgid "Search all files and folders"
 msgstr ""
 
-#: src/ui/settings_window.rs:362
-#: src/ui/settings_window.rs:439
+#: trigger-backends/src/ui/feature_settings.rs:46
+#: trigger-backends/src/ui/feature_settings.rs:126
 msgid "Search and install Flatpak apps"
 msgstr ""
 
-#: src/ui/settings_window.rs:379
-#: src/ui/settings_window.rs:448
+#: trigger-backends/src/ui/feature_settings.rs:63
+#: trigger-backends/src/ui/feature_settings.rs:161
 msgid "Search and install Snap packages"
 msgstr ""
 
-#: src/ui/settings_window.rs:443
-#: src/ui/settings_window.rs:445
-msgid "Search and install system packages ({pm})"
+#: trigger-backends/index.json
+msgid "Search apps you can install"
 msgstr ""
 
-#: src/config.rs:205
-#: src/ui/search_window.rs:3658
+#: src/ui/search_window.rs:3741
+#: trigger-backends/index.json
 msgid "Search clipboard history"
 msgstr ""
 
-#: src/config.rs:235
+#: trigger-backends/index.json
 msgid "Search emoji"
 msgstr ""
 
-#: src/ui/settings_window.rs:120
-#: src/ui/settings_window.rs:347
+#: trigger-backends/src/defaults.rs:73
+#: trigger-backends/src/ui/feature_settings.rs:31
 msgid "Search for new Apps"
 msgstr ""
 
-#: src/ui/settings_window.rs:605
+#: trigger-backends/index.json
+msgid "Search installed applications"
+msgstr ""
+
+#: trigger-backends/src/ui/feature_settings.rs:317
 msgid "Search privately"
 msgstr ""
 
-#: src/ui/settings_window.rs:2302
+#: trigger-backends/index.json
+msgid "Search the web"
+msgstr ""
+
+#: src/ui/settings_window.rs:1772
 msgid "Search triggers"
 msgstr ""
 
-#: src/ui/settings_window.rs:387
-#: src/ui/settings_window.rs:452
+#: trigger-backends/src/ui/feature_settings.rs:133
+msgid "Search, install and update system packages — {distro} ({pm}, {via})"
+msgstr ""
+
+#: trigger-backends/src/ui/feature_settings.rs:71
+#: trigger-backends/src/ui/feature_settings.rs:165
 msgid "Search, launch and remove AppImages"
 msgstr ""
 
-#: src/ui/search_window.rs:1720
+#: src/ui/search_window.rs:1763
 msgid "Searching for Bluetooth device{dots}"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2023
+#: trigger-backends/src/search/cmd.rs:1955
 msgid "Searching for \"{query}\"…"
 msgstr ""
 
-#: src/ui/settings_window.rs:3220
+#: src/ui/settings_window.rs:2681
 msgid "Set Shortcut"
 msgstr ""
 
-#: src/ui/settings_window.rs:3138
-msgid "Set shortcut…"
-msgstr ""
-
-#: src/ui/settings_window.rs:2398
+#: src/ui/settings_window.rs:1873
 msgid "Set the trigger repository URL in the Trigger Repository row."
 msgstr ""
 
-#: src/ui/search_window.rs:534
+#: src/ui/search_window.rs:573
 msgid "Settings"
 msgstr ""
 
@@ -938,47 +1017,52 @@ msgstr ""
 msgid "Settings: {title}"
 msgstr ""
 
-#: src/ui/settings_window.rs:1275
-msgid "Shortcut to focus the Spotty launcher"
+#: src/ui/settings_window.rs:372
+#: src/ui/settings_window.rs:2126
+msgid "Shortcut"
 msgstr ""
 
-#: src/ui/settings_window.rs:2766
+#: src/ui/settings_window.rs:2210
 msgid "Show Keyboard Shortcuts"
 msgstr ""
 
-#: src/ui/settings_window.rs:1060
+#: trigger-backends/src/ui/feature_settings.rs:788
 msgid "Show a badge and a desktop notification when updates exist"
 msgstr ""
 
-#: src/ui/settings_window.rs:751
+#: trigger-backends/src/ui/feature_settings.rs:478
 msgid "Show equivalents when no target unit is given"
 msgstr ""
 
-#: src/ui/settings_window.rs:713
+#: trigger-backends/src/ui/feature_settings.rs:426
 msgid "Show hex, octal and binary"
 msgstr ""
 
-#: src/ui/settings_window.rs:265
-msgid "Show hints shortcut"
+#: src/ui/settings_window.rs:240
+msgid "Show in Regular Search"
 msgstr ""
 
-#: src/ui/settings_window.rs:244
-msgid "Show icons"
-msgstr ""
-
-#: src/ui/settings_window.rs:260
-msgid "Show operations shortcut"
-msgstr ""
-
-#: src/ui/settings_window.rs:2816
+#: src/ui/settings_window.rs:2260
 msgid "Show recently opened files and folders"
 msgstr ""
 
-#: src/ui/settings_window.rs:718
+#: trigger-backends/src/ui/feature_settings.rs:431
 msgid "Show the expression"
 msgstr ""
 
-#: src/ui/settings_window.rs:378
+#: src/ui/settings_window.rs:144
+msgid "Show the key that opens Hints"
+msgstr ""
+
+#: src/ui/settings_window.rs:139
+msgid "Show the key that opens Operations"
+msgstr ""
+
+#: src/ui/settings_window.rs:106
+msgid "Shows or hides the search window from anywhere"
+msgstr ""
+
+#: trigger-backends/src/ui/feature_settings.rs:62
 msgid "Snap"
 msgstr ""
 
@@ -988,32 +1072,32 @@ msgstr ""
 msgid "Source: {name}"
 msgstr ""
 
-#: src/ui/settings_window.rs:926
+#: trigger-backends/src/ui/feature_settings.rs:653
 msgid "Speed"
 msgstr ""
 
-#: src/ui/search_window.rs:445
+#: src/ui/search_window.rs:484
 msgid "Spotty"
 msgstr ""
 
-#: src/ui/settings_window.rs:17
+#: src/ui/settings_window.rs:21
 msgid "Spotty Settings"
 msgstr ""
 
-#: src/preview.rs:2844
-#: src/preview.rs:4706
+#: trigger-backends/src/features/preview.rs:2858
+#: trigger-backends/src/features/preview.rs:4720
 msgid "Spreadsheet"
 msgstr ""
 
-#: src/ui/settings_window.rs:1361
+#: src/ui/settings_window.rs:515
 msgid "Store"
 msgstr ""
 
-#: src/ui/settings_window.rs:369
+#: trigger-backends/src/ui/feature_settings.rs:53
 msgid "System packages"
 msgstr ""
 
-#: src/ui/settings_window.rs:100
+#: trigger-backends/src/defaults.rs:85
 msgid "System, Flatpak, Snap and AppImage apps"
 msgstr ""
 
@@ -1021,7 +1105,7 @@ msgstr ""
 msgid "Target: {name}"
 msgstr ""
 
-#: src/ui/settings_window.rs:923
+#: trigger-backends/src/ui/feature_settings.rs:650
 msgid "Temperature"
 msgstr ""
 
@@ -1029,35 +1113,27 @@ msgstr ""
 msgid "Text match: {snippet}"
 msgstr ""
 
-#: src/ui/settings_window.rs:245
-msgid "The icons on the Operations and Hints buttons"
+#: src/ui/settings_window.rs:117
+msgid "The Operations and Hints buttons at the bottom"
 msgstr ""
 
-#: src/ui/settings_window.rs:266
-msgid "The key indicator on the Hints button"
-msgstr ""
-
-#: src/ui/settings_window.rs:261
-msgid "The key indicator on the Operations button"
-msgstr ""
-
-#: src/ui/settings_window.rs:1997
+#: src/ui/settings_window.rs:1432
 msgid "The keyword \"{word}\" is already taken."
 msgstr ""
 
-#: src/ui/settings_window.rs:2093
+#: src/ui/settings_window.rs:1528
 msgid "The repository has no triggers yet."
 msgstr ""
 
-#: src/ui/search_window.rs:6301
+#: src/ui/search_window.rs:6369
 msgid "The trigger word and its files will be removed."
 msgstr ""
 
-#: src/ui/settings_window.rs:708
+#: trigger-backends/src/ui/feature_settings.rs:421
 msgid "Thousands separators"
 msgstr ""
 
-#: src/ui/settings_window.rs:927
+#: trigger-backends/src/ui/feature_settings.rs:654
 msgid "Time"
 msgstr ""
 
@@ -1073,39 +1149,32 @@ msgstr ""
 msgid "Translation unavailable"
 msgstr ""
 
-#: src/ui/settings_window.rs:1904
+#: src/ui/settings_window.rs:306
+#: src/ui/settings_window.rs:1339
 msgid "Trigger"
 msgstr ""
 
-#: src/ui/settings_window.rs:2263
+#: src/ui/settings_window.rs:1735
 msgid "Trigger Store"
 msgstr ""
 
-#: src/ui/settings_window.rs:2592
-msgid "Trigger word"
-msgstr ""
-
-#: src/ui/settings_window.rs:2929
+#: src/ui/settings_window.rs:2371
 msgid "Trigger word \"{word}\" is already in use"
 msgstr ""
 
-#: src/ui/settings_window.rs:2924
+#: src/ui/settings_window.rs:2366
 msgid "Trigger word cannot be empty"
-msgstr ""
-
-#: src/ui/settings_window.rs:1326
-msgid "Triggers"
 msgstr ""
 
 #: trigger-backends/src/search/run.rs:77
 msgid "Type a command to run"
 msgstr ""
 
-#: trigger-backends/src/search/mod.rs:542
+#: trigger-backends/src/search/mod.rs:813
 msgid "Type a command to run with {name}"
 msgstr ""
 
-#: src/ui/search_window.rs:1052
+#: src/ui/search_window.rs:1091
 msgid "Type a keyword"
 msgstr ""
 
@@ -1113,11 +1182,11 @@ msgstr ""
 msgid "Type a word to look up"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2308
+#: trigger-backends/src/search/cmd.rs:2237
 msgid "Type all, flatpak, distro or a package name"
 msgstr ""
 
-#: trigger-backends/src/search/mod.rs:520
+#: trigger-backends/src/search/mod.rs:791
 msgid "Type something to search with {name}"
 msgstr ""
 
@@ -1125,247 +1194,282 @@ msgstr ""
 msgid "Type text to translate"
 msgstr ""
 
-#: src/ui/search_window.rs:1588
-#: src/ui/search_window.rs:5226
+#: src/ui/settings_window.rs:1594
+msgid "Unavailable"
+msgstr ""
+
+#: src/ui/search_window.rs:1631
+#: src/ui/search_window.rs:5294
 msgid "Undo"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:1725
-#: src/ui/search_window.rs:6304
-#: src/ui/settings_window.rs:2155
-#: src/ui/settings_window.rs:2462
+#: src/ui/search_window.rs:6372
+#: src/ui/settings_window.rs:410
+#: src/ui/settings_window.rs:1598
+#: src/ui/settings_window.rs:1628
+#: src/ui/settings_window.rs:1937
+#: trigger-backends/src/search/cmd.rs:1656
 msgid "Uninstall"
 msgstr ""
 
-#: src/ui/settings_window.rs:2458
+#: src/ui/settings_window.rs:1933
 msgid "Uninstall \"{id}\"?"
 msgstr ""
 
-#: src/ui/search_window.rs:1125
-#: src/ui/settings_window.rs:638
+#: src/ui/search_window.rs:1168
+#: trigger-backends/src/ui/feature_settings.rs:351
 msgid "Uninstall app"
 msgstr ""
 
-#: src/ui/settings_window.rs:1519
-msgid "Uninstall trigger"
-msgstr ""
-
-#: src/ui/search_window.rs:2584
-#: src/ui/search_window.rs:6300
+#: src/ui/search_window.rs:2669
+#: src/ui/search_window.rs:6368
 msgid "Uninstall {name}?"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2961
+#: trigger-backends/src/search/cmd.rs:2810
 msgid "Uninstall: {name}"
 msgstr ""
 
 #: trigger-backends/src/search/appimage.rs:710
-#: trigger-backends/src/search/cmd.rs:2965
+#: trigger-backends/src/search/cmd.rs:2814
 msgid "Uninstalling {name}"
 msgstr ""
 
-#: src/ui/settings_window.rs:746
+#: trigger-backends/src/ui/feature_settings.rs:473
 msgid "Unit conversions"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:1733
+#: trigger-backends/src/defaults.rs:89
+msgid "Units, currency and number bases"
+msgstr ""
+
+#: trigger-backends/src/search/cmd.rs:1664
 msgid "Update"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2818
+#: trigger-backends/src/search/cmd.rs:2667
 msgid "Update AppImages"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2408
-#: trigger-backends/src/search/cmd.rs:2757
-#: trigger-backends/src/search/cmd.rs:3536
+#: trigger-backends/src/search/cmd.rs:2343
+#: trigger-backends/src/search/cmd.rs:2604
+#: trigger-backends/src/search/cmd.rs:3349
 msgid "Update all packages"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:4116
-#: trigger-backends/src/search/cmd.rs:4690
+#: trigger-backends/src/search/cmd.rs:3874
+#: trigger-backends/src/search/cmd.rs:4466
 msgid "Update checks are off"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2769
+#: trigger-backends/src/search/cmd.rs:2616
 msgid "Update flatpak packages"
 msgstr ""
 
-#: src/ui/settings_window.rs:1059
+#: trigger-backends/src/ui/feature_settings.rs:787
 msgid "Update notification"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2422
-#: trigger-backends/src/search/cmd.rs:3656
+#: trigger-backends/src/search/cmd.rs:2339
+#: trigger-backends/src/search/cmd.rs:3435
 msgid "Update now"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2804
+#: trigger-backends/src/search/cmd.rs:2653
 msgid "Update snap packages"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2791
+#: trigger-backends/src/search/cmd.rs:2639
 msgid "Update system packages"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2618
+#: trigger-backends/src/search/cmd.rs:2465
 msgid "Update: {name}"
 msgstr ""
 
-#: src/ui/settings_window.rs:186
-#: src/ui/settings_window.rs:1015
+#: trigger-backends/src/defaults.rs:77
+#: trigger-backends/src/ui/feature_settings.rs:743
 msgid "Updates"
 msgstr ""
 
-#: src/ui/settings_window.rs:555
+#: trigger-backends/src/ui/feature_settings.rs:267
 msgid "Used for web search results"
 msgstr ""
 
-#: src/ui/settings_window.rs:924
+#: src/ui/settings_window.rs:178
+msgid "Version {v}"
+msgstr ""
+
+#: trigger-backends/src/ui/feature_settings.rs:651
 msgid "Volume"
 msgstr ""
 
-#: src/ui/settings_window.rs:141
-#: src/ui/settings_window.rs:525
+#: trigger-backends/src/defaults.rs:74
+#: trigger-backends/src/ui/feature_settings.rs:239
 msgid "Web Search"
 msgstr ""
 
-#: src/ui/settings_window.rs:1084
+#: trigger-backends/src/ui/feature_settings.rs:812
 msgid "Weekly"
 msgstr ""
 
-#: src/ui/settings_window.rs:918
+#: trigger-backends/src/ui/feature_settings.rs:645
 msgid "What a value converts to when you don't name a target"
 msgstr ""
 
-#: src/ui/settings_window.rs:1905
+#: src/ui/settings_window.rs:1340
 msgid "What you type to open it."
 msgstr ""
 
-#: src/ui/settings_window.rs:1224
+#: src/ui/settings_window.rs:314
+#: src/ui/settings_window.rs:2035
+msgid "Word"
+msgstr ""
+
+#: src/ui/settings_window.rs:214
+msgid "Word: {word}"
+msgstr ""
+
+#: src/ui/settings_window.rs:465
 msgid "Word: {word} · No shortcut"
 msgstr ""
 
-#: src/ui/settings_window.rs:1226
+#: src/ui/settings_window.rs:467
 msgid "Word: {word} · {shortcut}"
 msgstr ""
 
-#: src/ui/search_window.rs:4247
+#: src/ui/settings_window.rs:581
+msgid "Words and shortcuts reset"
+msgstr ""
+
+#: src/ui/search_window.rs:4315
 msgid "Yes"
 msgstr ""
 
-#: src/triggers.rs:346
+#: src/ui/settings_window.rs:352
+msgid "\"{word}\" is already a trigger word"
+msgstr ""
+
+#: src/triggers.rs:351
 msgid "curl exited with {status}"
 msgstr ""
 
+#: src/triggers.rs:355
+#: src/triggers.rs:382
 #: trigger-backends/src/search/translate.rs:322
 #: trigger-backends/src/search/translate.rs:329
-#: src/triggers.rs:350
-#: src/triggers.rs:377
 msgid "empty response"
 msgstr ""
 
-#: src/triggers.rs:312
+#: src/triggers.rs:318
 msgid "id '{id}' is a built-in trigger"
 msgstr ""
 
-#: src/ui/settings_window.rs:779
+#: trigger-backends/src/ui/feature_settings.rs:506
 msgid "in"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:1718
+#: trigger-backends/src/search/cmd.rs:1649
 msgid "install <app>  —  install from Flatpak, distro, or Snap"
 msgstr ""
 
-#: src/triggers.rs:300
+#: src/triggers.rs:309
 msgid "invalid id '{id}': use only letters, digits, '_', '-' or '.'"
 msgstr ""
 
-#: src/operations.rs:157
+#: trigger-backends/src/features/operations.rs:157
 msgid "just now"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:1710
+#: trigger-backends/src/search/cmd.rs:1641
 msgid "kill <app-name>  —  stop a running process"
 msgstr ""
 
-#: src/triggers.rs:306
+#: src/triggers.rs:315
 msgid "missing 'word' (the trigger text)"
 msgstr ""
 
-#: src/triggers.rs:326
+#: src/triggers.rs:331
 msgid "shell action needs a 'command' template"
 msgstr ""
 
-#: src/ui/settings_window.rs:777
+#: trigger-backends/src/ui/feature_settings.rs:504
 msgid "to"
 msgstr ""
 
-#: src/ui/settings_window.rs:778
+#: trigger-backends/src/ui/feature_settings.rs:505
 msgid "to or in"
 msgstr ""
 
-#: src/triggers.rs:316
+#: src/triggers.rs:321
 msgid "trigger '{id}' is already installed"
 msgstr ""
 
-#: src/triggers.rs:257
+#: src/triggers.rs:263
 msgid "trigger '{id}' is not installed"
 msgstr ""
 
-#: src/triggers.rs:319
+#: src/triggers.rs:324
 msgid "trigger word '{word}' is already in use"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:1726
+#: trigger-backends/src/search/cmd.rs:1657
 msgid "uninstall <app>  —  remove an installed app"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:1734
+#: trigger-backends/src/search/cmd.rs:1665
 msgid "update  —  update installed packages"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2927
-#: trigger-backends/src/search/cmd.rs:2962
+#: trigger-backends/src/search/cmd.rs:2776
+#: trigger-backends/src/search/cmd.rs:2811
 msgid "via Flatpak ({app})"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:3160
+#: trigger-backends/src/search/cmd.rs:2979
 msgid "via snap"
 msgstr ""
 
-#: src/triggers.rs:323
+#: src/triggers.rs:328
 msgid "web action needs a 'url' template"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2929
+#: trigger-backends/src/search/cmd.rs:2778
 msgid "{description} — via Flatpak ({app})"
 msgstr ""
 
-#: trigger-backends/src/search/mod.rs:531
-#: trigger-backends/src/search/mod.rs:558
+#: trigger-backends/src/ui/feature_settings.rs:152
+msgid "{distro} ({pm}) needs PackageKit to install and update packages"
+msgstr ""
+
+#: trigger-backends/src/ui/feature_settings.rs:144
+msgid "{distro} is image-based — system packages aren't changed here, use Flatpak"
+msgstr ""
+
+#: trigger-backends/src/search/mod.rs:802
+#: trigger-backends/src/search/mod.rs:829
 msgid "{name}: {query}"
 msgstr ""
 
-#: src/operations.rs:651
+#: trigger-backends/src/features/operations.rs:673
 msgid "{noun} {target} {suffix}"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:4605
-#: trigger-backends/src/search/cmd.rs:4702
-#: src/ui/search_window.rs:3850
+#: src/ui/search_window.rs:3918
+#: trigger-backends/src/search/cmd.rs:4381
+#: trigger-backends/src/search/cmd.rs:4478
 msgid "{n} updates available"
 msgstr ""
 
-#: src/operations.rs:163
+#: trigger-backends/src/features/operations.rs:163
 msgid "{n}d ago"
 msgstr ""
 
-#: src/operations.rs:161
+#: trigger-backends/src/features/operations.rs:161
 msgid "{n}h ago"
 msgstr ""
 
-#: src/operations.rs:159
+#: trigger-backends/src/features/operations.rs:159
 msgid "{n}m ago"
 msgstr ""
 
@@ -1374,16 +1478,16 @@ msgstr ""
 msgid "{pos} — {text}"
 msgstr ""
 
-#: trigger-backends/src/search/cmd.rs:2629
-#: trigger-backends/src/search/cmd.rs:2688
+#: trigger-backends/src/search/cmd.rs:2476
+#: trigger-backends/src/search/cmd.rs:2535
 msgid "{source} Update"
 msgstr ""
 
-#: src/operations.rs:175
-#: src/operations.rs:195
-#: src/operations.rs:952
-#: src/operations.rs:978
-#: src/operations.rs:1003
+#: trigger-backends/src/features/operations.rs:175
+#: trigger-backends/src/features/operations.rs:195
+#: trigger-backends/src/features/operations.rs:976
+#: trigger-backends/src/features/operations.rs:1002
+#: trigger-backends/src/features/operations.rs:1027
 msgid "{source} · {status}"
 msgstr ""
 
@@ -1393,11 +1497,11 @@ msgstr ""
 msgid "{src} → {tgt}"
 msgstr ""
 
-#: src/operations.rs:654
+#: trigger-backends/src/features/operations.rs:676
 msgid "{title} {suffix}"
 msgstr ""
 
-#: src/ui/search_window.rs:3999
+#: src/ui/search_window.rs:4067
 msgid "{title} — {detail}"
 msgstr ""
 
@@ -1405,7 +1509,7 @@ msgstr ""
 msgid "{word} — complete the word with Tab"
 msgstr ""
 
-#: src/ui/settings_window.rs:2141
+#: src/ui/settings_window.rs:1575
 msgid "{word} — {description}"
 msgstr ""
 
@@ -1413,15 +1517,15 @@ msgstr ""
 msgid "• {text}"
 msgstr ""
 
-#: src/preview.rs:651
+#: trigger-backends/src/features/preview.rs:643
 msgid "…and {n} more"
 msgstr ""
 
-#: src/preview.rs:476
+#: trigger-backends/src/features/preview.rs:476
 msgid "▶"
 msgstr ""
 
-#: src/preview.rs:466
+#: trigger-backends/src/features/preview.rs:466
 msgid "◀"
 msgstr ""
 

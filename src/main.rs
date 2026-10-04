@@ -24,21 +24,32 @@ use adw::prelude::*;
 use gtk::{gio, glib};
 mod triggers;
 mod app;
+#[path = "../trigger-backends/src/features/clipboard.rs"]
 mod clipboard;
 mod config;
+#[path = "../trigger-backends/src/features/distro.rs"]
 mod distro;
+#[path = "../trigger-backends/src/features/dnf5daemon.rs"]
 mod dnf5daemon;
 mod de;
+#[path = "../trigger-backends/src/features/fileops.rs"]
 mod fileops;
+#[path = "../trigger-backends/src/features/history.rs"]
 mod history;
 mod i18n;
+#[path = "../trigger-backends/src/features/imageinfo.rs"]
 mod imageinfo;
 mod index;
+#[path = "../trigger-backends/src/features/keysynth.rs"]
 mod keysynth;
 mod md5;
+#[path = "../trigger-backends/src/features/operations.rs"]
 mod operations;
+#[path = "../trigger-backends/src/features/packagekit.rs"]
 mod packagekit;
+#[path = "../trigger-backends/src/features/preview.rs"]
 mod preview;
+#[path = "../trigger-backends/src/features/recent_paths.rs"]
 mod recent_paths;
 #[path = "../trigger-backends/src/search/mod.rs"]
 mod search;
@@ -46,8 +57,11 @@ mod search;
 mod trigger_defaults;
 mod keybindings;
 mod shell_extension;
+#[path = "../trigger-backends/src/features/ocr.rs"]
 mod ocr;
+#[path = "../trigger-backends/src/features/opprogress.rs"]
 mod opprogress;
+#[path = "../trigger-backends/src/features/thumbnails.rs"]
 mod thumbnails;
 mod ui;
 fn main() -> glib::ExitCode {
