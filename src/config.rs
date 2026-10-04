@@ -46,9 +46,12 @@ impl SearchEngine {
             Self::Custom => "Custom",
         }
     }
+    /// Every engine the settings can offer. `BrowserDefault` is deliberately
+    /// not among them: detection is no longer a choice in the combo, so an
+    /// old config still saved as `browserdefault` is migrated to DuckDuckGo
+    /// on load and the list only ever shows concrete engines.
     pub fn all() -> &'static [Self] {
         &[
-            Self::BrowserDefault,
             Self::DuckDuckGo,
             Self::Google,
             Self::Startpage,
@@ -179,7 +182,38 @@ impl CommandKeyword {
             "emoji" => "Emoji",
             "music" => "Music",
             "translate" => "Translate",
+            "apps" => "Apps",
+            "newapps" => "New Apps",
+            "web" => "Web",
+            "calc" => "Calc",
+            "convert" => "Convert",
+            "updates" => "Updates",
             _ => "Trigger",
+        }
+    }
+
+    /// True for the result types (Applications, Web Search, …) that sit in
+    /// the trigger list next to the real triggers.
+    pub fn is_result(&self) -> bool {
+        RESULT_IDS.contains(&self.id.as_str())
+    }
+
+    /// What identifies this keyword's mode to the search: its word, or — for a
+    /// keyword with no word, reachable only by its shortcut — its id.
+    pub fn mode_key(&self) -> &str {
+        if self.word.is_empty() {
+            &self.id
+        } else {
+            &self.word
+        }
+    }
+
+    /// The mode chip's text.
+    pub fn chip_label(&self) -> String {
+        if self.word.is_empty() {
+            self.display_name().to_string()
+        } else {
+            crate::search::capitalize(&self.word)
         }
     }
 }
@@ -246,7 +280,67 @@ fn default_command_keywords() -> Vec<CommandKeyword> {
             shortcut: "Super+Ctrl+B".into(),
             enabled: true,
         },
+        // Result types, listed with the triggers. No word and no shortcut out
+        // of the box — they show up in the universal search on their own;
+        // setting a word or shortcut opens a search of only that type.
+        result_keyword(
+            "apps",
+            gettext("Search installed applications"),
+            "view-app-grid-symbolic",
+        ),
+        result_keyword(
+            "newapps",
+            gettext("Search apps you can install"),
+            STORE_ICON,
+        ),
+        result_keyword("web", gettext("Search the web"), "web-browser-symbolic"),
+        result_keyword(
+            "calc",
+            gettext("Calculate arithmetic"),
+            "accessories-calculator-symbolic",
+        ),
+        result_keyword(
+            "convert",
+            gettext("Convert units, currency and number bases"),
+            "network-transmit-receive-symbolic",
+        ),
+        result_keyword(
+            "updates",
+            gettext("Check and install updates"),
+            "software-update-available-symbolic",
+        ),
     ]
+}
+
+/// Spotty's own software-store glyph (a bag with a download arrow), shipped in
+/// `data/icons` — Adwaita's `system-software-install-symbolic` is a legacy
+/// icon, and GNOME Software's isn't there when GNOME Software isn't.
+pub const STORE_ICON: &str = "spotty-store-symbolic";
+
+/// The ids of the result types (in list order). Each one is a keyword with an
+/// empty word and shortcut by default, and its switch is a `Config` flag.
+pub const RESULT_IDS: [&str; 6] = ["apps", "newapps", "web", "calc", "convert", "updates"];
+
+/// The out-of-the-box order of result types and built-in triggers — higher
+/// ranks first in the regular search. Answers that only appear for their own
+/// kind of query (a sum, a conversion) lead; the web search, the fallback for
+/// everything, comes last. Installed triggers follow after it.
+pub const DEFAULT_ORDER: [&str; 11] = [
+    "calc", "convert", "apps", "updates", "files", "clipboard", "run", "emoji", "bluetooth",
+    "newapps", "web",
+];
+
+fn result_keyword(id: &str, description: String, icon: &str) -> CommandKeyword {
+    CommandKeyword {
+        id: id.into(),
+        word: String::new(),
+        description,
+        extensions: vec![],
+        icon: icon.into(),
+        all_files: false,
+        shortcut: String::new(),
+        enabled: true,
+    }
 }
 
 /// Root config object. Shared app-wide via `Rc<RefCell<Config>>`; read
@@ -268,6 +362,11 @@ pub struct Config {
     pub enable_clipboard: bool,
     #[serde(default = "dt")]
     pub enable_calculator: bool,
+    /// The converter's own switch. `None` in a config from before it was split
+    /// from the calculator: it then follows the calculator (see
+    /// [`Config::converter_enabled`]) until the first load pins it.
+    #[serde(default)]
+    pub enable_converter: Option<bool>,
     /// Fraction digits shown in calculator results (2/4/6/8/10).
     #[serde(default = "default_calc_precision")]
     pub calc_precision: u32,
@@ -352,6 +451,18 @@ pub struct Config {
     pub operations_shortcut: String,
     #[serde(default = "default_hints_shortcut")]
     pub hints_shortcut: String,
+    /// Footer bar: show the key indicator on the Operations button. The button
+    /// itself is unaffected — it stays clickable and its shortcut keeps working.
+    #[serde(default = "dt")]
+    pub show_operations_shortcut_label: bool,
+    /// Footer bar: show the key indicator on the Hints button.
+    #[serde(default = "dt")]
+    pub show_hints_shortcut_label: bool,
+    /// Footer bar: show the icons on the Operations and Hints buttons. With
+    /// the icons *and* both key indicators off there is nothing left to show,
+    /// so the bar disappears — the popovers stay reachable by shortcut.
+    #[serde(default = "dt")]
+    pub show_footer_icons: bool,
     #[serde(default = "default_copy_shortcut")]
     pub copy_shortcut: String,
     #[serde(default = "default_cut_shortcut")]
@@ -389,6 +500,26 @@ pub struct Config {
     /// always shown first when the query matches, in any search mode.
     #[serde(default)]
     pub pinned_results: Vec<crate::search::SearchResult>,
+    /// Built-in triggers and result types the user uninstalled: hidden from
+    /// the list and switched off until reinstalled from the Store.
+    #[serde(default)]
+    pub uninstalled_builtins: Vec<String>,
+    /// Result types the user took out of the regular search while giving them
+    /// a trigger word. A type without a word is never listed here: the
+    /// regular search is then the only way to reach it.
+    #[serde(default)]
+    pub regular_search_off: Vec<String>,
+    /// Triggers (built-in or installed) whose results the user also wants in
+    /// the regular search. The opposite default to a result type: a trigger is
+    /// reached by its word unless it opts in here.
+    #[serde(default)]
+    pub regular_search_on: Vec<String>,
+    /// The user's order of result types and triggers (ids, highest first).
+    /// Anything missing — a new built-in, a freshly installed trigger — is
+    /// placed per [`DEFAULT_ORDER`], then at the end (see
+    /// [`Config::ordered_ids`]).
+    #[serde(default)]
+    pub result_order: Vec<String>,
     /// Whether to show a small keyboard-shortcut hint bar in the search window.
     #[serde(default = "dt")]
     pub show_shortcut_hints: bool,
@@ -487,7 +618,10 @@ fn default_calc_precision() -> u32 {
 }
 
 fn de() -> SearchEngine {
-    SearchEngine::BrowserDefault
+    // Not `BrowserDefault`: the combo no longer offers it, so the factory
+    // value is the first engine it does offer. `Config::load` migrates old
+    // files that still say `browserdefault` to the same value.
+    SearchEngine::DuckDuckGo
 }
 fn dt() -> bool {
     true
@@ -565,6 +699,7 @@ impl Default for Config {
             enable_web: true,
             enable_clipboard: true,
             enable_calculator: true,
+            enable_converter: Some(true),
             calc_precision: default_calc_precision(),
             calc_separators: false,
             calc_bases: false,
@@ -590,6 +725,9 @@ impl Default for Config {
             clipboard_delete_shortcut: default_delete_shortcut(),
             operations_shortcut: default_operations_shortcut(),
             hints_shortcut: default_hints_shortcut(),
+            show_operations_shortcut_label: true,
+            show_hints_shortcut_label: true,
+            show_footer_icons: true,
             copy_shortcut: default_copy_shortcut(),
             cut_shortcut: default_cut_shortcut(),
             paste_shortcut: default_paste_shortcut(),
@@ -604,6 +742,10 @@ impl Default for Config {
             redo_shortcut: default_redo_shortcut(),
             delete_word_shortcut: default_delete_word_shortcut(),
             pinned_results: Vec::new(),
+            uninstalled_builtins: Vec::new(),
+            regular_search_off: Vec::new(),
+            regular_search_on: Vec::new(),
+            result_order: Vec::new(),
             show_shortcut_hints: true,
             max_index_entries: dm(),
             command_keywords: default_command_keywords(),
@@ -664,13 +806,25 @@ impl Config {
         }).unwrap_or_default();
         let before = serde_json::to_string(&cfg).unwrap_or_default();
         cfg.migrate_keywords();
+        cfg.migrate_converter_switch();
         cfg.migrate_resource_defaults();
         cfg.migrate_app_sources();
+        cfg.migrate_search_engine();
         let after = serde_json::to_string(&cfg).unwrap_or_default();
         if before != after {
             let _ = cfg.save();
         }
         cfg
+    }
+
+    /// "Browser Default" was the factory value while detection lived behind
+    /// that choice; the settings no longer offer it, so an old config that
+    /// still says it lands on the list's first engine — the combo always has
+    /// a selection and the choice stays concrete. Idempotent.
+    fn migrate_search_engine(&mut self) {
+        if self.search_engine == SearchEngine::BrowserDefault {
+            self.search_engine = SearchEngine::DuckDuckGo;
+        }
     }
 
     /// Old configs stored one `package_manager` combo; the four source
@@ -714,6 +868,9 @@ impl Config {
                                 // Removed from modern Adwaita — refresh to
                                 // the keyword's current default icon.
                                 | "system-software-update-symbolic"
+                                // Adwaita's legacy bag, replaced by Spotty's
+                                // own store glyph.
+                                | "system-software-install-symbolic"
                         )
                     {
                         existing.icon = def.icon.clone();
@@ -761,6 +918,12 @@ impl Config {
         }
     }
 
+    /// The converter used to live under the calculator's switch: keep whatever
+    /// that switch said until the user flips the converter's own.
+    fn migrate_converter_switch(&mut self) {
+        self.enable_converter.get_or_insert(self.enable_calculator);
+    }
+
     fn migrate_resource_defaults(&mut self) {
         if self.max_index_entries > 75_000 {
             self.max_index_entries = dm();
@@ -797,9 +960,12 @@ impl Config {
     /// from imported manifests work through the same paths as built-ins.
     /// Disabled triggers never match.
     pub fn keyword_for_word(&self, word: &str) -> Option<CommandKeyword> {
+        if word.is_empty() {
+            return None;
+        }
         self.command_keywords
             .iter()
-            .find(|k| k.enabled && k.word.eq_ignore_ascii_case(word))
+            .find(|k| self.keyword_usable(k) && k.word.eq_ignore_ascii_case(word))
             .cloned()
             .or_else(|| crate::triggers::keyword_for_word(word))
     }
@@ -807,9 +973,173 @@ impl Config {
     pub fn keyword_for_id(&self, id: &str) -> Option<CommandKeyword> {
         self.command_keywords
             .iter()
-            .find(|k| k.enabled && k.id == id)
+            .find(|k| self.keyword_usable(k) && k.id == id)
             .cloned()
             .or_else(|| crate::triggers::keyword_for_id(id))
+    }
+
+    /// Enabled, installed, and — for a result type — switched on.
+    pub fn keyword_usable(&self, k: &CommandKeyword) -> bool {
+        k.enabled
+            && !self.is_uninstalled(&k.id)
+            && (!k.is_result() || self.result_enabled(&k.id))
+    }
+
+    /// A result type's switch.
+    pub fn result_enabled(&self, id: &str) -> bool {
+        match id {
+            "apps" => self.enable_apps,
+            "newapps" => self.enable_new_apps,
+            "web" => self.enable_web,
+            "calc" => self.enable_calculator,
+            "convert" => self.converter_enabled(),
+            "updates" => self.enable_updates,
+            _ => false,
+        }
+    }
+
+    pub fn set_result_enabled(&mut self, id: &str, on: bool) {
+        match id {
+            "apps" => self.enable_apps = on,
+            "newapps" => self.enable_new_apps = on,
+            "web" => self.enable_web = on,
+            "calc" => self.enable_calculator = on,
+            "convert" => self.enable_converter = Some(on),
+            "updates" => self.enable_updates = on,
+            _ => {}
+        }
+    }
+
+    /// The converter's switch.
+    pub fn converter_enabled(&self) -> bool {
+        self.enable_converter.unwrap_or(self.enable_calculator)
+    }
+
+    /// Whether `id` shows in the regular search.
+    ///
+    /// A result type does by default, and always when it has no trigger word —
+    /// nothing else would reach it — unless the user turned it off while
+    /// giving it one. A trigger is the other way round: it is reached by its
+    /// word, and shows in the regular search only if it opted in.
+    pub fn in_regular_search(&self, id: &str) -> bool {
+        if !RESULT_IDS.contains(&id) {
+            return self.regular_search_on.iter().any(|u| u == id);
+        }
+        let wordless = self
+            .command_keywords
+            .iter()
+            .find(|k| k.id == id)
+            .map_or(true, |k| k.word.is_empty());
+        wordless || !self.regular_search_off.iter().any(|u| u == id)
+    }
+
+    pub fn set_in_regular_search(&mut self, id: &str, on: bool) {
+        if RESULT_IDS.contains(&id) {
+            self.regular_search_off.retain(|u| u != id);
+            if !on {
+                self.regular_search_off.push(id.to_string());
+            }
+        } else {
+            self.regular_search_on.retain(|u| u != id);
+            if on {
+                self.regular_search_on.push(id.to_string());
+            }
+        }
+    }
+
+    /// Every result type and trigger, highest priority first: the saved order,
+    /// then whatever it doesn't mention yet in the default order, then any
+    /// installed trigger. "cmd" (the app launcher behind every app action) has
+    /// no results of its own and isn't listed.
+    pub fn ordered_ids(&self) -> Vec<String> {
+        let installed: Vec<String> = crate::triggers::all().into_iter().map(|t| t.id).collect();
+        self.ordered_ids_with(&installed)
+    }
+
+    /// [`Config::ordered_ids`] with the installed triggers given — testable
+    /// without a triggers directory.
+    pub fn ordered_ids_with(&self, installed: &[String]) -> Vec<String> {
+        let known = |id: &str| {
+            id != "cmd"
+                && (RESULT_IDS.contains(&id)
+                    || self.command_keywords.iter().any(|k| k.id == id)
+                    || installed.iter().any(|i| i == id))
+        };
+        let mut out: Vec<String> = Vec::new();
+        let candidates = self
+            .result_order
+            .iter()
+            .map(String::as_str)
+            .chain(DEFAULT_ORDER)
+            .chain(self.command_keywords.iter().map(|k| k.id.as_str()))
+            .chain(installed.iter().map(String::as_str));
+        for id in candidates {
+            if known(id) && !out.iter().any(|o| o == id) {
+                out.push(id.to_string());
+            }
+        }
+        out
+    }
+
+    /// Where `id` ranks (0 = first), if it is listed at all.
+    pub fn order_position(&self, id: &str) -> Option<usize> {
+        self.ordered_ids().iter().position(|o| o == id)
+    }
+
+    /// Move `id` to `index` in the order (clamped), saving the whole order.
+    pub fn move_in_order(&mut self, id: &str, index: usize) {
+        let installed: Vec<String> = crate::triggers::all().into_iter().map(|t| t.id).collect();
+        self.move_in_order_with(id, index, &installed);
+    }
+
+    pub fn move_in_order_with(&mut self, id: &str, index: usize, installed: &[String]) {
+        let mut ids = self.ordered_ids_with(installed);
+        let Some(from) = ids.iter().position(|o| o == id) else {
+            return;
+        };
+        let item = ids.remove(from);
+        ids.insert(index.min(ids.len()), item);
+        self.result_order = ids;
+    }
+
+    /// Give a result type a trigger word, or take it away. Taking it away
+    /// puts the type back in the regular search: that is then its only door.
+    pub fn set_result_word(&mut self, id: &str, word: &str) {
+        if let Some(k) = self.command_keywords.iter_mut().find(|k| k.id == id) {
+            k.word = word.to_string();
+        }
+        if word.is_empty() {
+            self.set_in_regular_search(id, true);
+        }
+    }
+
+    pub fn is_uninstalled(&self, id: &str) -> bool {
+        self.uninstalled_builtins.iter().any(|u| u == id)
+    }
+
+    /// Uninstall a built-in trigger or result type: off, out of the list, its
+    /// word and shortcut kept for a later reinstall. "cmd" (the app launcher
+    /// behind every app action) can't be removed.
+    pub fn uninstall_builtin(&mut self, id: &str) {
+        if id == "cmd" || self.is_uninstalled(id) {
+            return;
+        }
+        self.uninstalled_builtins.push(id.to_string());
+        if RESULT_IDS.contains(&id) {
+            self.set_result_enabled(id, false);
+        } else if let Some(k) = self.command_keywords.iter_mut().find(|k| k.id == id) {
+            k.enabled = false;
+        }
+    }
+
+    /// Reinstall it from the Store: back in the list and switched on.
+    pub fn install_builtin(&mut self, id: &str) {
+        self.uninstalled_builtins.retain(|u| u != id);
+        if RESULT_IDS.contains(&id) {
+            self.set_result_enabled(id, true);
+        } else if let Some(k) = self.command_keywords.iter_mut().find(|k| k.id == id) {
+            k.enabled = true;
+        }
     }
 
     pub fn web_search_url_for(&self, q: &str) -> String {
@@ -838,6 +1168,182 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn result_types_are_keywords_with_no_word_or_shortcut() {
+        let c = Config::default();
+        for id in RESULT_IDS {
+            let kw = c.command_keywords.iter().find(|k| k.id == id).expect(id);
+            assert!(kw.is_result(), "{id}");
+            assert!(kw.word.is_empty() && kw.shortcut.is_empty(), "{id} starts empty");
+            // No word: reachable by id (its shortcut), never by typing "".
+            assert_eq!(kw.mode_key(), id);
+            assert!(!kw.chip_label().is_empty(), "{id} has a chip label");
+        }
+        assert!(c.keyword_for_word("").is_none(), "an empty word never matches");
+        assert!(c.keyword_for_id("calc").is_some());
+    }
+
+    #[test]
+    fn the_regular_search_switch_only_means_something_with_a_word() {
+        let mut c = Config::default();
+        // No word: the regular search is the only door, so it is always on —
+        // whatever was stored.
+        assert!(c.in_regular_search("calc"));
+        c.regular_search_off.push("calc".into());
+        assert!(c.in_regular_search("calc"), "wordless means on");
+        // With a word it is the user's call.
+        c.set_result_word("calc", "calc");
+        assert!(!c.in_regular_search("calc"), "off while it has a word");
+        c.set_in_regular_search("calc", true);
+        assert!(c.in_regular_search("calc"));
+        c.set_in_regular_search("calc", false);
+        // Taking the word away turns it back on — and keeps it on afterwards.
+        c.set_result_word("calc", "");
+        assert!(c.in_regular_search("calc"));
+        assert!(c.regular_search_off.is_empty(), "{:?}", c.regular_search_off);
+        c.set_result_word("calc", "again");
+        assert!(c.in_regular_search("calc"), "a new word starts out shown");
+        // Other types are untouched.
+        assert!(c.in_regular_search("web"));
+    }
+
+    #[test]
+    fn a_trigger_shows_in_the_regular_search_only_when_it_opts_in() {
+        let mut c = Config::default();
+        for id in ["files", "clipboard", "run", "emoji", "bluetooth", "dictionary"] {
+            assert!(!c.in_regular_search(id), "{id} is reached by its word");
+            c.set_in_regular_search(id, true);
+            assert!(c.in_regular_search(id), "{id} opted in");
+        }
+        c.set_in_regular_search("emoji", false);
+        assert!(!c.in_regular_search("emoji"));
+        // Opting a trigger in never touches a result type, and the reverse.
+        assert!(c.in_regular_search("web"));
+        assert!(c.regular_search_off.is_empty());
+        c.set_in_regular_search("web", false);
+        c.set_result_word("web", "web");
+        assert!(!c.in_regular_search("web"));
+        assert!(c.in_regular_search("files"), "still opted in");
+        // Each setting lives in its own list.
+        assert_eq!(c.regular_search_off, ["web"]);
+        assert!(!c.regular_search_on.iter().any(|u| u == "web" || u == "emoji"));
+    }
+
+    #[test]
+    fn the_order_lists_everything_once_and_keeps_what_the_user_set() {
+        let c = Config::default();
+        let installed = vec!["dictionary".to_string()];
+        let ids = c.ordered_ids_with(&installed);
+        // Every result type, built-in trigger and installed trigger — once.
+        for id in RESULT_IDS.iter().copied().chain(["files", "clipboard", "run", "emoji", "bluetooth", "dictionary"]) {
+            assert_eq!(ids.iter().filter(|i| *i == id).count(), 1, "{id}: {ids:?}");
+        }
+        assert!(!ids.iter().any(|i| i == "cmd"), "the app launcher isn't a result source");
+        // The default: specific answers first, the web fallback last of the
+        // built-ins, installed triggers after.
+        assert_eq!(ids[0], "calc");
+        let web = ids.iter().position(|i| i == "web").unwrap();
+        assert_eq!(ids[web + 1], "dictionary");
+
+        // Moving one keeps the rest in place.
+        let mut c = c;
+        c.move_in_order_with("web", 0, &installed);
+        let moved = c.ordered_ids_with(&installed);
+        assert_eq!(moved[0], "web");
+        assert_eq!(moved[1], "calc");
+        assert_eq!(moved.len(), ids.len());
+        c.move_in_order_with("web", 999, &installed);
+        assert_eq!(c.ordered_ids_with(&installed).last().unwrap(), "web", "clamped to the end");
+
+        // A saved order that predates a new entry still lists it, and drops
+        // ids that no longer exist.
+        let mut old = Config::default();
+        old.result_order = vec!["web".into(), "gone".into(), "apps".into()];
+        let ids = old.ordered_ids_with(&[]);
+        assert_eq!(&ids[..2], ["web", "apps"]);
+        assert!(!ids.iter().any(|i| i == "gone"));
+        assert!(ids.iter().any(|i| i == "convert"), "new entries are added");
+    }
+
+    #[test]
+    fn the_converter_is_its_own_result_type() {
+        let c = Config::default();
+        assert!(RESULT_IDS.contains(&"calc") && RESULT_IDS.contains(&"convert"));
+        assert!(c.converter_enabled() && c.enable_calculator);
+        // Two switches, two keywords.
+        let mut c = c;
+        c.set_result_enabled("convert", false);
+        assert!(c.enable_calculator && !c.converter_enabled());
+        assert!(c.keyword_for_id("calc").is_some() && c.keyword_for_id("convert").is_none());
+        c.set_result_enabled("calc", false);
+        c.set_result_enabled("convert", true);
+        assert!(!c.enable_calculator && c.converter_enabled());
+    }
+
+    #[test]
+    fn a_config_from_before_the_split_keeps_the_converter_where_it_was() {
+        // Calculator off used to mean converter off too.
+        let mut off: Config = serde_json::from_str(r#"{"enable_calculator":false}"#).unwrap();
+        assert!(off.enable_converter.is_none() && !off.converter_enabled());
+        off.migrate_converter_switch();
+        assert_eq!(off.enable_converter, Some(false));
+        // …and once pinned, it no longer follows the calculator.
+        off.enable_calculator = true;
+        assert!(!off.converter_enabled());
+        let mut on: Config = serde_json::from_str("{}").unwrap();
+        on.migrate_converter_switch();
+        assert_eq!(on.enable_converter, Some(true));
+    }
+
+    #[test]
+    fn an_older_config_gains_the_result_types() {
+        let mut c = Config::default();
+        c.command_keywords.retain(|k| !k.is_result());
+        c.migrate_keywords();
+        for id in RESULT_IDS {
+            assert!(c.command_keywords.iter().any(|k| k.id == id), "{id}");
+        }
+    }
+
+    #[test]
+    fn a_result_type_follows_its_switch() {
+        let mut c = Config::default();
+        if let Some(k) = c.command_keywords.iter_mut().find(|k| k.id == "web") {
+            k.word = "web".into();
+        }
+        assert!(c.keyword_for_word("web").is_some());
+        c.set_result_enabled("web", false);
+        assert!(!c.enable_web);
+        assert!(c.keyword_for_word("web").is_none(), "switched off, no mode");
+        assert!(c.keyword_for_id("web").is_none(), "nor its shortcut");
+    }
+
+    #[test]
+    fn uninstalling_a_builtin_turns_it_off_and_reinstalling_brings_it_back() {
+        let mut c = Config::default();
+        let word = c.keyword_for_id("emoji").expect("emoji").word;
+        c.uninstall_builtin("emoji");
+        assert!(c.is_uninstalled("emoji"));
+        assert!(c.keyword_for_word(&word).is_none());
+        assert!(c.keyword_for_id("emoji").is_none(), "its shortcut goes too");
+        // A second uninstall doesn't list it twice.
+        c.uninstall_builtin("emoji");
+        assert_eq!(c.uninstalled_builtins.iter().filter(|u| *u == "emoji").count(), 1);
+        c.install_builtin("emoji");
+        assert!(!c.is_uninstalled("emoji"));
+        assert_eq!(c.keyword_for_id("emoji").map(|k| k.word), Some(word), "word kept");
+
+        // A result type: uninstalling switches its results off as well.
+        c.uninstall_builtin("calc");
+        assert!(!c.enable_calculator);
+        c.install_builtin("calc");
+        assert!(c.enable_calculator);
+
+        // The app launcher behind every app action stays.
+        c.uninstall_builtin("cmd");
+        assert!(!c.is_uninstalled("cmd"));
+    }
 
     #[test]
     fn new_shortcut_defaults_and_terminal_migration() {
@@ -875,6 +1381,21 @@ mod tests {
             cfg.trigger_repo_url,
             "https://raw.githubusercontent.com/Aras1907/spotty-triggers/main"
         );
+    }
+
+    #[test]
+    fn browser_default_leaves_the_engine_list_and_migrates() {
+        // The settings combo only ever offers concrete engines…
+        assert!(!SearchEngine::all().contains(&SearchEngine::BrowserDefault));
+        assert_eq!(SearchEngine::all().len(), 6);
+        // …a config still saved on the old factory value lands on the list's
+        // first engine (same path `Config::load` takes)…
+        let mut cfg: Config =
+            serde_json::from_str(r#"{"search_engine": "browserdefault"}"#).unwrap();
+        cfg.migrate_search_engine();
+        assert_eq!(cfg.search_engine, SearchEngine::DuckDuckGo);
+        // …and so does a config that never named one.
+        assert_eq!(Config::default().search_engine, SearchEngine::DuckDuckGo);
     }
 
     #[test]

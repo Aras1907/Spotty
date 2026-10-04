@@ -28,6 +28,12 @@ use crate::i18n::gettext;
 /// page and the About dialog link here.
 pub const REPO_URL: &str = "https://github.com/Aras1907/spotty-triggers";
 
+/// Backend identifiers supported by native Store manifests.
+pub const BUILTIN_IDS: [&str; 12] = [
+    "files", "clipboard", "cmd", "run", "emoji", "bluetooth",
+    "apps", "newapps", "web", "calc", "convert", "updates",
+];
+
 /// One entry of the repository's `index.json` listing: every manifest field
 /// except `action`, which arrives with the full manifest fetch at install
 /// time. This is what the Trigger Store (Settings → Trigger → Store) shows.
@@ -47,12 +53,17 @@ pub struct RepoTrigger {
     pub author: String,
     #[serde(default)]
     pub shortcut: String,
+    /// This entry enables a backend shipped in Spotty rather than installing code.
+    #[serde(default)]
+    pub builtin: bool,
 }
 
 /// What a trigger does with the user's typed query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum TriggerAction {
+    /// Enable an existing native backend through Config, never the registry.
+    Builtin,
     /// Open a URL with `{query}` substituted (URL-encoded).
     Web { url: String },
     /// Search files filtered by the given extensions. An empty list means
@@ -108,6 +119,7 @@ pub fn help_text(m: &TriggerManifest) -> String {
         return m.help.clone();
     }
     match &m.action {
+        TriggerAction::Builtin => m.description.clone(),
         TriggerAction::Web { url } => format!(
             "Trigger: {}\n\nType \"{} <query>\" in the search bar to search {}.\n\nOpens: {}",
             m.word, m.word, m.name, url
@@ -282,7 +294,7 @@ fn default_true() -> bool {
     true
 }
 
-fn parse_manifest(path: &Path) -> Result<TriggerManifest, String> {
+pub fn parse_manifest(path: &Path) -> Result<TriggerManifest, String> {
     let raw = fs::read_to_string(path).map_err(|e| format!("read: {e}"))?;
     serde_json::from_str(&raw).map_err(|e| format!("invalid JSON: {e}"))
 }
@@ -291,6 +303,9 @@ fn parse_manifest(path: &Path) -> Result<TriggerManifest, String> {
 /// id charset (must be a legal GTK action name), non-empty word, known
 /// action, no word collision with built-ins or other triggers.
 pub fn validate(m: &TriggerManifest) -> Result<(), String> {
+    if matches!(m.action, TriggerAction::Builtin) {
+        return Err("Built-in manifests must be installed through Spotty Settings.".into());
+    }
     if m.id.is_empty()
         || !m
             .id
@@ -305,9 +320,7 @@ pub fn validate(m: &TriggerManifest) -> Result<(), String> {
     if m.word.trim().is_empty() {
         return Err(gettext("missing 'word' (the trigger text)"));
     }
-    for builtin in [
-        "files", "clipboard", "cmd", "run", "emoji",
-    ] {
+    for builtin in BUILTIN_IDS {
         if m.id == builtin {
             return Err(gettext("id '{id}' is a built-in trigger").replace("{id}", &m.id));
         }

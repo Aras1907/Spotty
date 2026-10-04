@@ -287,6 +287,12 @@ impl TaskHandle {
         nudge_ui();
     }
 
+    /// Publish progress (0..=1, when known) and, if given, a new status line.
+    pub fn report(&self, fraction: Option<f64>, status: Option<&str>) {
+        update(self.id, status.unwrap_or(""), fraction);
+        nudge_ui();
+    }
+
     /// True once the user cancelled this operation — long calls poll this.
     pub fn cancelled(&self) -> bool {
         is_cancelled(self.id)
@@ -295,9 +301,10 @@ impl TaskHandle {
 
 /// Start a background operation running `args` (argv; `args[0]` is the program).
 ///
-/// One `args[0]` is special: [`crate::dnf5daemon::ARGV0`] means the work is
-/// done in-process over D-Bus (a distro update driven by the daemon the
-/// Software store uses) rather than by spawning a program, so it runs on a
+/// Two `args[0]` are special: [`crate::dnf5daemon::ARGV0`] and
+/// [`crate::packagekit::ARGV0`] mean the work is done in-process over D-Bus
+/// (a distro install or update driven by the service the Software store uses)
+/// rather than by spawning a program, so it runs on a
 /// plain thread and reports through a [`TaskHandle`]. Everything else — the
 /// registry, cancel, restart, undo, history — is identical either way.
 pub fn start(title: String, source: String, icon: String, args: Vec<String>) {
@@ -322,19 +329,34 @@ pub fn start(title: String, source: String, icon: String, args: Vec<String>) {
 /// Run an operation's work: in-process for the daemon sentinel, a child
 /// process otherwise.
 fn run(id: u64, args: Vec<String>) {
-    if args.first().map(String::as_str) == Some(crate::dnf5daemon::ARGV0) {
+    if is_in_process(&args) {
         run_task(id, &args);
     } else {
         run_process(id, args);
     }
 }
 
+/// True for an argv that Spotty runs itself over D-Bus: dnf5daemon (Fedora's
+/// store daemon) or PackageKit (every other distro).
+fn is_in_process(args: &[String]) -> bool {
+    matches!(
+        args.first().map(String::as_str),
+        Some(a) if a == crate::dnf5daemon::ARGV0 || a == crate::packagekit::ARGV0
+    )
+}
+
 /// Run an in-process operation on its own thread.
 fn run_task(id: u64, args: &[String]) {
+    let packagekit = args.first().map(String::as_str) == Some(crate::packagekit::ARGV0);
     let rest = args[1..].to_vec();
     std::thread::spawn(move || {
         let task = TaskHandle { id };
-        match crate::dnf5daemon::run_task(&rest, &task) {
+        let result = if packagekit {
+            crate::packagekit::run_task(&rest, &task)
+        } else {
+            crate::dnf5daemon::run_task(&rest, &task)
+        };
+        match result {
             Ok(()) => finish(id, State::Done),
             // A cancellation is not a failure: the row already says so, and
             // `finish` would overwrite it with a "Failed" state.
@@ -881,7 +903,9 @@ fn finish(id: u64, state: State) {
             // Arming an already-downloaded update changes what the reboot row
             // has to say ("this restart installs them"), so it needs the same
             // re-probe an update run gets — without pretending to be one.
-            armed_update = done && crate::dnf5daemon::is_schedule_task(&op.args);
+            armed_update = done
+                && (crate::dnf5daemon::is_schedule_task(&op.args)
+                    || crate::packagekit::is_schedule_task(&op.args));
             op.progress = Some(1.0);
             op.status = match state {
                 State::Done => "Completed".into(),

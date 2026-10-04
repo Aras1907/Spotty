@@ -151,16 +151,6 @@ fn distro_installed_fetching() -> &'static Mutex<bool> {
     C.get_or_init(|| Mutex::new(false))
 }
 
-// Distro PM auto-detection cache — None = not yet detected, Some(None) = none found
-fn distro_pm_cache() -> &'static Mutex<Option<Option<String>>> {
-    static C: OnceLock<Mutex<Option<Option<String>>>> = OnceLock::new();
-    C.get_or_init(|| Mutex::new(None))
-}
-fn distro_pm_detecting() -> &'static Mutex<bool> {
-    static C: OnceLock<Mutex<bool>> = OnceLock::new();
-    C.get_or_init(|| Mutex::new(false))
-}
-
 // Snap: like distro, an async presence check — None = not yet checked,
 // Some(true/false) = snapd available on the host.
 fn snap_available_cache() -> &'static Mutex<Option<bool>> {
@@ -257,68 +247,93 @@ fn flatpak_cmd_args(subargs: &[&str]) -> Vec<String> {
     }
 }
 
-// ── Distro PM detection ───────────────────────────────────────────────────────
+// ── Distro and system packages ────────────────────────────────────────────────
 
-fn ensure_distro_pm() {
-    {
-        let c = distro_pm_cache().lock().unwrap();
-        if c.is_some() {
-            return;
-        }
-    }
-    {
-        let mut f = distro_pm_detecting().lock().unwrap();
-        if *f {
-            return;
-        }
-        *f = true;
-    }
-    std::thread::spawn(|| {
-        let pm = detect_distro_pm_blocking();
-        *distro_pm_cache().lock().unwrap() = Some(pm);
-        *distro_pm_detecting().lock().unwrap() = false;
-        glib::MainContext::default().invoke(crate::app::refresh_search_window);
-    });
-}
-
-fn detect_distro_pm_blocking() -> Option<String> {
-    if is_sandbox() {
-        for (check_cmd, name) in [
-            ("apt-get", "apt"),
-            ("dnf", "dnf"),
-            ("pacman", "pacman"),
-            ("zypper", "zypper"),
-        ] {
-            let found = std::process::Command::new("flatpak-spawn")
-                .args(["--host", "which", check_cmd])
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
-            if found {
-                return Some(name.to_string());
-            }
-        }
-        None
-    } else {
-        for (path, name) in [
-            ("/usr/bin/apt", "apt"),
-            ("/usr/bin/dnf", "dnf"),
-            ("/usr/bin/pacman", "pacman"),
-            ("/usr/bin/zypper", "zypper"),
-        ] {
-            if std::path::Path::new(path).exists() {
-                return Some(name.to_string());
-            }
-        }
-        None
-    }
-}
-
+/// The package manager of the distro Spotty runs on — read from os-release
+/// (see [`crate::distro`]), not guessed from which binaries are on the PATH,
+/// so it is the same in the Flatpak sandbox and on the host. `None` where
+/// system packages are off: an unsupported distro or an image-based one.
 fn get_detected_pm() -> Option<String> {
-    distro_pm_cache()
-        .lock()
-        .ok()
-        .and_then(|g| g.as_ref().and_then(|o| o.clone()))
+    let d = crate::distro::current();
+    if d.supports_system_packages() {
+        d.package_manager().map(str::to_string)
+    } else {
+        None
+    }
+}
+
+/// What a distro-package source has to work with on this system.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SystemPackages {
+    /// Searching, installing and updating all work; `via` names the service.
+    Ready { distro: String, pm: String, via: String },
+    /// An image-based system: packages are managed as a whole image.
+    Immutable { distro: String },
+    /// No package manager Spotty speaks to (Alpine, Void, NixOS, …).
+    Unsupported { distro: String },
+    /// A known distro, but nothing to apply changes with: PackageKit (or
+    /// dnf5daemon) isn't running, and a password prompt of our own is not an
+    /// acceptable substitute.
+    NoService { distro: String, pm: String },
+}
+
+pub(crate) fn system_packages() -> SystemPackages {
+    let d = crate::distro::current();
+    let distro = d.display();
+    if d.immutable {
+        return SystemPackages::Immutable { distro };
+    }
+    let Some(pm) = d.package_manager() else {
+        return SystemPackages::Unsupported { distro };
+    };
+    let pm = pm.to_string();
+    if crate::packagekit::available() {
+        let via = match crate::packagekit::backend_name() {
+            Some(b) => format!("PackageKit · {b}"),
+            None => "PackageKit".to_string(),
+        };
+        SystemPackages::Ready { distro, pm, via }
+    } else if system_door() == Some(Door::Dnf5Daemon) {
+        SystemPackages::Ready { distro, pm, via: "dnf5daemon".to_string() }
+    } else {
+        SystemPackages::NoService { distro, pm }
+    }
+}
+
+/// The service that applies distro updates here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Door {
+    /// Fedora's store daemon: downloads, then the restart installs.
+    Dnf5Daemon,
+    /// PackageKit: every other distro (and Fedora without the daemon).
+    PackageKit,
+}
+
+/// Which service applies distro updates, if any. `None` means distro updates
+/// aren't offered at all — never a fallback that asks for a root password.
+fn system_door() -> Option<Door> {
+    let d = crate::distro::current();
+    if !d.supports_system_packages() {
+        return None;
+    }
+    if d.family == crate::distro::Family::Fedora && crate::dnf5daemon::available() {
+        Some(Door::Dnf5Daemon)
+    } else if crate::packagekit::available() {
+        Some(Door::PackageKit)
+    } else {
+        None
+    }
+}
+
+/// True when an update is downloaded and armed for the next restart, whichever
+/// service (or store) armed it.
+fn any_offline_armed() -> bool {
+    crate::dnf5daemon::offline_armed() || crate::packagekit::offline_armed()
+}
+
+/// A package-manager name as the update cache labels distro packages.
+fn is_distro_source(source: &str) -> bool {
+    matches!(source, "dnf" | "apt" | "pacman" | "zypper")
 }
 
 // ── Snap presence ─────────────────────────────────────────────────────────────
@@ -391,13 +406,6 @@ pub(crate) fn detected_distro_pm() -> Option<String> {
     get_detected_pm()
 }
 
-/// True once the distro-PM detection thread has finished (whatever it
-/// found). `detected_distro_pm()` alone can't tell "still probing" from
-/// "probed, nothing found", which the Settings switches need.
-pub(crate) fn distro_pm_probed() -> bool {
-    distro_pm_cache().lock().map(|g| g.is_some()).unwrap_or(false)
-}
-
 // ── Background fetchers ───────────────────────────────────────────────────────
 
 pub fn prewarm_update_cache() {
@@ -405,7 +413,6 @@ pub fn prewarm_update_cache() {
 }
 
 pub fn preload_install_cache_async(sources: AppSources) {
-    ensure_distro_pm();
     // Source presence is always probed (not just when the saved switches use
     // them) so the Settings source switches can show/hide based on it.
     ensure_snap_available();
@@ -416,18 +423,11 @@ pub fn preload_install_cache_async(sources: AppSources) {
         ensure_flatpak_catalog();
     }
     if sources.distro {
-        // Distro PM detection happens on a background thread; poll briefly
-        // for it to finish, then kick off the (also-cached) full package
-        // catalog fetch so it's warm before the user finishes typing "install ".
-        std::thread::spawn(|| {
-            for _ in 0..50 {
-                if let Some(pm_name) = get_detected_pm() {
-                    ensure_distro_catalog(pm_name);
-                    return;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-        });
+        // Warm the (cached) full package catalog so it's ready before the user
+        // finishes typing "install ".
+        if let Some(pm_name) = get_detected_pm() {
+            ensure_distro_catalog(pm_name);
+        }
     }
 }
 
@@ -678,7 +678,7 @@ fn update_cmd_args(source: &str, app_id: Option<&str>) -> Vec<String> {
             flatpak_cmd_args(&["update", "--assumeyes", app_id.unwrap()])
         }
         "flatpak" => flatpak_cmd_args(&["update", "--assumeyes"]),
-        "dnf" | "apt" | "pacman" | "zypper" => distro_update_args(source, None),
+        "dnf" | "apt" | "pacman" | "zypper" => distro_update_args(None),
         "snap" => pkexec_cmd_args(vec!["snap".into(), "refresh".into()]),
         // One file per run — the classic tool takes a single path, so the
         // scope row chains them (markers keep the progress tracker aware).
@@ -709,7 +709,7 @@ fn update_cmd_args(source: &str, app_id: Option<&str>) -> Vec<String> {
         }
         "all" => {
             let mut parts: Vec<(&str, String)> = Vec::new();
-            let mut has_dnf = false;
+            let mut has_distro = false;
             let cache = update_cache().lock().unwrap();
             if let Some((_, entries)) = cache.as_ref() {
                 let has_fp = entries
@@ -718,24 +718,10 @@ fn update_cmd_args(source: &str, app_id: Option<&str>) -> Vec<String> {
                 if has_fp {
                     parts.push(("flatpak", "flatpak update --assumeyes".into()));
                 }
-                for pm in &["apt", "pacman", "zypper"] {
-                    if entries.iter().any(|u| u.source == *pm) {
-                        if *pm == "apt" {
-                            parts.push(("apt", "pkexec apt-get upgrade -y".into()));
-                        } else if *pm == "pacman" {
-                            parts.push(("pacman", "pkexec pacman -Syu --noconfirm".into()));
-                        } else {
-                            parts.push(("zypper", "pkexec zypper update -y".into()));
-                        }
-                    }
-                }
-                // dnf has two doors: the daemon (an in-process D-Bus task, not
-                // a shell command — so it can't join the chain below) or the
-                // package manager behind pkexec.
-                has_dnf = entries.iter().any(|u| u.source == "dnf");
-                if has_dnf && !daemon_update_available("dnf") {
-                    parts.push(("dnf", distro_update_script("dnf", None)));
-                }
+                // Distro packages go through a system service only — an
+                // in-process D-Bus task, not a shell command, so it can't join
+                // the chain below.
+                has_distro = entries.iter().any(|u| is_distro_source(&u.source));
                 if entries.iter().any(|u| u.source == "snap") {
                     parts.push(("snap", "pkexec snap refresh".into()));
                 }
@@ -755,11 +741,16 @@ fn update_cmd_args(source: &str, app_id: Option<&str>) -> Vec<String> {
             // The daemon half runs first (it installs at the next restart,
             // the rest install immediately), so the chain follows it as the
             // task's script argument.
-            let via_daemon = has_dnf && daemon_update_available("dnf");
+            let door = if has_distro { system_door() } else { None };
+            let via_daemon = door.is_some();
             if parts.is_empty() && !via_daemon {
                 no_updates_cmd()
-            } else if via_daemon {
-                crate::dnf5daemon::all_args(&chained_script_text(&parts))
+            } else if let Some(door) = door {
+                let script = chained_script_text(&parts);
+                match door {
+                    Door::Dnf5Daemon => crate::dnf5daemon::all_args(&script),
+                    Door::PackageKit => crate::packagekit::all_args(&script),
+                }
             } else {
                 chained_script(&parts)
             }
@@ -837,30 +828,20 @@ fn fetch_updates() -> Vec<UpdateInfo> {
     // the preview can show what exactly wants updating. AppImages are their
     // own source: one `-j` network check per installed file (empty without
     // an updater tool — gated in `appimage::pending_updates`).
-    let (fp_updates, dnf, apt, pacman, zypper, snap, appimages) = std::thread::scope(|s| {
+    let (fp_updates, distro, snap, appimages) = std::thread::scope(|s| {
         let fp = s.spawn(|| fetch_flatpak_updates());
-        let dnf = s.spawn(|| dnf_updates());
-        let apt = s.spawn(|| apt_updates());
-        let pacman = s.spawn(|| pacman_updates());
-        let zypper = s.spawn(|| zypper_updates());
+        let distro = s.spawn(|| distro_updates());
         let snap = s.spawn(|| snap_updates());
         let appimage = s.spawn(|| crate::search::appimage::pending_updates());
         (
             fp.join().unwrap_or_default(),
-            dnf.join().unwrap_or_default(),
-            apt.join().unwrap_or_default(),
-            pacman.join().unwrap_or_default(),
-            zypper.join().unwrap_or_default(),
+            distro.join().unwrap_or_default(),
             snap.join().unwrap_or_default(),
             appimage.join().unwrap_or_default(),
         )
     });
-    assemble_updates(
-        fp_updates,
-        [("dnf", dnf), ("apt", apt), ("pacman", pacman), ("zypper", zypper)],
-        snap,
-        appimages,
-    )
+    let pm = get_detected_pm().unwrap_or_else(|| "dnf".to_string());
+    assemble_updates(fp_updates, (&pm, distro), snap, appimages)
 }
 
 /// Turn the per-source package lists into the update cache: one entry per
@@ -869,7 +850,7 @@ fn fetch_updates() -> Vec<UpdateInfo> {
 /// entries, so aggregates can never inflate the "N updates available" badge.
 fn assemble_updates(
     fp_updates: Vec<(String, String)>,
-    system: [(&str, Vec<String>); 4],
+    (pm, distro): (&str, Vec<String>),
     snap: Vec<String>,
     appimages: Vec<(String, String)>,
 ) -> Vec<UpdateInfo> {
@@ -883,17 +864,15 @@ fn assemble_updates(
             details: vec![name.clone()],
         });
     }
-    // System packages: one entry per package; the parsers return
-    // "name  version" lines, which is exactly what the preview shows.
-    for (pm, pkgs) in &system {
-        for pkg in pkgs {
-            out.push(UpdateInfo {
-                source: (*pm).into(),
-                app_id: None,
-                name: pkg.clone(),
-                details: vec![pkg.clone()],
-            });
-        }
+    // Distro packages: one entry per package, labelled with the distro's
+    // package manager; the sources return "name  version" lines, which is exactly what the preview shows.
+    for pkg in distro {
+        out.push(UpdateInfo {
+            source: pm.into(),
+            app_id: None,
+            name: pkg.clone(),
+            details: vec![pkg],
+        });
     }
     // Snap: one entry per package.
     for pkg in snap {
@@ -974,28 +953,6 @@ fn parse_dnf_updates(out: &str) -> Vec<String> {
         .collect()
 }
 
-fn parse_apt_updates(out: &str) -> Vec<String> {
-    // `apt list --upgradable`: "name/repo  version  arch [upgradable from: …]"
-    out.lines()
-        .filter(|l| !l.starts_with("Listing") && !l.starts_with("WARNING"))
-        .filter_map(|l| {
-            let mut it = l.split_whitespace();
-            let pkg = it.next()?;
-            let ver = it.next()?;
-            let name = pkg.split('/').next().unwrap_or(pkg);
-            Some(format!("{name}  {ver}"))
-        })
-        .collect()
-}
-
-fn parse_pacman_updates(out: &str) -> Vec<String> {
-    // `pacman -Qu`: "name  old -> new"
-    out.lines()
-        .filter(|l| l.contains(" -> "))
-        .map(|l| l.replace(" -> ", " → "))
-        .collect()
-}
-
 fn parse_snap_updates(out: &str) -> Vec<String> {
     // `snap refresh --list`: a "Name Version …" table after a header line.
     let mut seen_header = false;
@@ -1019,46 +976,27 @@ fn parse_snap_updates(out: &str) -> Vec<String> {
         .collect()
 }
 
-fn parse_zypper_updates(out: &str) -> Vec<String> {
-    // `zypper lu --no-refresh`: "| S | Repo | Name | Current | Available | …"
-    out.lines()
-        .filter(|l| l.contains('|'))
-        .filter_map(|l| {
-            let cols: Vec<&str> = l.split('|').map(|c| c.trim()).collect();
-            if cols.len() < 5 {
-                return None;
-            }
-            let (name, cur, avail) = (cols[2], cols[3], cols[4]);
-            if name == "Name" || cur == "Current" {
-                return None;
-            }
-            Some(format!("{name}  {cur} → {avail}"))
-        })
-        .collect()
-}
-
-fn dnf_updates() -> Vec<String> {
-    host_command("dnf")
-        .args(["check-update", "-q"])
-        .output()
-        .map(|o| parse_dnf_updates(&String::from_utf8_lossy(&o.stdout)))
-        .unwrap_or_default()
-}
-
-fn apt_updates() -> Vec<String> {
-    host_command("apt")
-        .args(["list", "--upgradable"])
-        .output()
-        .map(|o| parse_apt_updates(&String::from_utf8_lossy(&o.stdout)))
-        .unwrap_or_default()
-}
-
-fn pacman_updates() -> Vec<String> {
-    host_command("pacman")
-        .args(["-Qu"])
-        .output()
-        .map(|o| parse_pacman_updates(&String::from_utf8_lossy(&o.stdout)))
-        .unwrap_or_default()
+/// The pending distro package updates, as "name  version" lines.
+///
+/// Only where a service can apply them (see [`system_door`]) — never list what
+/// we couldn't install. Already downloaded and armed for the next restart:
+/// nothing left to offer, the restart row owns that state.
+fn distro_updates() -> Vec<String> {
+    let Some(door) = system_door() else {
+        return Vec::new();
+    };
+    if any_offline_armed() {
+        return Vec::new();
+    }
+    match door {
+        // dnf refreshes its own metadata, which PackageKit's cache lags behind.
+        Door::Dnf5Daemon => host_command("dnf")
+            .args(["check-update", "-q"])
+            .output()
+            .map(|o| parse_dnf_updates(&String::from_utf8_lossy(&o.stdout)))
+            .unwrap_or_default(),
+        Door::PackageKit => crate::packagekit::update_lines(),
+    }
 }
 
 fn snap_updates() -> Vec<String> {
@@ -1069,13 +1007,6 @@ fn snap_updates() -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn zypper_updates() -> Vec<String> {
-    host_command("zypper")
-        .args(["lu", "--no-refresh"])
-        .output()
-        .map(|o| parse_zypper_updates(&String::from_utf8_lossy(&o.stdout)))
-        .unwrap_or_default()
-}
 
 fn ensure_flatpak_catalog() {
     {
@@ -1756,7 +1687,6 @@ fn searching_placeholder(label: &str) -> Vec<SearchResult> {
 pub fn search(query: &str, config: &Config, apps: &[AppEntry]) -> Vec<SearchResult> {
     let sources = config.app_sources();
     // Kick off distro PM detection early so it's ready when needed
-    ensure_distro_pm();
 
     let q = query.trim();
     if q.is_empty() {
@@ -1930,7 +1860,9 @@ pub fn search(query: &str, config: &Config, apps: &[AppEntry]) -> Vec<SearchResu
 fn search_install(query: &str, sources: AppSources) -> Vec<SearchResult> {
     let detected = get_detected_pm();
     let use_flatpak = sources.flatpak;
-    let use_distro = sources.distro && detected.is_some();
+    // Distro rows need a service to install with: no PackageKit, no rows (a
+    // pkexec install would just ask for a root password).
+    let use_distro = sources.distro && detected.is_some() && crate::packagekit::available();
     let use_snap = sources.snap && snap_is_available() == Some(true);
 
     let mut flatpak_results: Vec<SearchResult> = Vec::new();
@@ -2233,12 +2165,9 @@ fn search_updates(query: &str, config: &Config) -> Vec<SearchResult> {
     if reboot_pending() {
         out.push(restart_required_row());
     }
-    // A downloaded-but-unapplied offline transaction can't be armed into a
-    // reboot by anything we can reach (`dnf offline reboot` only acts on one
-    // dnf itself staged, and it silently does nothing otherwise), so offering
-    // "restart to install" would be a dead end. Offer to install it now — the
-    // run clears the stale stage first and updates for real.
-    if offline_update_staged() {
+    // A downloaded-but-unarmed offline transaction: a restart alone wouldn't
+    // install it, so offer to arm it — through the daemon, the only door.
+    if offline_update_staged() && system_door().is_some() {
         out.push(staged_update_now_row());
     }
     let rl = rest.to_lowercase();
@@ -2400,38 +2329,30 @@ pub(crate) fn restart_required_row_with(armed: bool) -> SearchResult {
 /// Top row while updates sit downloaded but not yet armed: arm them.
 ///
 /// This is what gnome-software's background download leaves behind, and a
-/// restart alone would not install it — the daemon has to mark it for the next
-/// boot first (`Offline.schedule_for_next_boot`, the store's own call, no
-/// password). Without the daemon the row falls back to running the whole
-/// update, which replaces the stage with a transaction that does apply.
+/// restart alone would not install it — the service has to mark it for the
+/// next boot first (dnf5daemon's `Offline.schedule_for_next_boot`, PackageKit's
+/// `Offline.Trigger`: the store's own calls, no password of ours). Only
+/// offered while a service is reachable.
 fn staged_update_now_row() -> SearchResult {
-    let title = gettext("Update all packages");
-    let (args, subtitle) = if crate::dnf5daemon::available() {
-        (
-            crate::dnf5daemon::schedule_args(),
-            gettext("Downloaded — restart to install them"),
-        )
-    } else {
-        (
-            update_cmd_args("all", None),
-            gettext("Downloaded updates are waiting — install them now"),
-        )
-    };
     SearchResult {
         kind: ResultKind::System,
         title: gettext("Update now"),
-        subtitle: Some(subtitle.into()),
+        subtitle: Some(gettext("Downloaded — restart to install them")),
         icon: Some("software-update-available-symbolic".into()),
         action: Action::StartOperation {
-            title,
+            title: gettext("Update all packages"),
             source: "System Update".into(),
             icon: "software-update-available-symbolic".into(),
-            args,
+            // Arm it with whichever service holds the download.
+            args: if staged_via_packagekit() {
+                crate::packagekit::schedule_args()
+            } else {
+                crate::dnf5daemon::schedule_args()
+            },
         },
         score: 100_000,
     }
 }
-
 
 /// On/off switch for the whole update feature, reachable from search.
 fn update_toggle_row(config: &Config) -> SearchResult {
@@ -2476,99 +2397,25 @@ fn package_display(u: &UpdateInfo) -> String {
     }
 }
 
-/// PackageKit's `system-update` polkit action is `allow_active` for a local
-/// session (installs are `auth_admin_keep`, updates are not) — that is exactly
-/// why the Software store updates without asking for a password. One-shot
-/// probe, cached.
-fn pkcon_available() -> bool {
-    static PKCON: OnceLock<bool> = OnceLock::new();
-    *PKCON.get_or_init(|| host_command("pkcon").arg("--version").output().is_ok())
-}
-
-/// True when updates for `source` can go through dnf5daemon — the store's own
-/// service, which needs no password for a wheel user and applies the update at
-/// the next restart. Only the dnf source: the daemon drives rpm transactions,
-/// so apt/pacman/zypper keep their own package manager.
-fn daemon_update_available(source: &str) -> bool {
-    source == "dnf" && crate::dnf5daemon::available()
-}
-
-/// Argv that installs `source`'s updates.
-///
-/// Preferred: an in-process D-Bus task against dnf5daemon (no sudo, and the
-/// daemon writes the transaction that the next boot installs). Fallback: the
-/// shell script — PackageKit first, package manager behind pkexec — for
-/// systems without the daemon, where it is still the only door there is.
-fn distro_update_args(source: &str, package: Option<&str>) -> Vec<String> {
-    if daemon_update_available(source) {
-        return match package {
+/// Argv that installs distro updates through the system's own service:
+/// dnf5daemon where it exists (Fedora), PackageKit everywhere else. Both are
+/// the Software store's doors — no password of Spotty's own, and reachable from
+/// the Flatpak sandbox over D-Bus. There is deliberately no other door: a
+/// pkexec fallback would ask for a root password, and a sandboxed build
+/// couldn't run it without escaping to the host.
+fn distro_update_args(package: Option<&str>) -> Vec<String> {
+    match system_door() {
+        Some(Door::Dnf5Daemon) => match package {
             Some(p) => vec![
                 crate::dnf5daemon::ARGV0.into(),
                 crate::dnf5daemon::VERB_UPGRADE_PKG.into(),
                 p.into(),
             ],
             None => crate::dnf5daemon::upgrade_all_args(),
-        };
+        },
+        Some(Door::PackageKit) => crate::packagekit::update_args(package),
+        None => no_updates_cmd(),
     }
-    host_shell_argv(&distro_update_script(source, package))
-}
-
-/// Host-wrapped `pkcon -y update [package]` argv.
-fn pkcon_update_args(package: Option<&str>) -> Vec<String> {
-    let mut v: Vec<String> = if is_sandbox() {
-        vec![
-            "flatpak-spawn".to_string(),
-            "--host".to_string(),
-            "pkcon".to_string(),
-        ]
-    } else {
-        vec!["pkcon".to_string()]
-    };
-    v.push("-y".to_string());
-    v.push("update".to_string());
-    if let Some(p) = package {
-        v.push(p.to_string());
-    }
-    v
-}
-
-/// The package-manager command behind PackageKit: dnf/apt/… behind pkexec.
-/// Only used when PackageKit isn't available (or declines the work).
-fn distro_update_fallback(source: &str, package: Option<&str>) -> String {
-    let t = package.map(|p| format!(" {p}")).unwrap_or_default();
-    match source {
-        "dnf" => format!("dnf upgrade -y{t}"),
-        "apt" => format!("apt-get upgrade -y{t}"),
-        "pacman" => format!("pacman -Syu --noconfirm{t}"),
-        "zypper" => format!("zypper update -y{t}"),
-        _ => "true".to_string(),
-    }
-}
-
-/// Shell script that installs `source`'s updates, PackageKit first.
-///
-/// A staged offline transaction (left behind by gnome-software/dnf5daemon) has
-/// to go first: dnf5 refuses to run while one is pending, and PackageKit then
-/// reports nothing to do — which is why updates appeared to do nothing at all.
-/// The clean is only added when the probe actually sees one, so systems that
-/// don't use it never see an extra privileged command.
-///
-/// PackageKit runs the update through the passwordless `system-update` action;
-/// if it has nothing to do or fails, dnf behind pkexec takes over.
-fn distro_update_script(source: &str, package: Option<&str>) -> String {
-    let apply = if pkcon_available() {
-        let mut parts = pkcon_update_args(package);
-        parts.push(format!("|| pkexec {}", distro_update_fallback(source, package)));
-        parts.join(" ")
-    } else {
-        format!("pkexec {}", distro_update_fallback(source, package))
-    };
-    let clear = if offline_update_staged() {
-        "pkexec dnf offline clean >/dev/null 2>&1; "
-    } else {
-        ""
-    };
-    format!("{clear}{apply}")
 }
 
 /// Args to update exactly one package of `source`.
@@ -2576,7 +2423,7 @@ fn package_args(source: &str, target: &str) -> Vec<String> {
     let t = target.to_string();
     match source {
         "flatpak" => flatpak_cmd_args(&["update", "--assumeyes", &t]),
-        "dnf" | "apt" | "pacman" | "zypper" => distro_update_args(source, Some(&t)),
+        "dnf" | "apt" | "pacman" | "zypper" => distro_update_args(Some(&t)),
         "snap" => pkexec_cmd_args(vec!["snap".into(), "refresh".into(), t]),
         // `target` is the AppImage path (names may contain spaces — it's
         // passed as a single argv element, never split).
@@ -2745,7 +2592,7 @@ fn scopes_from(list: &[UpdateInfo]) -> Vec<Scope> {
     let pm = list
         .iter()
         .map(|u| u.source.as_str())
-        .find(|s| matches!(*s, "dnf" | "apt" | "pacman" | "zypper"))
+        .find(|s| is_distro_source(s))
         .map(str::to_string);
 
     let (count, details, sources) = scope_group(list, |_| true);
@@ -2772,8 +2619,7 @@ fn scopes_from(list: &[UpdateInfo]) -> Vec<Scope> {
         details,
     });
 
-    let distro_sources = ["dnf", "apt", "pacman", "zypper"];
-    let (count, details, sources) = scope_group(list, |s| distro_sources.contains(&s));
+    let (count, details, sources) = scope_group(list, |s| is_distro_source(s));
     let mut kws = vec![
         "distro".into(),
         "distribution".into(),
@@ -2783,16 +2629,19 @@ fn scopes_from(list: &[UpdateInfo]) -> Vec<Scope> {
     if let Some(pm) = &pm {
         kws.push(pm.clone());
     }
-    out.push(Scope {
-        key: "distro",
-        cmd: pm.unwrap_or_default(),
-        kws,
-        typed: "system".into(),
-        title: gettext("Update system packages"),
-        count,
-        sources: sources.join(", "),
-        details,
-    });
+    // Only where a service can apply them (see `distro_update_args`).
+    if count > 0 || system_door().is_some() {
+        out.push(Scope {
+            key: "distro",
+            cmd: pm.unwrap_or_default(),
+            kws,
+            typed: "system".into(),
+            title: gettext("Update system packages"),
+            count,
+            sources: sources.join(", "),
+            details,
+        });
+    }
 
     let (count, details, sources) = scope_group(list, |s| s == "snap");
     if count > 0 || snap_is_available() == Some(true) {
@@ -2989,43 +2838,13 @@ fn pkexec_cmd_args(subargs: Vec<String>) -> Vec<String> {
 }
 
 fn distro_install_result(pkg: &DistroPackage, pm: &str) -> SearchResult {
-    let (inner, label): (Vec<String>, &str) = match pm {
-        "apt" => (
-            vec![
-                "apt-get".into(),
-                "install".into(),
-                "-y".into(),
-                pkg.name.clone(),
-            ],
-            "apt",
-        ),
-        "dnf" => (
-            vec![
-                "dnf".into(),
-                "install".into(),
-                "-y".into(),
-                pkg.name.clone(),
-            ],
-            "dnf",
-        ),
-        "pacman" => (
-            vec![
-                "pacman".into(),
-                "-S".into(),
-                "--noconfirm".into(),
-                pkg.name.clone(),
-            ],
-            "pacman",
-        ),
-        "zypper" => (
-            vec![
-                "zypper".into(),
-                "--non-interactive".into(),
-                "install".into(),
-                pkg.name.clone(),
-            ],
-            "zypper",
-        ),
+    // Installs go through PackageKit — the Software store's door: polkit, not
+    // a root password prompt of our own, and reachable from the Flatpak sandbox.
+    let label = match pm {
+        "apt" => "apt",
+        "dnf" => "dnf",
+        "pacman" => "pacman",
+        "zypper" => "zypper",
         _ => {
             return SearchResult {
                 kind: ResultKind::System,
@@ -3055,7 +2874,7 @@ fn distro_install_result(pkg: &DistroPackage, pm: &str) -> SearchResult {
             title: format!("Installing {}", pkg.name),
             source: label.into(),
             icon,
-            args: pkexec_cmd_args(inner),
+            args: crate::packagekit::install_args(&pkg.name),
         },
         score: 900,
     }
@@ -3252,12 +3071,7 @@ mod tests {
         // "N updates available" badge.
         let solo = super::assemble_updates(
             vec![],
-            [
-                ("dnf", vec!["vim.x86_64  2:9.2.1129-1.fc44".to_string()]),
-                ("apt", vec![]),
-                ("pacman", vec![]),
-                ("zypper", vec![]),
-            ],
+            ("dnf", vec!["vim.x86_64  2:9.2.1129-1.fc44".to_string()]),
             vec![],
             vec![],
         );
@@ -3270,12 +3084,7 @@ mod tests {
         // every package exactly once.
         let duo = super::assemble_updates(
             vec![],
-            [
-                ("dnf", vec!["vim.x86_64  9.2".to_string()]),
-                ("apt", vec![]),
-                ("pacman", vec![]),
-                ("zypper", vec![]),
-            ],
+            ("dnf", vec!["vim.x86_64  9.2".to_string()]),
             vec!["core22  2024".to_string()],
             vec![],
         );
@@ -3459,52 +3268,56 @@ mod tests {
 
     #[test]
     fn package_rows_build_per_source_commands() {
-        // A distro package goes to the daemon when there is one (an in-process
-        // D-Bus task, no sudo) and to the package manager behind pkexec
-        // otherwise; flatpak and snap keep their own argv.
+        // A distro package goes to this system's service (an in-process D-Bus
+        // task, no sudo) or nowhere — there is no pkexec fallback. Which
+        // service is the system's call, not the package manager label's.
         let joined = |v: Vec<String>| v.join(" ");
-        let dnf = super::package_args("dnf", "vim.x86_64");
-        assert!(joined(dnf.clone()).contains("vim.x86_64"), "{dnf:?}");
-        if crate::dnf5daemon::available() {
-            assert_eq!(
-                dnf[0],
-                crate::dnf5daemon::ARGV0,
-                "dnf update must use the daemon: {dnf:?}"
-            );
-            assert!(
-                dnf.iter().any(|a| a == crate::dnf5daemon::VERB_UPGRADE_PKG),
-                "{dnf:?}"
-            );
+        let expected = match super::system_door() {
+            Some(super::Door::Dnf5Daemon) => vec![
+                crate::dnf5daemon::ARGV0.to_string(),
+                crate::dnf5daemon::VERB_UPGRADE_PKG.to_string(),
+                "vim.x86_64".to_string(),
+            ],
+            Some(super::Door::PackageKit) => crate::packagekit::update_args(Some("vim.x86_64")),
+            None => super::no_updates_cmd(),
+        };
+        for pm in ["dnf", "apt", "pacman", "zypper"] {
+            let args = super::package_args(pm, "vim.x86_64");
+            assert_eq!(args, expected, "{pm}");
             // No pkexec anywhere in the store's path — that is the point.
-            assert!(!joined(dnf.clone()).contains("pkexec"), "{dnf:?}");
-        } else {
-            let dnf = joined(dnf);
-            assert!(dnf.contains("dnf upgrade -y"), "dnf fallback: {dnf}");
-            assert!(dnf.contains("update"), "packagekit: {dnf}");
+            assert!(!joined(args).contains("pkexec"), "{pm}");
         }
-        let apt = joined(super::package_args("apt", "firefox"));
-        assert!(apt.contains("firefox"), "{apt}");
-        assert!(apt.contains("apt-get upgrade -y"), "apt fallback: {apt}");
-        let pacman = super::package_args("pacman", "vim");
-        assert!(joined(pacman.clone()).contains("pacman -Syu"), "{pacman:?}");
+        // Updating everything goes through the same door.
+        assert!(!joined(super::update_cmd_args("dnf", None)).contains("pkexec"));
         let fp = super::package_args("flatpak", "org.mozilla.firefox");
         assert!(fp.contains(&"org.mozilla.firefox".to_string()), "{fp:?}");
         assert!(fp.contains(&"update".to_string()), "{fp:?}");
         let snap = super::package_args("snap", "core22");
         assert!(snap.contains(&"refresh".to_string()), "{snap:?}");
 
-        // Distro updates now carry their package manager's upgrade flags, so they're
-        // recognised as update runs by argv alone (pacman's `-Syu` can't be
-        // confused with an install any more).
-        assert!(super::is_update_op(&pacman));
-        assert!(super::is_update_run("Update: vim", &pacman));
-        assert!(!super::is_update_run("Install: vim", &pacman));
-        assert!(super::is_update_run("Update & Restart", &super::update_cmd_args("dnf", None)));
         // The daemon task is an update run too, though its argv is our own.
         assert!(super::is_update_run(
             "Update all packages",
             &crate::dnf5daemon::upgrade_all_args()
         ));
+    }
+
+    #[test]
+    fn distro_installs_go_through_packagekit_never_pkexec() {
+        // One install path for every distro: a PackageKit task naming the
+        // package. A root password prompt of our own is not an alternative.
+        for pm in ["apt", "dnf", "pacman", "zypper"] {
+            let pkg = super::DistroPackage::new("htop".into(), "Interactive process viewer".into());
+            let row = super::distro_install_result(&pkg, pm);
+            let crate::search::Action::StartOperation { args, source, .. } = &row.action else {
+                panic!("{pm}: expected a runnable install, got {:?}", row.action);
+            };
+            assert_eq!(args, &crate::packagekit::install_args("htop"), "{pm}");
+            assert_eq!(source, pm, "the row says which package manager it is");
+            assert!(!args.join(" ").contains("pkexec"), "{pm}");
+            // An install is never mistaken for an update run.
+            assert!(!super::is_update_run("Installing htop", args), "{pm}");
+        }
     }
 
     #[test]
@@ -3614,55 +3427,17 @@ mod tests {
     }
 
     #[test]
-    fn distro_updates_go_through_packagekit_with_dnf_as_the_fallback() {
-        // PackageKit applies updates through the `system-update` polkit action,
-        // which is `allow_active` — no password for a local session, the same
-        // door the Software store uses. dnf behind pkexec is the fallback.
-        assert_eq!(
-            super::pkcon_update_args(None),
-            vec!["pkcon", "-y", "update"],
-            "packagekit argv"
-        );
-        assert_eq!(
-            super::pkcon_update_args(Some("vim")),
-            vec!["pkcon", "-y", "update", "vim"],
-            "single package"
-        );
-        assert_eq!(
-            super::distro_update_fallback("dnf", None),
-            "dnf upgrade -y"
-        );
-        assert_eq!(
-            super::distro_update_fallback("apt", Some("vim")),
-            "apt-get upgrade -y vim"
-        );
-        // No update path may reboot anything (that was the original bug).
-        for source in ["dnf", "apt", "pacman", "zypper"] {
-            let script = super::distro_update_script(source, None);
-            assert!(
-                !script.contains("reboot"),
-                "{source} would reboot: {script}"
-            );
-            assert!(!script.contains("Offline.Trigger"), "{script}");
-        }
-    }
-
-    #[test]
     fn a_staged_download_is_applied_not_merely_restarted() {
         // A downloaded-but-unarmed transaction is not installed by a restart, so
-        // its row has to do the arming: with the daemon that is the store's own
-        // `schedule_for_next_boot` call, without it a real update run.
+        // its row has to do the arming: the store's own `schedule_for_next_boot`
+        // call.
         let row = super::staged_update_now_row();
         assert_eq!(row.title, crate::i18n::gettext("Update now"));
         let args = match &row.action {
             crate::search::Action::StartOperation { args, .. } => args.clone(),
             other => panic!("expected a runnable operation, got {other:?}"),
         };
-        if crate::dnf5daemon::available() {
-            assert_eq!(args, crate::dnf5daemon::schedule_args(), "{args:?}");
-        } else {
-            assert!(crate::search::cmd::is_update_op(&args), "{args:?}");
-        }
+        assert_eq!(args, crate::dnf5daemon::schedule_args(), "{args:?}");
         // The restart row never lies about what it does: with the update armed
         // it *installs* it, otherwise it only starts using what is installed.
         let armed = super::restart_required_row_with(true);
@@ -3932,30 +3707,13 @@ mod tests {
             ]
         );
         assert_eq!(
-            super::parse_apt_updates(
-                "Listing...\nfirefox/x86_64 130.0-1.fc44 fedora [upgradable from: 129.0-1]\n"
-            ),
-            vec!["firefox  130.0-1.fc44"]
-        );
-        assert_eq!(
-            super::parse_pacman_updates("vim 9.2-1 -> 9.3-1\n"),
-            vec!["vim 9.2-1 → 9.3-1"]
-        );
-        assert_eq!(
             super::parse_snap_updates(
                 "Name    Version  Rev  Tracking  Notes\ncore22  2024     1234 latest    -\n========\n"
             ),
             vec!["core22  2024"]
         );
-        assert_eq!(
-            super::parse_zypper_updates(
-                "S | Repository | Name   | Current | Available | Repository\n                 ---+------------+--------+---------+-----------+----------\n                   | repo       | glibc  | 2.39    | 2.40      | repo\n"
-            ),
-            vec!["glibc  2.39 → 2.40"]
-        );
         // Command missing / no output → no rows (not an error).
         assert!(super::parse_dnf_updates("").is_empty());
-        assert!(super::parse_apt_updates("Listing...\n").is_empty());
     }
 
     #[test]
@@ -4329,18 +4087,22 @@ if [ -e /run/reboot-needed ]; then
     echo "1 suse-flag"; exit 0
 fi
 
-# 2b. dnf5 offline (system) update: the packages are already downloaded, and the
-#     daemon's /system-update symlink is what makes the next boot install them —
-#     the flow GNOME Software drives. Two states, and the wording must differ:
-#     armed (the reboot applies it) or merely downloaded (it doesn't yet).
-#     Kept early so the wording can be the accurate one.
+# 2b. Offline (system) update: the packages are already downloaded, and the
+#     /system-update symlink is what makes the next boot install them — the flow
+#     GNOME Software drives, through dnf5daemon or PackageKit (either arms the
+#     same symlink). Two states, and the wording must differ: armed (the reboot
+#     applies it) or merely downloaded (it doesn't yet). Kept early so the
+#     wording can be the accurate one. The reason names predate PackageKit.
 state=/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml
-if [ -L /system-update ] && [ -r "$state" ]; then
+if [ -L /system-update ]; then
     echo "1 dnf-offline-armed"; exit 0
 fi
 if [ -r "$state" ] \
    && grep -qE '^status = "(ready|download-complete)"' "$state" 2>/dev/null; then
     echo "1 dnf-offline-staged"; exit 0
+fi
+if [ -r /var/lib/PackageKit/prepared-update ]; then
+    echo "1 packagekit-offline-staged"; exit 0
 fi
 
 # 3. Atomic images: a deployment is staged, so the booted one is no longer
@@ -4456,6 +4218,7 @@ echo "0 none"
 
 /// Why the probe says a reboot is needed, when it does.
 pub(crate) const REASON_OFFLINE_STAGED: &str = "dnf-offline-staged";
+pub(crate) const REASON_PK_OFFLINE_STAGED: &str = "packagekit-offline-staged";
 pub(crate) const REASON_OFFLINE_ARMED: &str = "dnf-offline-armed";
 
 fn detect_reboot() -> u8 {
@@ -4482,6 +4245,7 @@ fn detect_reboot() -> u8 {
         // Downloaded only — a restart would install nothing, so the update row
         // has to arm it instead.
         REASON_OFFLINE_STAGED => REBOOT_OFFLINE_STAGED,
+        REASON_PK_OFFLINE_STAGED => REBOOT_PK_OFFLINE_STAGED,
         _ => REBOOT_REQUIRED,
     }
 }
@@ -4515,6 +4279,9 @@ pub fn refresh_reboot_state() {
 pub(crate) const REBOOT_NONE: u8 = 0;
 pub(crate) const REBOOT_REQUIRED: u8 = 1;
 pub(crate) const REBOOT_OFFLINE_STAGED: u8 = 2;
+/// The same, but PackageKit holds the download (GNOME Software's background
+/// download, or a PackageKit update that was never armed).
+pub(crate) const REBOOT_PK_OFFLINE_STAGED: u8 = 4;
 /// A downloaded update the daemon has armed (`/system-update`): the pending
 /// reboot installs it, so the row can say exactly that.
 pub(crate) const REBOOT_OFFLINE_ARMED: u8 = 3;
@@ -4530,7 +4297,16 @@ pub fn reboot_pending() -> bool {
 /// but not armed yet — restarting installs nothing, so the update row offers to
 /// arm it (`Offline.schedule_for_next_boot`).
 pub fn offline_update_staged() -> bool {
-    REBOOT_REASON.load(Ordering::SeqCst) == REBOOT_OFFLINE_STAGED
+    matches!(
+        REBOOT_REASON.load(Ordering::SeqCst),
+        REBOOT_OFFLINE_STAGED | REBOOT_PK_OFFLINE_STAGED
+    )
+}
+
+/// True when the staged download belongs to PackageKit, so PackageKit is the
+/// service that has to arm it.
+fn staged_via_packagekit() -> bool {
+    REBOOT_REASON.load(Ordering::SeqCst) == REBOOT_PK_OFFLINE_STAGED
 }
 
 /// True when the pending reboot installs a downloaded update: the daemon has
@@ -4543,7 +4319,7 @@ pub fn offline_update_armed() -> bool {
 /// update, pacman -Syu, zypper update, snap refresh) — used to decide
 /// whether to run the reboot check afterwards.
 pub fn is_update_op(args: &[String]) -> bool {
-    if crate::dnf5daemon::is_update_task(args) {
+    if crate::dnf5daemon::is_update_task(args) || crate::packagekit::is_update_task(args) {
         return true;
     }
     args.iter().any(|a| {

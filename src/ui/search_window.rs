@@ -186,6 +186,24 @@ pub struct SearchWindow {
     revealer: gtk::Revealer,
     preview_box: gtk::Box,
     preview: Rc<PreviewPane>,
+    /// The footer's buttons and their contents, kept so the appearance
+    /// settings can hide pieces without rebuilding the window. A button with
+    /// neither icon nor key indicator left has nothing to show and hides
+    /// itself — and the bar hides once neither button does.
+    footer_row: gtk::Box,
+    ops_btn: gtk::Button,
+    hints_btn: gtk::Button,
+    ops_icon: gtk::Image,
+    hints_icon: gtk::Image,
+    /// `None` when the accelerator is unset, in which case there is no label
+    /// to hide.
+    ops_accel_label: Option<gtk::ShortcutLabel>,
+    hints_accel_label: Option<gtk::ShortcutLabel>,
+    /// Parent for each popover, so it can follow its button's visibility: an
+    /// unmapped parent cannot show a popover, so a hidden button hands over to
+    /// the search entry.
+    ops_popover: gtk::Popover,
+    hints_popover: gtk::Popover,
     results: Rc<RefCell<Vec<SearchResult>>>,
     clipboard_mode: Rc<Cell<bool>>,
     undo_stack: Rc<RefCell<Vec<String>>>,
@@ -220,6 +238,238 @@ pub struct SearchWindow {
     /// options appear once the user types "update".
     update_badge: gtk::Button,
     pre_show_reset: Rc<dyn Fn()>,
+}
+
+/// How long a focus loss is given to settle before the launcher hides.
+const FOCUS_LOSS_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Whether a focus loss that survived the grace really is the user moving on.
+///
+/// Every condition is re-evaluated at that point on purpose: the window may
+/// have taken the focus back (a popover we closed flapping it), something may
+/// be up again, or a command may be running — none of which are the user
+/// dismissing the launcher.
+fn should_hide_window(
+    window_active: bool,
+    shown: bool,
+    popover_open: bool,
+    progress_active: bool,
+    closed_a_popover_just_now: bool,
+) -> bool {
+    !window_active && shown && !popover_open && !progress_active && !closed_a_popover_just_now
+}
+
+/// What Esc is for, right now.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum EscapeIntent {
+    /// A popover is up: Esc closes it and leaves the launcher alone.
+    ClosePopovers,
+    /// Nothing to close: Esc goes on to hide Spotty, as it always has.
+    HideWindow,
+}
+
+/// Escape closes an open popover first — a *second* Escape is what hides the
+/// launcher, so closing the Operations popover never takes the window with it.
+///
+/// Either signal counts as "a popover is up": what is on screen, and the flag
+/// the show/close paths keep alongside it. Both are read at *both* Escape
+/// decision points (the branch at the top of the key handler and the dismiss
+/// arm of its match), so the two can never disagree — a popover that is up
+/// absorbs Escape, and only "neither one says up" may take the window down.
+///
+/// The flag is also set while a confirm dialog shows, but those are modal: a
+/// dialog owns the keyboard, so Escape cannot arrive here while one is up,
+/// and every dialog path clears the flag again on finish.
+fn escape_intent(popover_open: bool, popover_visible: bool) -> EscapeIntent {
+    if popover_open || popover_visible {
+        EscapeIntent::ClosePopovers
+    } else {
+        EscapeIntent::HideWindow
+    }
+}
+
+/// Whether a key press counts as interacting with an open popover, rather than
+/// as "the user did something else" (which closes it).
+///
+/// The popover's own toggle counts, or the toggle would close it here and then
+/// reopen it a moment later. So does an undo of a pending Operations dismissal:
+/// that is the popover's own undo, and the row slides back while it stays open.
+fn is_popover_interaction(
+    is_escape: bool,
+    is_popover_toggle: bool,
+    undoes_pending_dismiss: bool,
+) -> bool {
+    is_escape || is_popover_toggle || undoes_pending_dismiss
+}
+
+/// One footer button and the pieces it is made of.
+///
+/// Both parts are always built; whether they are *shown* is the settings'
+/// business, and an accelerator with no value has no label to show at all.
+struct FooterButtonParts {
+    button: gtk::Button,
+    image: gtk::Image,
+    label: Option<gtk::ShortcutLabel>,
+}
+
+/// What the footer should show: `(operations button, hints button)`.
+///
+/// A button shows itself when it has an icon or a key indicator to show, and
+/// the bar shows itself when either button does — so "everything off" removes
+/// the bar entirely instead of leaving an empty strip.
+fn footer_layout(
+    icons: bool,
+    operations_label: bool,
+    hints_icons: bool,
+    hints_label: bool,
+) -> (bool, bool) {
+    let operations_button = icons || operations_label;
+    let hints_button = hints_icons || hints_label;
+    (operations_button, hints_button)
+}
+
+/// Where a popover is anchored: its button while that button is visible, the
+/// search entry otherwise (a popover cannot show on an unmapped parent).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum PopoverAnchor {
+    Button,
+    Entry,
+}
+
+/// What it takes to put a popover where it belongs: nothing when it is
+/// already there, a re-parent otherwise.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum AnchorAction {
+    Keep,
+    Move,
+}
+
+fn popover_anchor(button_visible: bool) -> PopoverAnchor {
+    if button_visible {
+        PopoverAnchor::Button
+    } else {
+        PopoverAnchor::Entry
+    }
+}
+
+/// Decide for a *closed* popover whether it needs re-anchoring.
+///
+/// `current` is what the popover is parented to right now (`None` when it has
+/// no parent at all), `button_visible` is what the footer says it should be
+/// on. Re-parenting only when the answer changes matters: `set_parent` requires
+/// a parentless widget, and `sync_footer` runs on every refresh — calling it
+/// unconditionally tripped GTK's "parent must be NULL" assertion each time.
+fn anchor_action(current: Option<PopoverAnchor>, button_visible: bool) -> AnchorAction {
+    if current == Some(popover_anchor(button_visible)) {
+        AnchorAction::Keep
+    } else {
+        AnchorAction::Move
+    }
+}
+
+/// Which side of its anchor a popover opens on.
+///
+/// The menu rule from the GNOME/libadwaita guidelines: a popover points out
+/// from the control it belongs to. Anchored to a footer button — the bottom
+/// of the window — it pops *up* over the results area. Anchored to the
+/// search entry with the footer hidden, it *drops down* below the search
+/// bar, the way a header-bar menu opens: the entry sits at the very top edge
+/// of the window, so there is no "above" left to claim, and a drop-down
+/// under the bar is the shape people expect from a launcher's menu.
+///
+/// This only chooses the requested side — GTK flips the popover to the
+/// opposite one when there is no room (a window pinned low on screen), so
+/// the choice is safe wherever the compositor puts the window.
+fn popover_position(anchor: PopoverAnchor) -> gtk::PositionType {
+    match anchor {
+        PopoverAnchor::Button => gtk::PositionType::Top,
+        PopoverAnchor::Entry => gtk::PositionType::Bottom,
+    }
+}
+
+/// Where a popover is anchored: its button while that button is visible, the
+/// search entry otherwise (a popover cannot show on an unmapped parent) — and
+/// with the anchor goes the side it opens on, so an entry-anchored popover
+/// drops down below the search bar instead of trying to fit above the top
+/// edge of the window.
+///
+/// Never touches a popover that is on screen — re-parenting it would close it
+/// under the user — and never re-sets a parent that is already correct.
+fn anchor_popover(
+    popover: &gtk::Popover,
+    button: &gtk::Button,
+    entry: &gtk::Entry,
+    button_visible: bool,
+) {
+    if popover.is_visible() {
+        return;
+    }
+    let button_widget: gtk::Widget = button.clone().upcast();
+    let entry_widget: gtk::Widget = entry.clone().upcast();
+    let current = popover.parent().and_then(|parent| {
+        if parent == button_widget {
+            Some(PopoverAnchor::Button)
+        } else if parent == entry_widget {
+            Some(PopoverAnchor::Entry)
+        } else {
+            None
+        }
+    });
+    if anchor_action(current, button_visible) == AnchorAction::Keep {
+        return;
+    }
+    let target = popover_anchor(button_visible);
+    if popover.parent().is_some() {
+        popover.unparent();
+    }
+    // Position travels with the anchor. Set only here, on the Move path: an
+    // open popover keeps whatever it was opened with (we never reach this
+    // while one is visible), and Keep means nothing about it changed.
+    popover.set_position(popover_position(target));
+    popover.set_parent(if target == PopoverAnchor::Button {
+        &button_widget
+    } else {
+        &entry_widget
+    });
+}
+
+fn apply_footer_settings(
+    config: &crate::config::Config,
+    footer_row: &gtk::Box,
+    ops_btn: &gtk::Button,
+    hints_btn: &gtk::Button,
+    ops_icon: &gtk::Image,
+    hints_icon: &gtk::Image,
+    ops_accel_label: Option<&gtk::ShortcutLabel>,
+    hints_accel_label: Option<&gtk::ShortcutLabel>,
+    ops_popover: &gtk::Popover,
+    hints_popover: &gtk::Popover,
+    entry: &gtk::Entry,
+) {
+    let ops_icon_visible = config.show_footer_icons;
+    let hints_icon_visible = config.show_footer_icons;
+    let ops_label_visible = config.show_operations_shortcut_label;
+    let hints_label_visible = config.show_hints_shortcut_label;
+    let (ops_button_visible, hints_button_visible) = footer_layout(
+        ops_icon_visible,
+        ops_label_visible,
+        hints_icon_visible,
+        hints_label_visible,
+    );
+
+    ops_icon.set_visible(ops_icon_visible);
+    hints_icon.set_visible(hints_icon_visible);
+    if let Some(label) = ops_accel_label {
+        label.set_visible(ops_label_visible);
+    }
+    if let Some(label) = hints_accel_label {
+        label.set_visible(hints_label_visible);
+    }
+    ops_btn.set_visible(ops_button_visible);
+    hints_btn.set_visible(hints_button_visible);
+    footer_row.set_visible(ops_button_visible || hints_button_visible);
+    anchor_popover(ops_popover, ops_btn, entry, ops_button_visible);
+    anchor_popover(hints_popover, hints_btn, entry, hints_button_visible);
 }
 
 impl SearchWindow {
@@ -449,21 +699,36 @@ impl SearchWindow {
         // Each carries a native GNOME key indicator (gtk::ShortcutLabel) so the
         // shortcut to open it is shown right on the button. Occupies the same
         // narrow space the old pin/unpin hint label used.
-        let footer_button = |icon: &str, accel: &str, tooltip: &str| {
+        //
+        // Whether an indicator is shown is a setting, and the button must not
+        // widen for one that isn't there — so the label is always built and
+        // only its visibility changes (see `sync_footer_shortcut_labels`,
+        // which re-applies it on every refresh so the setting takes effect
+        // without a restart).
+        let footer_button = |icon: &str, accel: &str, tooltip: &str| -> FooterButtonParts {
             let inner = gtk::Box::builder()
                 .orientation(gtk::Orientation::Horizontal)
                 .spacing(4)
                 .build();
-            inner.append(&gtk::Image::from_icon_name(icon));
-            if !accel.is_empty() {
-                inner.append(&gtk::ShortcutLabel::new(accel));
+            let image = gtk::Image::from_icon_name(icon);
+            inner.append(&image);
+            let label = if accel.is_empty() {
+                None
+            } else {
+                let label = gtk::ShortcutLabel::new(accel);
+                inner.append(&label);
+                Some(label)
+            };
+            FooterButtonParts {
+                button: gtk::Button::builder()
+                    .child(&inner)
+                    .css_classes(["flat", "spotty-footer-btn"])
+                    .tooltip_text(tooltip)
+                    .can_focus(false)
+                    .build(),
+                image,
+                label,
             }
-            gtk::Button::builder()
-                .child(&inner)
-                .css_classes(["flat", "spotty-footer-btn"])
-                .tooltip_text(tooltip)
-                .can_focus(false)
-                .build()
         };
 
         let ops_accel = {
@@ -482,8 +747,10 @@ impl SearchWindow {
                 to_gtk_accel(&s)
             }
         };
-        let ops_btn = footer_button("view-list-symbolic", &ops_accel, "Operations");
-        let hints_btn = footer_button("dialog-question-symbolic", &hints_accel, "Hints");
+        let ops_parts = footer_button("view-list-symbolic", &ops_accel, "Operations");
+        let hints_parts = footer_button("dialog-question-symbolic", &hints_accel, "Hints");
+        let ops_btn = ops_parts.button.clone();
+        let hints_btn = hints_parts.button.clone();
         let footer_row = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .margin_start(8)
@@ -584,6 +851,17 @@ impl SearchWindow {
         // the "hide on focus loss" handler would dismiss the whole window the
         // instant a popover opens.
         let popover_open: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+        // When a popover last closed — written by *both* `closed` handlers, so
+        // it covers every close, including the one GTK performs by itself when
+        // Escape lands inside the popover (its own key controller handles
+        // Escape even with autohide off, and runs before ours, so no close
+        // path of ours is in the picture to do the bookkeeping).
+        //
+        // A popover is its own surface, so popping it down flaps the
+        // toplevel's :active — focus returns to the window a frame later, and
+        // a focus-loss dismissal firing in that gap would take the launcher
+        // down with the popover.
+        let popover_close_at: Rc<Cell<Option<Instant>>> = Rc::new(Cell::new(None));
         let shown: Rc<Cell<bool>> = Rc::new(Cell::new(false));
 
         // Operations popover: rebuilt from the live + past operations each time
@@ -596,18 +874,23 @@ impl SearchWindow {
         ops_popover.set_parent(&ops_btn);
         {
             let f = popover_open.clone();
-            let w = window.clone();
-            let shown = shown.clone();
+            let closed_at = popover_close_at.clone();
             ops_popover.connect_closed(move |_| {
                 f.set(false);
                 // A close cancels any in-flight swipe without its end event, so
                 // release the refresh lock here instead of waiting it out.
                 ops_gesture_end();
-                // If the popover closed because the user clicked outside the
-                // whole window, finish the job and hide the window too.
-                if !w.is_active() {
-                    dismiss(&w, &shown, true);
-                }
+                // Every close arms the focus-loss grace from here — ours and
+                // GTK's alike, since Escape inside the popover closes it
+                // without going through any of our close paths.
+                closed_at.set(Some(Instant::now()));
+                // …and nothing else. Never dismiss the window from a close:
+                // popping a popover down flaps the toplevel's :active, so the
+                // window routinely reads inactive at this exact instant — that
+                // read is what used to take all of Spotty down on the first
+                // Escape. A popover closing is not a reason to hide; a real
+                // focus loss is the debounced is-active handler's call, once
+                // things have settled.
             });
         }
         // ops_state: the Operations popover's persistent widget tree, shared with
@@ -684,6 +967,8 @@ impl SearchWindow {
             let state = ops_state.clone();
             Rc::new(move || {
                 if popover.is_visible() {
+                    // The `closed` handler does the bookkeeping — flag, grace
+                    // timestamp — as the popover goes down.
                     popover.popdown();
                     popover_open.set(false);
                     return;
@@ -734,13 +1019,13 @@ impl SearchWindow {
         hints_popover.set_parent(&hints_btn);
         {
             let f = popover_open.clone();
-            let w = window.clone();
-            let shown = shown.clone();
+            let closed_at = popover_close_at.clone();
             hints_popover.connect_closed(move |_| {
                 f.set(false);
-                if !w.is_active() {
-                    dismiss(&w, &shown, true);
-                }
+                // Same rule as the Operations popover: arm the focus-loss
+                // grace for whatever closed it, and leave the window exactly
+                // where it is.
+                closed_at.set(Some(Instant::now()));
             });
         }
         let show_hints_popover: Rc<dyn Fn()> = {
@@ -755,6 +1040,8 @@ impl SearchWindow {
             Rc::new(move || {
                 // Pressing the shortcut/button again toggles the popover closed.
                 if popover.is_visible() {
+                    // The `closed` handler does the bookkeeping — flag, grace
+                    // timestamp — as the popover goes down.
                     popover.popdown();
                     popover_open.set(false);
                     return;
@@ -804,6 +1091,10 @@ impl SearchWindow {
                     content.append(&header(&gettext("Type a keyword")));
                     let cfg = config.borrow();
                     for kw in &cfg.command_keywords {
+                        // Only words that can actually be typed.
+                        if kw.word.is_empty() || !cfg.keyword_usable(kw) {
+                            continue;
+                        }
                         let row = gtk::Box::builder()
                             .orientation(gtk::Orientation::Horizontal)
                             .spacing(12)
@@ -976,6 +1267,78 @@ impl SearchWindow {
         {
             let show = show_hints_popover.clone();
             hints_btn.connect_clicked(move |_| show());
+        }
+
+        // close_popovers: dismiss both footer popovers, for any interaction that
+        // is *not* one with them (a key press, a click or a scroll outside).
+        //
+        // Not `autohide(true)`: an autohide popover grabs input, which drops the
+        // toplevel's :active state, and the "hide on focus loss" handler would
+        // then dismiss the whole window the moment a popover opened.
+        let close_popovers: Rc<dyn Fn()> = {
+            let ops = ops_popover.clone();
+            let hints = hints_popover.clone();
+            let flag = popover_open.clone();
+            Rc::new(move || {
+                // Each popover's `closed` handler does the bookkeeping — the
+                // shared flag and the focus-loss grace — as it goes down, so
+                // this only decides *what* to close.
+                let was_open = ops.is_visible() || hints.is_visible();
+                if ops.is_visible() {
+                    ops.popdown();
+                }
+                if hints.is_visible() {
+                    hints.popdown();
+                }
+                // Only clear the shared flag when a *popover* was what closed —
+                // a confirm dialog uses the same flag and owns its own life.
+                if was_open {
+                    flag.set(false);
+                }
+            })
+        };
+
+        // Keys pressed while focus is *inside* a popover.
+        //
+        // A popover is its own surface, so its events never bubble to the
+        // window: once a row's button has taken the focus, the window's key
+        // controller stops seeing anything — which is why Esc used to stop
+        // closing the popovers after a click inside one. The same rule as
+        // everywhere else applies here: Esc closes, an undo of a pending
+        // dismissal keeps it open, and anything else means the user has moved
+        // on.
+        for popover in [ops_popover.clone(), hints_popover.clone()] {
+            let kc = gtk::EventControllerKey::new();
+            {
+                let close = close_popovers.clone();
+                let flag = popover_open.clone();
+                let cfg = config.clone();
+                kc.connect_key_pressed(move |_, key, _, state| {
+                    use gtk::gdk::Key;
+                    if key == Key::Escape {
+                        close();
+                        return glib::Propagation::Stop;
+                    }
+                    let undo_hit = {
+                        let accel = crate::ui::settings_window::normalize_accel(
+                            &cfg.borrow().undo_shortcut,
+                        );
+                        let mods =
+                            state.intersection(gtk::accelerator_get_default_mod_mask());
+                        gtk::accelerator_parse(&accel)
+                            .is_some_and(|(k, m)| k == key && m == mods)
+                            && crate::operations::latest_dismissed().is_some()
+                    };
+                    if is_popover_interaction(false, false, undo_hit) {
+                        return glib::Propagation::Stop;
+                    }
+                    if flag.get() {
+                        close();
+                    }
+                    glib::Propagation::Proceed
+                });
+            }
+            popover.add_controller(kc);
         }
 
         // Shared progress state
@@ -1552,7 +1915,7 @@ impl SearchWindow {
                 }
                 let q = q_owned.trim();
                 let clip_mode = clipboard_mode_cb.get();
-                let mode_word: Option<String> = active_kw.as_ref().map(|kw| kw.word.clone());
+                let mode_word: Option<String> = active_kw.as_ref().map(|kw| kw.mode_key().to_string());
                 let is_dict = active_kw.as_ref().is_some_and(|kw| kw.id == "dictionary");
                 let jkey = crate::search::jobs::key(mode_word.as_deref(), q);
 
@@ -1580,7 +1943,7 @@ impl SearchWindow {
                 // pending_ready or dispatch_now → proceed to render/dispatch below.
 
                 // ── Compute results ──
-                let new = if clip_mode {
+                let mut new = if clip_mode {
                     let cfg = config.borrow();
                     search::clipboard::all_or_filtered(
                         q,
@@ -1612,6 +1975,20 @@ impl SearchWindow {
                 } else {
                     return; // Job in flight, keep previous results.
                 };
+
+                // Clipboard and Dictionary join the regular search here, on the
+                // main thread that owns their state (the worker adds the rest).
+                if !clip_mode && active_kw.is_none() && !q.is_empty() {
+                    let extra = search::main_thread_trigger_results(
+                        q,
+                        &config.borrow(),
+                        &clipboard.borrow(),
+                    );
+                    if !extra.is_empty() {
+                        new.extend(extra);
+                        new.sort_by(|a, b| b.score.cmp(&a.score));
+                    }
+                }
 
                 // Skip widget rebuild when results haven't changed.
                 // Op rows carry a volatile fraction in the action sentinel
@@ -2111,8 +2488,37 @@ impl SearchWindow {
             let popover_open_kc = popover_open.clone();
             let ops_popover_kc = ops_popover.clone();
             let hints_popover_kc = hints_popover.clone();
+            let close_popovers_kc = close_popovers.clone();
             let mode_from_keybinding_kc = mode_from_keybinding.clone();
             let preview_kc = preview.clone();
+            let sync_footer_kc: Rc<dyn Fn()> = {
+                let config = config.clone();
+                let footer_row = footer_row.clone();
+                let ops_btn = ops_btn.clone();
+                let hints_btn = hints_btn.clone();
+                let ops_icon = ops_parts.image.clone();
+                let hints_icon = hints_parts.image.clone();
+                let ops_accel_label = ops_parts.label.clone();
+                let hints_accel_label = hints_parts.label.clone();
+                let ops_popover = ops_popover.clone();
+                let hints_popover = hints_popover.clone();
+                let entry = entry.clone();
+                Rc::new(move || {
+                    apply_footer_settings(
+                        &config.borrow(),
+                        &footer_row,
+                        &ops_btn,
+                        &hints_btn,
+                        &ops_icon,
+                        &hints_icon,
+                        ops_accel_label.as_ref(),
+                        hints_accel_label.as_ref(),
+                        &ops_popover,
+                        &hints_popover,
+                        &entry,
+                    );
+                })
+            };
             kc.connect_key_pressed(move |_, key, _, state| {
                 use gtk::gdk::Key;
 
@@ -2157,15 +2563,33 @@ impl SearchWindow {
 
                 // Escape closes an open Operations/Hints popover first, leaving
                 // the search window itself open and other shortcuts usable.
-                if key == Key::Escape && popover_open_kc.get() {
-                    if ops_popover_kc.is_visible() {
-                        ops_popover_kc.popdown();
-                    }
-                    if hints_popover_kc.is_visible() {
-                        hints_popover_kc.popdown();
-                    }
-                    popover_open_kc.set(false);
+                // Decided once, from the shared flag *and* what is on screen —
+                // and the dismiss arm of the match below checks this very same
+                // value, so no arrangement of the two signals can leave a
+                // popover up and hide the window anyway.
+                let escape = escape_intent(
+                    popover_open_kc.get(),
+                    ops_popover_kc.is_visible() || hints_popover_kc.is_visible(),
+                );
+                if key == Key::Escape && escape == EscapeIntent::ClosePopovers {
+                    close_popovers_kc();
                     return glib::Propagation::Stop;
+                }
+
+                // Any other key is "doing something else" with an open popover:
+                // close it as a side effect and let the key carry on, so typing
+                // still types and shortcuts still run. Only keys that are
+                // interactions *with* the popover keep it open — its own toggle,
+                // and an undo of a pending Operations dismissal.
+                if popover_open_kc.get()
+                    && !is_popover_interaction(
+                        key == Key::Escape,
+                        hit(|c| c.operations_shortcut.as_str(), key, state, false)
+                            || hit(|c| c.hints_shortcut.as_str(), key, state, false),
+                        undo_hit && crate::operations::latest_dismissed().is_some(),
+                    )
+                {
+                    close_popovers_kc();
                 }
 
                 if ctrl {
@@ -2734,7 +3158,16 @@ impl SearchWindow {
                         glib::Propagation::Stop
                     }
                     Key::Escape => {
-                        dismiss(&w, &shown_kc, true);
+                        // The same decision the branch at the top of this
+                        // handler already made: with a popover up, this arm
+                        // can only close it — Esc has one owner per press, and
+                        // taking the window down while something is on screen
+                        // is exactly what it must never do.
+                        if escape == EscapeIntent::ClosePopovers {
+                            close_popovers_kc();
+                        } else {
+                            dismiss(&w, &shown_kc, true);
+                        }
                         glib::Propagation::Stop
                     }
                     Key::Down => {
@@ -2872,9 +3305,10 @@ impl SearchWindow {
                             } else {
                                 kw.icon.as_str()
                             }));
-                            chip_label_kc.set_text(&crate::search::capitalize(&kw.word));
+                            chip_label_kc.set_text(&kw.chip_label());
                             chip_kc.set_visible(true);
                             *mode_kc.borrow_mut() = Some(kw);
+                            sync_footer_kc();
                             skip_ghost_clone.set(true);
                             ghost_active_kc.set(false);
                             typed_len_mode.set(0);
@@ -3082,23 +3516,87 @@ impl SearchWindow {
         }
         window.add_controller(kc.clone());
 
+        // ── Close the footer popovers on any outside interaction ──
+        // Acting on the results, the preview or the entry means the user has
+        // moved on, so the popovers get out of the way. Clicks inside a popover
+        // never reach these (a popover is its own surface), and the two footer
+        // buttons sit outside `body`, so a click on them still reaches their
+        // own toggle instead of being closed out from under it.
+        //
+        // Not `autohide(true)`: an autohide popover grabs input, which drops
+        // the toplevel's :active state, and the "hide on focus loss" handler
+        // would then dismiss the whole window the moment a popover opened.
+        for outside in [body.clone().upcast::<gtk::Widget>(), entry.clone().upcast::<gtk::Widget>()] {
+            let click = gtk::GestureClick::new();
+            {
+                let close = close_popovers.clone();
+                let flag = popover_open.clone();
+                click.connect_pressed(move |_, _, _, _| {
+                    if flag.get() {
+                        close();
+                    }
+                });
+            }
+            outside.add_controller(click);
+
+            // Both the wheel (discrete) and touchpad (kinetic) count as moving on.
+            let scroll = gtk::EventControllerScroll::new(
+                gtk::EventControllerScrollFlags::DISCRETE
+                    | gtk::EventControllerScrollFlags::KINETIC,
+            );
+            {
+                let close = close_popovers.clone();
+                let flag = popover_open.clone();
+                scroll.connect_scroll(move |_, _, _| {
+                    if flag.get() {
+                        close();
+                    }
+                    glib::Propagation::Proceed
+                });
+            }
+            outside.add_controller(scroll);
+        }
+
         // ── Hide on focus loss ──
-        // But not while a footer popover is open (it grabs input, dropping
-        // :active) or while a command is running in the progress pane — in
-        // those cases the focus change is internal, not the user dismissing
-        // the window.
+        // Deferred, and re-checked before anything is hidden.
+        //
+        // Closing a popover flaps the toplevel's :active — the popover is its
+        // own surface, and focus only returns to the window a frame later. A
+        // dismissal that fires in that gap takes the whole launcher down with
+        // the popover, which is exactly what Esc on the Operations/Hints
+        // popover must never do. So wait the flap out, then re-check that the
+        // window really is still inactive with nothing modal-ish on screen.
         #[allow(unused_assignments)] // the block below always fills it
         let mut is_active_h: Option<glib::SignalHandlerId> = None;
         {
             let w = window.clone();
             let popover_open = popover_open.clone();
+            let popover_close_at = popover_close_at.clone();
             let progress_active = progress_active.clone();
             let shown = shown.clone();
             is_active_h = Some(window.connect_is_active_notify(move |win| {
-                if shown.get() && !win.is_active() && !popover_open.get() && !progress_active.get()
-                {
-                    dismiss(&w, &shown, true);
+                if win.is_active() {
+                    return;
                 }
+                let w2 = w.clone();
+                let flag2 = popover_open.clone();
+                let closed2 = popover_close_at.clone();
+                let progress2 = progress_active.clone();
+                let shown2 = shown.clone();
+                glib::timeout_add_local_once(FOCUS_LOSS_GRACE, move || {
+                    let closed_a_popover = closed2
+                        .get()
+                        .is_some_and(|at| at.elapsed() < FOCUS_LOSS_GRACE * 2);
+                    if should_hide_window(
+                        w2.is_active(),
+                        shown2.get(),
+                        flag2.get(),
+                        progress2.get(),
+                        closed_a_popover,
+                    ) {
+                        dismiss(&w2, &shown2, true);
+                    }
+                });
             }));
         }
 
@@ -3116,6 +3614,15 @@ impl SearchWindow {
             revealer,
             preview_box,
             preview,
+            footer_row: footer_row.clone(),
+            ops_btn: ops_btn.clone(),
+            hints_btn: hints_btn.clone(),
+            ops_icon: ops_parts.image,
+            hints_icon: hints_parts.image,
+            ops_accel_label: ops_parts.label,
+            hints_accel_label: hints_parts.label,
+            ops_popover: ops_popover.clone(),
+            hints_popover: hints_popover.clone(),
             results,
             clipboard_mode,
             undo_stack,
@@ -3174,6 +3681,7 @@ impl SearchWindow {
         // refresh_search_window has ever run (the update check may still be
         // in flight when the window first appears).
         self.sync_update_notification();
+        self.sync_footer();
         // ponytail: one-shot frame clock probe — measures present-to-paint
         // latency AND runs the deferred post-present work on the first frame.
         if let Some(clock) = self.window.frame_clock() {
@@ -3264,7 +3772,7 @@ impl SearchWindow {
                 keyword.icon.as_str()
             }));
         self.mode_label
-            .set_text(&crate::search::capitalize(&keyword.word));
+            .set_text(&keyword.chip_label());
         self.mode_chip.set_visible(true);
         self.entry.set_placeholder_text(Some(&keyword.description));
         // Deferred: run the keyword search after the first frame paints.
@@ -3358,6 +3866,31 @@ impl SearchWindow {
         self.sync_orb_indicator();
         self.update_ops_pill();
         self.sync_update_notification();
+        self.sync_footer();
+    }
+
+    /// Apply the footer appearance settings: icons, key indicators, and which
+    /// parts of the bar exist at all.
+    ///
+    /// The pieces stay in the tree and are only hidden, because a button that
+    /// *rebuilt* itself would change width on every settings change. A button
+    /// left with nothing to show hides itself, and the bar disappears once
+    /// neither button has anything — no strip of dead space.
+    fn sync_footer(&self) {
+        let cfg = crate::app::with_state(|st| st.config.borrow().clone());
+        apply_footer_settings(
+            &cfg,
+            &self.footer_row,
+            &self.ops_btn,
+            &self.hints_btn,
+            &self.ops_icon,
+            &self.hints_icon,
+            self.ops_accel_label.as_ref(),
+            self.hints_accel_label.as_ref(),
+            &self.ops_popover,
+            &self.hints_popover,
+            &self.entry,
+        );
     }
 
     /// Refresh the update badge (orb slot) and the notification banner.
@@ -6037,6 +6570,209 @@ fn op_actions_equal(a: &crate::search::Action, b: &crate::search::Action) -> boo
             ps.eq(pt)
         }
         _ => a == b,
+    }
+}
+
+#[cfg(test)]
+mod popover_dismiss_tests {
+    use super::{escape_intent, is_popover_interaction, EscapeIntent};
+
+    #[test]
+    fn a_focus_loss_only_hides_the_window_once_it_settles() {
+        use super::should_hide_window;
+        // The case that used to take Spotty down with the popover: the window
+        // reports itself inactive while a popover we just closed is still
+        // settling, then is active again by the time the grace is up.
+        assert!(
+            !should_hide_window(true, true, false, false, false),
+            "focus came back: the popover's flap, not a dismissal"
+        );
+        assert!(
+            !should_hide_window(true, true, false, false, true),
+            "…and we closed a popover ourselves"
+        );
+        // A real click-away: still inactive after the grace, nothing up.
+        assert!(should_hide_window(false, true, false, false, false));
+    }
+
+    #[test]
+    fn anything_on_screen_keeps_the_window() {
+        use super::should_hide_window;
+        // A popover is up (it owns the focus, so the window reads inactive).
+        assert!(!should_hide_window(false, true, true, false, false));
+        // A command is running in the progress pane.
+        assert!(!should_hide_window(false, true, false, true, false));
+        // The window was never shown (it starts hidden).
+        assert!(!should_hide_window(false, false, false, false, false));
+    }
+
+    #[test]
+    fn escape_is_two_steps() {
+        // First Escape: the popover goes, Spotty stays. Second: no popover to
+        // close, so Escape hides the launcher. Either signal on its own is
+        // enough to count as "a popover is up" — what is on screen and the
+        // shared flag say the same thing in practice, and the rule must not
+        // depend on which of the two happens to be read first.
+        assert_eq!(
+            escape_intent(true, false),
+            EscapeIntent::ClosePopovers,
+            "the flag knows, even if visibility ever disagrees"
+        );
+        assert_eq!(
+            escape_intent(false, true),
+            EscapeIntent::ClosePopovers,
+            "on screen, even if the flag ever disagrees"
+        );
+        assert_eq!(escape_intent(true, true), EscapeIntent::ClosePopovers);
+        assert_eq!(
+            escape_intent(false, false),
+            EscapeIntent::HideWindow,
+            "nothing up: this is the only Escape that may hide Spotty"
+        );
+    }
+
+    #[test]
+    fn only_the_popovers_own_keys_keep_them_open() {
+        // The popover's own toggle: closing it here and then reopening it a
+        // moment later would make the shortcut un-toggleable.
+        assert!(is_popover_interaction(true, true, false), "Escape");
+        assert!(is_popover_interaction(false, true, false), "Ctrl+O again");
+        // Ctrl+Z undoing a pending Operations dismissal *is* the popover's
+        // interaction — the row slides back while the popover stays put.
+        assert!(
+            is_popover_interaction(false, false, true),
+            "undo of a pending dismissal"
+        );
+    }
+
+    #[test]
+    fn anything_else_closes_them() {
+        // Plain typing, arrows, another shortcut, a bare Ctrl+Z with nothing to
+        // undo — all of it means the user has moved on.
+        assert!(!is_popover_interaction(false, false, false));
+    }
+
+    #[test]
+    fn the_undo_check_survives_an_unset_or_custom_shortcut() {
+        // The popover's own key controller re-derives the undo accelerator from
+        // the config on every press, so it has to cope with whatever the user
+        // set — including a disabled (empty) shortcut and the human form the
+        // capture dialog hands over.
+        let normalize = crate::ui::settings_window::normalize_accel;
+        assert_eq!(normalize(""), "");
+        assert_eq!(normalize("<Control>z"), "<Control>z");
+        assert_eq!(normalize("Ctrl+Z"), "<Control>Z");
+        assert_eq!(normalize("<Primary><Shift>z"), "<Primary><Shift>z");
+    }
+}
+
+#[cfg(test)]
+mod popover_anchor_tests {
+    use super::{anchor_action, popover_position, AnchorAction, PopoverAnchor};
+
+    #[test]
+    fn a_popover_is_only_reparented_when_the_anchor_changes() {
+        use PopoverAnchor::{Button, Entry};
+        // Already where it belongs: leave it alone. `set_parent` requires a
+        // parentless widget, and sync_footer refreshes on every keystroke.
+        assert_eq!(anchor_action(Some(Button), true), AnchorAction::Keep);
+        assert_eq!(anchor_action(Some(Entry), false), AnchorAction::Keep);
+        // The footer button appeared or disappeared under a closed popover…
+        assert_eq!(anchor_action(Some(Entry), true), AnchorAction::Move);
+        assert_eq!(anchor_action(Some(Button), false), AnchorAction::Move);
+        // …or the popover has no parent at all yet.
+        assert_eq!(anchor_action(None, true), AnchorAction::Move);
+        assert_eq!(anchor_action(None, false), AnchorAction::Move);
+    }
+
+    #[test]
+    fn the_side_it_opens_on_follows_the_anchor() {
+        use PopoverAnchor::{Button, Entry};
+        // Footer bar visible: the popover belongs to a button at the bottom
+        // of the window, so it pops up above it over the results area.
+        assert_eq!(popover_position(Button), gtk::PositionType::Top);
+        // Footer hidden: the popover hangs off the search entry, which sits
+        // at the very top edge — so it drops down below the bar like a
+        // header-bar menu, instead of fighting the window for room above.
+        assert_eq!(popover_position(Entry), gtk::PositionType::Bottom);
+    }
+}
+
+#[cfg(test)]
+mod footer_shortcut_label_tests {
+    use super::footer_layout;
+    use crate::config::Config;
+
+    /// The two indicators, and whether each is shown.
+    ///
+    /// Kept as a pure mapping so the "hide the indicators, keep the buttons"
+    /// contract is testable without a display.
+    fn labels_shown(cfg: &Config) -> (bool, bool) {
+        (
+            cfg.show_operations_shortcut_label,
+            cfg.show_hints_shortcut_label,
+        )
+    }
+
+    #[test]
+    fn both_indicators_are_shown_by_default() {
+        // An older config that never heard of the settings must keep today's
+        // footer, so the defaults are on (and serde defaults to them).
+        assert_eq!(labels_shown(&Config::default()), (true, true));
+        let old = serde_json::json!({});
+        let parsed: Config = serde_json::from_value(old).expect("an empty config");
+        assert_eq!(labels_shown(&parsed), (true, true));
+    }
+
+    #[test]
+    fn the_bar_is_only_there_when_a_button_has_something_to_show() {
+        use super::footer_layout;
+        // icons on: today's footer.
+        assert_eq!(footer_layout(true, true, true, true), (true, true));
+        // icons off, both chips on: two text-only buttons, bar still there.
+        assert_eq!(footer_layout(false, true, false, true), (true, true));
+        // icons off, one chip on: only that button survives.
+        assert_eq!(footer_layout(false, false, false, true), (false, true));
+        assert_eq!(footer_layout(false, true, false, false), (true, false));
+        // icons off and both chips off: nothing to show, so no bar at all —
+        // the popovers stay reachable by their shortcuts.
+        assert_eq!(footer_layout(false, false, false, false), (false, false));
+        // A chip with icons off still keeps its button alive, on its own.
+        assert_eq!(footer_layout(false, true, false, false), (true, false));
+    }
+
+    #[test]
+    fn hiding_the_icons_is_its_own_setting() {
+        let mut cfg = Config::default();
+        assert!(cfg.show_footer_icons, "icons are shown by default");
+        cfg.show_footer_icons = false;
+        assert_eq!(labels_shown(&cfg), (true, true), "labels are unaffected");
+        // …and with the chips off as well, the bar is empty.
+        cfg.show_operations_shortcut_label = false;
+        cfg.show_hints_shortcut_label = false;
+        assert_eq!(
+            footer_layout(
+                cfg.show_footer_icons,
+                cfg.show_operations_shortcut_label,
+                cfg.show_footer_icons,
+                cfg.show_hints_shortcut_label
+            ),
+            (false, false)
+        );
+    }
+
+    #[test]
+    fn either_indicator_can_be_hidden_on_its_own() {
+        let mut cfg = Config::default();
+        cfg.show_operations_shortcut_label = false;
+        assert_eq!(labels_shown(&cfg), (false, true), "only the operations one");
+        cfg.show_operations_shortcut_label = true;
+        cfg.show_hints_shortcut_label = false;
+        assert_eq!(labels_shown(&cfg), (true, false), "only the hints one");
+        // Both off: the footer collapses to two bare icons — the buttons stay,
+        // so Operations and Hints are still reachable by click and by key.
+        cfg.show_operations_shortcut_label = false;
+        assert_eq!(labels_shown(&cfg), (false, false));
     }
 }
 

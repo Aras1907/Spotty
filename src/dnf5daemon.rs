@@ -379,6 +379,21 @@ pub fn available() -> bool {
     verdict
 }
 
+/// True when the daemon holds an update that the next restart installs.
+///
+/// Those packages are queued, not installed: `dnf check-update` keeps listing
+/// them until the restart, so the update check asks here and leaves them out —
+/// otherwise the list, the badge and the "Update all" rows keep offering what
+/// is already on its way. Read from the daemon itself (no host command, so it
+/// works from the sandbox) and never from a timing-dependent file probe.
+pub fn offline_armed() -> bool {
+    available()
+        && Session::open()
+            .and_then(|s| s.offline_status())
+            .map(|st| st == OfflineStatus::Armed)
+            .unwrap_or(false)
+}
+
 /// Fill the [`available`] cache from a background thread, at startup.
 ///
 /// The update rows are built while the user types, so the first one must not be
@@ -447,7 +462,7 @@ pub fn run_task(args: &[String], task: &TaskHandle) -> Result<(), String> {
 
 /// Run a shell script, forwarding its output as the operation status. Returns
 /// whether it succeeded.
-fn run_script(script: &str, task: &TaskHandle) -> bool {
+pub(crate) fn run_script(script: &str, task: &TaskHandle) -> bool {
     let mut cmd = if crate::app::is_flatpak() {
         let mut c = std::process::Command::new("flatpak-spawn");
         c.args(["--host", "sh", "-c", script]);

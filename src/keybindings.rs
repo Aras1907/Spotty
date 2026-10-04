@@ -111,7 +111,8 @@ pub fn register_all() {
 
     // Built-in command keywords
     for kw in &config.command_keywords {
-        if kw.shortcut.is_empty() || !kw.enabled {
+        // Uninstalled, paused, or a result type that is switched off: no slot.
+        if kw.shortcut.is_empty() || !config.keyword_usable(kw) {
             continue;
         }
         let name = match kw.id.as_str() {
@@ -122,6 +123,11 @@ pub fn register_all() {
             "emoji" => "Spotty: Emoji",
             "music" => "Spotty: Music",
             "updates" => "Spotty: Updates",
+            "apps" => "Spotty: Applications",
+            "newapps" => "Spotty: New Apps",
+            "web" => "Spotty: Web Search",
+            "calc" => "Spotty: Calculator",
+            "convert" => "Spotty: Converter",
             "translate" => "Spotty: Translate",
             _ => "Spotty",
         };

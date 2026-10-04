@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Spotty's software-store glyph: a shopping bag with a download arrow. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <path fill="#222222" d="M 5 5 L 5 4.5 C 5 2.6 6.3 1.25 8 1.25 C 9.7 1.25 11 2.6 11 4.5 L 11 5 L 9.5 5 L 9.5 4.5 C 9.5 3.4 8.85 2.75 8 2.75 C 7.15 2.75 6.5 3.4 6.5 4.5 L 6.5 5 Z"/>
+  <path fill="#222222" fill-rule="evenodd" d="M 2.5 5 L 13.5 5 L 14.45 13.3 C 14.57 14.25 13.9 15 12.95 15 L 3.05 15 C 2.1 15 1.43 14.25 1.55 13.3 Z M 7 7 L 9 7 L 9 10 L 11 10 L 8 13 L 5 10 L 7 10 Z"/>
+</svg>

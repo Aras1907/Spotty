@@ -310,6 +310,11 @@ pub fn trigger_suggestions(query: &str, config: &Config) -> Vec<SearchResult> {
         .chain(trigger_kws.iter());
     let mut r = Vec::new();
     for kw in kw_iter {
+        // Nothing to type for a word-less keyword, and nothing to enter for
+        // one that is paused, uninstalled or a switched-off result type.
+        if kw.word.is_empty() || !config.keyword_usable(kw) {
+            continue;
+        }
         let dn = kw.display_name().to_lowercase();
         let word_match = kw.word.starts_with(&ql);
         let name_match = dn.starts_with(&ql);
@@ -362,61 +367,319 @@ pub fn search(
     if let Some((mode_word, rest)) = inline_file_mode(query, config) {
         return search_mode(&mode_word, &rest, config, snap_lock);
     }
-
-    let snap_guard = snap_lock.read().unwrap();
-    let snap = &*snap_guard;
-
     // Path browsing mode
     if config.enable_root_browsing
         && (query.starts_with('/') || query.starts_with("~/") || query == "~")
     {
         return browse::browse(query);
     }
+    universal_results(query, config, snap_lock)
+}
 
-    let mut r = Vec::with_capacity(32);
+/// Fewest typed characters before triggers join the regular search — a single
+/// letter would only bring noise (every emoji, every file).
+const REGULAR_MIN_CHARS: usize = 2;
+/// Rows one trigger may add to the regular search.
+const REGULAR_ROWS: usize = 3;
 
+/// Where a trigger's rows sit in the regular search: just above the web
+/// fallback (score 100), so they show without outranking real matches. A
+/// trigger that *runs commands* goes below it instead — with nothing else
+/// matching, the top row is what Enter does, and a command runner must never
+/// be that by accident.
+fn regular_base_score(runs_commands: bool) -> i32 {
+    if runs_commands {
+        40
+    } else {
+        150
+    }
+}
+
+/// Take a trigger's rows for the regular search: its real results only (not
+/// its "type something" hints), few of them, ranked under the main results.
+fn regular_rows(rows: Vec<SearchResult>, runs_commands: bool) -> Vec<SearchResult> {
+    let base = regular_base_score(runs_commands);
+    rows.into_iter()
+        .filter(|r| !matches!(r.action, Action::EnterMode(_)))
+        .take(REGULAR_ROWS)
+        .enumerate()
+        .map(|(i, mut r)| {
+            r.score = base + (REGULAR_ROWS - i) as i32;
+            r
+        })
+        .collect()
+}
+
+/// What the triggers that opted into the regular search add for `query`.
+///
+/// Safe on the search worker. Clipboard and Dictionary are left out: they read
+/// state that only the main thread owns, so the window adds them itself (see
+/// [`main_thread_trigger_results`]).
+pub fn regular_trigger_results(
+    query: &str,
+    config: &Config,
+    snap_lock: &Arc<RwLock<crate::index::Snapshot>>,
+) -> Vec<SearchResult> {
+    regular_trigger_sources(query, config, snap_lock)
+        .into_iter()
+        .flat_map(|(_, rows, _)| rows)
+        .collect()
+}
+
+/// [`regular_trigger_results`] per trigger: (id, rows, runs commands).
+fn regular_trigger_sources(
+    query: &str,
+    config: &Config,
+    snap_lock: &Arc<RwLock<crate::index::Snapshot>>,
+) -> Vec<(String, Vec<SearchResult>, bool)> {
+    let q = query.trim();
+    if q.chars().count() < REGULAR_MIN_CHARS {
+        return Vec::new();
+    }
+    let owned = crate::triggers::keywords();
+    let mut out = Vec::new();
+    for kw in config.command_keywords.iter().chain(owned.iter()) {
+        if kw.is_result()
+            || kw.id == "cmd"
+            || kw.word.is_empty()
+            || matches!(kw.id.as_str(), "clipboard" | "dictionary")
+            || !config.keyword_usable(kw)
+            || !config.in_regular_search(&kw.id)
+        {
+            continue;
+        }
+        let runs_commands = kw.id == "run"
+            || matches!(
+                crate::triggers::by_id(&kw.id).map(|m| m.action),
+                Some(crate::triggers::TriggerAction::Shell { .. })
+            );
+        out.push((
+            kw.id.clone(),
+            regular_rows(search_mode(&kw.word, q, config, snap_lock), runs_commands),
+            runs_commands,
+        ));
+    }
+    out
+}
+
+/// The same for the triggers that need the main thread: Clipboard (its history
+/// lives there) and Dictionary (its lookup throttle does).
+pub fn main_thread_trigger_results(
+    query: &str,
+    config: &Config,
+    clipboard: &crate::clipboard::ClipboardHistory,
+) -> Vec<SearchResult> {
+    let q = query.trim();
+    if q.chars().count() < REGULAR_MIN_CHARS {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for id in ["clipboard", "dictionary"] {
+        let usable = config.keyword_for_id(id).is_some_and(|kw| !kw.word.is_empty());
+        if !usable || !config.in_regular_search(id) {
+            continue;
+        }
+        let rows = if id == "clipboard" {
+            clipboard::all_or_filtered(
+                q,
+                clipboard,
+                &config.pinned_clipboard,
+                &config.pinned_clipboard_images,
+                &config.pinned_clipboard_files,
+            )
+        } else {
+            dictionary::results(q)
+        };
+        let rows = regular_rows(rows, false);
+        let pos = config.order_position(id).unwrap_or(ORDER_SLOTS);
+        out.extend(rows.into_iter().enumerate().map(|(i, mut r)| {
+            r.score = ordered_score(pos, i);
+            r
+        }));
+    }
+    out
+}
+
+/// Scores that carry the user's order: every source gets a band, highest
+/// first, and a row's place inside its band keeps the source's own ranking.
+/// Pins (1 000 000) stay above all of them; operations sit right under pins.
+const ORDER_TOP: i32 = 900_000;
+const ORDER_BAND: i32 = 1_000;
+const ORDER_SLOTS: usize = 800;
+
+fn ordered_score(position: usize, index: usize) -> i32 {
+    let position = position.min(ORDER_SLOTS) as i32;
+    ORDER_TOP - position * ORDER_BAND - (index as i32).min(ORDER_BAND - 1)
+}
+
+/// The regular search: every source's rows, ranked by the order the user gave
+/// result types and triggers in Settings (highest first), and by each source's
+/// own relevance within it. Pins lead, running operations follow them, and a
+/// trigger that runs commands always comes last — whatever its place — so
+/// Enter can't run one by accident.
+pub fn universal_results(
+    query: &str,
+    config: &Config,
+    snap_lock: &Arc<RwLock<crate::index::Snapshot>>,
+) -> Vec<SearchResult> {
     let ql = query.to_lowercase();
-    // Trigger suggestions (Raycast-style): shared with the worker — that is
-    // the path that runs in production.
-    r.extend(trigger_suggestions(query, config));
-
-    // Updates are a General-section feature now (no trigger): the
-    // update/updates/upd/upgrade/upg verbs show the inline update list.
-    if let Some(update_rows) = cmd::update_verb_rows(query, config) {
-        r.extend(update_rows);
-    }
-
-    r.extend(system::search(query, config));
-    r.extend(settings_panels::search(query));
-    if config.enable_calculator {
-        if let Some(calc) = calculator::evaluate(query, config) {
-            r.push(calc);
+    let mut sources: std::collections::HashMap<String, Vec<SearchResult>> =
+        std::collections::HashMap::new();
+    let mut update_verb_rows = Vec::<(String, Action)>::new();
+    let mut put = |id: &str, rows: Vec<SearchResult>| {
+        if !rows.is_empty() {
+            sources.entry(id.to_string()).or_default().extend(rows);
         }
-        if let Some(conv) = convert::convert(query, config) {
-            r.push(conv);
+    };
+
+    // A suggestion to enter a trigger's mode ranks with that trigger.
+    for row in trigger_suggestions(query, config) {
+        let id = match &row.action {
+            Action::EnterMode(w) => config.keyword_for_word(w).map(|k| k.id),
+            _ => None,
+        };
+        put(id.as_deref().unwrap_or("apps"), vec![row]);
+    }
+    if config.in_regular_search("updates") {
+        if let Some(rows) = cmd::update_verb_rows(query, config) {
+            update_verb_rows.extend(
+                rows.iter()
+                    .map(|row| (row.title.clone(), row.action.clone())),
+            );
+            put("updates", rows);
         }
     }
-    if config.enable_apps {
-        r.extend(apps::search(query, &snap.apps));
+    // System actions and Settings panels are things to launch, like apps.
+    put("apps", system::search(query, config));
+    put("apps", settings_panels::search(query));
+    if config.enable_calculator && config.in_regular_search("calc") {
+        put("calc", calculator::evaluate(query, config).into_iter().collect());
+    }
+    if config.converter_enabled() && config.in_regular_search("convert") {
+        put("convert", convert::convert(query, config).into_iter().collect());
+    }
+    if config.enable_apps && config.in_regular_search("apps") {
+        let snap_guard = snap_lock.read().unwrap();
+        put("apps", apps::search(query, &snap_guard.apps));
         // Portable AppImages: launch rows for files that have no desktop
         // entry of their own (integrated ones are already indexed apps).
         if config.app_sources().appimage {
-            r.extend(appimage::search(query, 3));
+            put("apps", appimage::search(query, 3));
         }
     }
-    // Installable apps (Flatpak / distro) surfaced without the "install" verb, so
-    // the user can discover apps to install while searching for anything. Gated
-    // behind a setting and a min length to avoid noise / catalog churn on very
-    // short queries. Catalog-backed and cached, so this is cheap per keystroke.
-    if config.enable_new_apps && query.chars().count() >= 3 {
-        r.extend(cmd::universal_install(query, config.app_sources(), 4));
+    if config.enable_new_apps && config.in_regular_search("newapps") && query.chars().count() >= 3 {
+        put("newapps", cmd::universal_install(query, config.app_sources(), 4));
     }
-    if config.enable_web {
-        r.push(web::result(query, config));
+    if config.enable_web && config.in_regular_search("web") {
+        put("web", vec![web::result(query, config)]);
+    }
+    let mut last: Vec<SearchResult> = Vec::new();
+    for (id, rows, runs_commands) in regular_trigger_sources(query, config, snap_lock) {
+        if runs_commands {
+            last.extend(rows);
+        } else {
+            put(&id, rows);
+        }
     }
 
-    let mut r = merge_pinned(r, &ql, &config.pinned_results);
-    r.extend(crate::operations::running_result_rows());
+    // Bands in the user's order; anything unlisted after them.
+    let mut ranked: Vec<SearchResult> = Vec::new();
+    let order = config.ordered_ids();
+    let mut place = |rows: &mut Vec<SearchResult>, position: usize, ranked: &mut Vec<SearchResult>| {
+        rows.sort_by(|a, b| b.score.cmp(&a.score));
+        for (i, mut r) in rows.drain(..).enumerate() {
+            r.score = ordered_score(position, i);
+            ranked.push(r);
+        }
+    };
+    for (position, id) in order.iter().enumerate() {
+        if let Some(mut rows) = sources.remove(id) {
+            place(&mut rows, position, &mut ranked);
+        }
+    }
+    let mut rest: Vec<SearchResult> = sources.into_values().flatten().collect();
+    place(&mut rest, ORDER_SLOTS, &mut ranked);
+    for (i, mut r) in last.into_iter().enumerate() {
+        r.score = 1_000 - i as i32;
+        ranked.push(r);
+    }
+
+    // Above the bands (below pins and operations): a row titled exactly what
+    // was typed, then rows the user has picked before for this query, most
+    // often picked first. Ties keep the band order.
+    let qt = ql.trim();
+    for r in ranked.iter_mut() {
+        let learned = crate::history::frequency_bonus_for(qt, &r.title);
+        if let Some(position) = update_verb_rows
+            .iter()
+            .position(|(title, action)| title == &r.title && action == &r.action)
+        {
+            // A query routed through the update verb is an update request;
+            // keep its update actions ahead of unrelated app/setting matches.
+            r.score = 990_000 - position as i32;
+            continue;
+        }
+        // In the universal search, a direct prefix match on a trigger's
+        // configured word or display name should offer that mode first.
+        // Fuzzy typo suggestions keep their normal source ordering.
+        let trigger_match = match &r.action {
+            Action::EnterMode(word) => config.keyword_for_word(word).filter(|kw| {
+                kw.word.to_lowercase().starts_with(qt)
+                    || kw.display_name().to_lowercase().starts_with(qt)
+            }),
+            _ => None,
+        };
+        if r.title.eq_ignore_ascii_case(qt) {
+            // A result whose visible name is exactly what the user typed
+            // leads every partial trigger suggestion, regardless of source.
+            r.score = 980_000 + learned.min(10_000);
+        } else if let Some(kw) = trigger_match {
+            let exact = kw.word.eq_ignore_ascii_case(qt)
+                || kw.display_name().eq_ignore_ascii_case(qt);
+            r.score = 960_000 + i32::from(exact);
+        } else if learned > 0 {
+            r.score = r.score.max(920_000 + learned);
+        }
+    }
+
+    let mut r = merge_pinned(ranked, &ql, &config.pinned_results);
+    let ops: Vec<SearchResult> = crate::operations::running_result_rows()
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut op)| {
+            op.score = 950_000 - i as i32;
+            op
+        })
+        .collect();
+    r.extend(ops);
+    r.sort_by(|a, b| b.score.cmp(&a.score));
+    r.truncate(20);
+    r
+}
+
+/// A result type's own mode: only that kind of result, for the typed text.
+fn result_mode(
+    id: &str,
+    rest: &str,
+    config: &Config,
+    snap_lock: &Arc<RwLock<crate::index::Snapshot>>,
+) -> Vec<SearchResult> {
+    let mut r = match id {
+        "apps" => {
+            let snap_guard = snap_lock.read().unwrap();
+            let mut r = apps::search(rest, &snap_guard.apps);
+            if config.app_sources().appimage {
+                r.extend(appimage::search(rest, 5));
+            }
+            r
+        }
+        "newapps" => cmd::universal_install(rest, config.app_sources(), 20),
+        "web" if !rest.is_empty() => vec![web::result(rest, config)],
+        "calc" => calculator::evaluate(rest, config).into_iter().collect(),
+        "convert" => convert::convert(rest, config).into_iter().collect(),
+        "updates" => cmd::update_results(rest, config),
+        _ => Vec::new(),
+    };
     r.sort_by(|a, b| b.score.cmp(&a.score));
     r.truncate(20);
     r
@@ -428,7 +691,12 @@ pub fn search_mode(
     config: &Config,
     snap_lock: &Arc<RwLock<crate::index::Snapshot>>,
 ) -> Vec<SearchResult> {
-    let kw = match config.keyword_for_word(mode_word) {
+    // A mode is named by its word — or, for a keyword without one (a result
+    // type reached through its shortcut), by its id.
+    let kw = match config
+        .keyword_for_word(mode_word)
+        .or_else(|| config.keyword_for_id(mode_word))
+    {
         Some(kw) => kw,
         None => return vec![],
     };
@@ -448,6 +716,12 @@ pub fn search_mode(
     let pinned = &config.pinned_results;
     if kw.id == "emoji" {
         return emoji::search(rest);
+    }
+    if kw.id == "bluetooth" {
+        return bluetooth::search(rest);
+    }
+    if kw.is_result() {
+        return result_mode(&kw.id, rest, config, snap_lock);
     }
     if kw.id == "run" {
         return run::search(rest);
@@ -504,9 +778,6 @@ pub fn search_mode(
         if kw.id == "dictionary" {
             return dictionary::results(rest);
         }
-        if kw.id == "bluetooth" {
-            return bluetooth::search(rest);
-        }
         let icon = Some(if trigger.icon.is_empty() {
             "folder-symbolic".into()
         } else {
@@ -561,7 +832,8 @@ pub fn search_mode(
                     score: 100_000,
                 }]
             }
-            crate::triggers::TriggerAction::Files { .. } => vec![],
+            crate::triggers::TriggerAction::Files { .. }
+            | crate::triggers::TriggerAction::Builtin => vec![],
         };
     }
     vec![]
@@ -570,6 +842,25 @@ pub fn search_mode(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_result_type_mode_searches_only_its_results() {
+        let cfg = Config::default();
+        let snap = Arc::new(RwLock::new(crate::index::Snapshot::default()));
+        // No word yet: the mode is reached by id, as its shortcut does.
+        let calc = search_mode("calc", "2+3", &cfg, &snap);
+        assert!(!calc.is_empty(), "calc mode computes");
+        assert!(calc.iter().all(|r| r.title.contains('5') || r.subtitle.as_deref().unwrap_or("").contains('5')), "{calc:?}");
+        let web = search_mode("web", "rust", &cfg, &snap);
+        assert_eq!(web.len(), 1);
+        assert!(matches!(web[0].action, Action::OpenUrl(_)), "{web:?}");
+        // A word-less keyword is never offered as something to type.
+        let suggested = trigger_suggestions("ca", &cfg);
+        assert!(
+            !suggested.iter().any(|r| matches!(&r.action, Action::EnterMode(w) if w.is_empty())),
+            "{suggested:?}"
+        );
+    }
 
     /// A config carrying the dictionary keyword (store-installed trigger).
     fn config_with_dictionary() -> Config {
@@ -708,6 +999,3 @@ mod tests {
         );
     }
 }
-
-
-

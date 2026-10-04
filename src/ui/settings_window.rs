@@ -44,16 +44,6 @@ impl SettingsWindow {
     }
 }
 
-/// The update section's icon: the update glyph while something is
-/// pending, the checkmark when there is nothing to update.
-fn status_icon_name(pending: bool) -> &'static str {
-    if pending {
-        "software-update-available-symbolic"
-    } else {
-        "object-select-symbolic"
-    }
-}
-
 /// Persist a settings change, then run `after`. The ordering is the fix:
 /// the search-window refresh re-borrows this same `RefCell`, so running it
 /// while a `borrow_mut` is still alive panics with "already mutably
@@ -86,153 +76,102 @@ fn build_general_page(window: &adw::PreferencesWindow, config: &Rc<RefCell<Confi
         .build();
     window.add(&general);
 
-    // Result source toggles (merged from the former "Sources" page).
-    let sg = adw::PreferencesGroup::builder()
-        .title(gettext("Results"))
-        .description(gettext("Choose what types of results appear"))
-        .build();
-    general.add(&sg);
-    // Applications: its own switch, and activating the row opens the
-    // popup with the shortcuts that act on a selected app in the results.
+    // Launcher: the one shortcut that opens Spotty. (The result types and
+    // triggers live on the Search page.)
     {
-        let (row, sw) = popup_setting_row(
-            &gettext("Applications"),
-            &gettext("System, Flatpak, Snap and AppImage apps"),
-            config.borrow().enable_apps,
-        );
-        {
+        let lg = adw::PreferencesGroup::builder()
+            .title(gettext("Launcher"))
+            .build();
+        let pending = Rc::new(RefCell::new(config.borrow().shortcut.clone()));
+        let (row, _) = {
             let cfg = config.clone();
-            sw.connect_active_notify(move |r| {
-                let mut c = cfg.borrow_mut();
-                c.enable_apps = r.is_active();
-                c.save();
-            });
-        }
-        let win = window.clone();
-        let cfg = config.clone();
-        row.connect_activated(move |_| open_apps_dialog(&win, &cfg));
-        sg.add(&row);
-    }
-    // Search for new apps: its own switch, and activating the row opens
-    // the popup that carries the Package Manager choice feeding it.
-    {
-        let (row, sw) = popup_setting_row(
-            &gettext("Search for new Apps"),
-            &gettext("Also suggest installable apps as you type"),
-            config.borrow().enable_new_apps,
-        );
-        {
-            let cfg = config.clone();
-            sw.connect_active_notify(move |r| {
-                let mut c = cfg.borrow_mut();
-                c.enable_new_apps = r.is_active();
-                c.save();
-            });
-        }
-        let win = window.clone();
-        let cfg = config.clone();
-        row.connect_activated(move |_| open_new_apps_dialog(&win, &cfg));
-        sg.add(&row);
-    }
-    // Web Search: its own switch, and activating the row opens the popup
-    // with the engine choice feeding it.
-    {
-        let (row, sw) = popup_setting_row(
-            &gettext("Web Search"),
-            &gettext("Always show web search row"),
-            config.borrow().enable_web,
-        );
-        {
-            let cfg = config.clone();
-            sw.connect_active_notify(move |r| {
-                let mut c = cfg.borrow_mut();
-                c.enable_web = r.is_active();
-                c.save();
-            });
-        }
-        let win = window.clone();
-        let cfg = config.clone();
-        row.connect_activated(move |_| open_web_dialog(&win, &cfg));
-        sg.add(&row);
-    }
-    // Calculator & Converter: its own switch, and activating the row
-    // opens the popup with result formatting and the conversions group.
-    {
-        let (row, sw) = popup_setting_row(
-            &gettext("Calculator & Converter"),
-            &gettext("Arithmetic, units, currency and number bases"),
-            config.borrow().enable_calculator,
-        );
-        {
-            let cfg = config.clone();
-            sw.connect_active_notify(move |r| {
-                let mut c = cfg.borrow_mut();
-                c.enable_calculator = r.is_active();
-                c.save();
-            });
-        }
-        let win = window.clone();
-        let cfg = config.clone();
-        row.connect_activated(move |_| open_calc_dialog(&win, &cfg));
-        sg.add(&row);
+            let pending_c = pending.clone();
+            capture_shortcut_row(
+                window,
+                &gettext("Open Spotty"),
+                "",
+                pending.clone(),
+                Rc::new(move || {
+                    let value = pending_c.borrow().clone();
+                    save_and_refresh(&cfg, |c| c.shortcut = value.clone());
+                    std::thread::spawn(crate::keybindings::register_all);
+                }),
+                &Config::default().shortcut,
+            )
+        };
+        row.set_subtitle(&gettext("Shows or hides the search window from anywhere"));
+        lg.add(&row);
+        general.add(&lg);
     }
 
-    // Updates: one row in Results — the master switch sits on it, the
-    // status stays live on its subtitle, and activating it opens the
-    // settings popup (no more inline expansion).
-    crate::search::cmd::ensure_updates_checked();
+    // Footer bar: the two buttons at the bottom of the search window. The
+    // switches only hide their key indicators — the buttons stay clickable and
+    // the shortcuts keep working, so this is purely about the space they take.
     {
-        let (row, sw) = popup_setting_row(
-            &gettext("Updates"),
-            &crate::search::cmd::update_status_text(config.borrow().enable_updates),
-            config.borrow().enable_updates,
-        );
-        // The row's icon follows the state: update available → update
-        // glyph, nothing to update (or the feature off) → checkmark.
-        let status_icon = gtk::Image::from_icon_name(status_icon_name(
-            crate::search::cmd::updates_pending() && config.borrow().enable_updates,
-        ));
-        row.add_prefix(&status_icon);
+        let fg = adw::PreferencesGroup::builder()
+            .title(gettext("Search Window"))
+            .description(gettext("The Operations and Hints buttons at the bottom"))
+            .build();
+        // One switch for both icons; the two below are per-button, because a
+        // button is only worth keeping if it has something left to show.
         {
-            let cfg = config.clone();
-            sw.connect_active_notify(move |r| {
-                let active = r.is_active();
-                save_and_refresh(&cfg, |c| c.enable_updates = active);
-            });
+            let sw = adw::SwitchRow::builder()
+                .title(gettext("Button Icons"))
+                .active(config.borrow().show_footer_icons)
+                .use_markup(false)
+                .build();
+            {
+                let cfg = config.clone();
+                sw.connect_active_notify(move |r| {
+                    let active = r.is_active();
+                    save_and_refresh(&cfg, |c| c.show_footer_icons = active);
+                });
+            }
+            fg.add(&sw);
         }
-        {
-            let win = window.clone();
-            let cfg = config.clone();
-            row.connect_activated(move |_| open_updates_dialog(&win, &cfg));
+        for (label, subtitle, field) in [
+            (
+                gettext("Operations Shortcut"),
+                gettext("Show the key that opens Operations"),
+                0usize,
+            ),
+            (
+                gettext("Hints Shortcut"),
+                gettext("Show the key that opens Hints"),
+                1,
+            ),
+        ] {
+            let on = match field {
+                0 => config.borrow().show_operations_shortcut_label,
+                _ => config.borrow().show_hints_shortcut_label,
+            };
+            let sw = adw::SwitchRow::builder()
+                .title(label)
+                .subtitle(subtitle)
+                .active(on)
+                .use_markup(false)
+                .build();
+            {
+                let cfg = config.clone();
+                sw.connect_active_notify(move |r| {
+                    let active = r.is_active();
+                    save_and_refresh(&cfg, |c| match field {
+                        0 => c.show_operations_shortcut_label = active,
+                        _ => c.show_hints_shortcut_label = active,
+                    });
+                });
+            }
+            fg.add(&sw);
         }
-        sg.add(&row);
-
-        // Keep the status live: a background check landing updates the
-        // subtitle and the icon without the window being rebuilt.
-        {
-            let row = row.clone();
-            let icon = status_icon.clone();
-            let win = window.clone();
-            let cfg = config.clone();
-            glib::timeout_add_local(std::time::Duration::from_secs(1), move || {
-                if win.is_visible() {
-                    let enabled = cfg.borrow().enable_updates;
-                    row.set_subtitle(&crate::search::cmd::update_status_text(enabled));
-                    icon.set_icon_name(Some(status_icon_name(
-                        enabled && crate::search::cmd::updates_pending(),
-                    )));
-                }
-                glib::ControlFlow::Continue
-            });
-        }
+        general.add(&fg);
     }
 
     // About — single row opening the native AboutDialog
-    let ag = adw::PreferencesGroup::builder().title(gettext("About")).build();
+    let ag = adw::PreferencesGroup::new();
     general.add(&ag);
     let about_row = adw::ActionRow::builder()
         .title(gettext("About Spotty"))
-        .subtitle(format!("Version {}", env!("CARGO_PKG_VERSION")))
+        .subtitle(gettext("Version {v}").replace("{v}", env!("CARGO_PKG_VERSION")))
         .activatable(true)
         .use_markup(false)
         .build();
@@ -250,26 +189,295 @@ const INTERVAL_HOURS: [u32; 5] = [1, 6, 12, 24, 168];
 /// Fraction-digit choices offered in the calculator popup (same index).
 const CALC_PRECISIONS: [u32; 5] = [2, 4, 6, 8, 10];
 
-/// A settings row with its own switch and a chevron: the switch toggles
-/// the value, activating the row opens the settings popup.
-fn popup_setting_row(
-    title: &str,
-    subtitle: &str,
-    active: bool,
-) -> (adw::ActionRow, gtk::Switch) {
-    let row = adw::ActionRow::builder()
-        .title(title)
-        .subtitle(subtitle)
-        .activatable(true)
+thread_local! {
+    /// The Search page's group for rows not in the regular search (unordered).
+    static OTHER_GROUP: RefCell<Option<adw::PreferencesGroup>> = RefCell::new(None);
+    /// Rebuilds the trigger list. Set by the Triggers page; the result-type
+    /// popups call it after a word or shortcut changes.
+    static TRIGGER_LIST_REFRESH: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
+}
+
+fn refresh_trigger_list() {
+    let refresh = TRIGGER_LIST_REFRESH.with(|r| r.borrow().clone());
+    if let Some(refresh) = refresh {
+        refresh();
+    }
+}
+
+/// A result type's name in the list and the Store.
+fn result_title(id: &str) -> String {
+    match id {
+        "apps" => gettext("Applications"),
+        "newapps" => gettext("Search for new Apps"),
+        "web" => gettext("Web Search"),
+        "calc" => gettext("Calculator"),
+        "convert" => gettext("Converter"),
+        "updates" => gettext("Updates"),
+        _ => capitalized(id),
+    }
+}
+
+/// What a result type adds to the universal search.
+fn result_blurb(id: &str) -> String {
+    match id {
+        "apps" => gettext("System, Flatpak, Snap and AppImage apps"),
+        "newapps" => gettext("Also suggest installable apps as you type"),
+        "web" => gettext("Always show web search row"),
+        "calc" => gettext("Arithmetic as you type"),
+        "convert" => gettext("Units, currency and number bases"),
+        "updates" => gettext("Flatpak, system, Snap and AppImage updates"),
+        _ => String::new(),
+    }
+}
+
+/// The blurb, plus the word and shortcut once the user gave it any.
+fn result_subtitle(blurb: &str, word: &str, shortcut: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if !blurb.is_empty() {
+        parts.push(blurb.to_string());
+    }
+    if !word.is_empty() {
+        parts.push(gettext("Word: {word}").replace("{word}", word));
+    }
+    if !shortcut.is_empty() {
+        parts.push(display_shortcut(shortcut));
+    }
+    parts.join(" · ")
+}
+
+/// A built-in trigger's or result type's name, wherever it is listed.
+fn builtin_title(id: &str) -> String {
+    if crate::config::RESULT_IDS.contains(&id) {
+        result_title(id)
+    } else {
+        capitalized(id)
+    }
+}
+
+/// Open a result type's settings popup.
+fn open_result_dialog(id: &str, parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>) {
+    match id {
+        "apps" => open_apps_dialog(parent, config),
+        "newapps" => open_new_apps_dialog(parent, config),
+        "web" => open_web_dialog(parent, config),
+        "calc" => open_calc_dialog(parent, config),
+        "convert" => open_convert_dialog(parent, config),
+        "updates" => open_updates_dialog(parent, config),
+        _ => {}
+    }
+}
+
+/// The "Show in Regular Search" switch for a result type or a trigger, and a
+/// closure that re-syncs it after the word changed.
+///
+/// A result type with no trigger word has no other way to be found, so its
+/// switch is on and locked until it gets one. A trigger always has a word, so
+/// its switch is always the user's call (off unless they opted in).
+fn regular_search_row(config: &Rc<RefCell<Config>>, id: &str) -> (adw::SwitchRow, Rc<dyn Fn()>) {
+    let is_result = crate::config::RESULT_IDS.contains(&id);
+    let row = adw::SwitchRow::builder()
+        .title(gettext("Show in Regular Search"))
         .use_markup(false)
         .build();
-    let switch = gtk::Switch::builder()
-        .valign(gtk::Align::Center)
-        .active(active)
+    let syncing = Rc::new(std::cell::Cell::new(false));
+    let sync: Rc<dyn Fn()> = {
+        let row = row.clone();
+        let cfg = config.clone();
+        let id = id.to_string();
+        let syncing = syncing.clone();
+        Rc::new(move || {
+            let (has_word, on) = {
+                let c = cfg.borrow();
+                let wordless = is_result
+                    && c.command_keywords
+                        .iter()
+                        .find(|k| k.id == id)
+                        .map_or(true, |k| k.word.is_empty());
+                (!wordless, c.in_regular_search(&id))
+            };
+            syncing.set(true);
+            row.set_active(on);
+            syncing.set(false);
+            row.set_sensitive(has_word);
+            row.set_subtitle(&if !has_word {
+                gettext("Always on without a trigger word — it is the only way to find them")
+            } else if is_result {
+                gettext("Also list these results when you search without the trigger word")
+            } else {
+                gettext("Also list its results when you search without typing the trigger word")
+            });
+        })
+    };
+    sync();
+    {
+        let cfg = config.clone();
+        let id = id.to_string();
+        row.connect_active_notify(move |r| {
+            if syncing.get() {
+                return;
+            }
+            let on = r.is_active();
+            save_and_refresh(&cfg, |c| c.set_in_regular_search(&id, on));
+            refresh_trigger_list();
+        });
+    }
+    (row, sync)
+}
+
+/// What every result-type popup ends with: a "Trigger" group (a word and a
+/// shortcut that open a search of just these results — both optional, with a
+/// reset once changed) and, last, the destructive Uninstall row.
+fn add_trigger_sections(
+    page: &adw::PreferencesPage,
+    dlg: &adw::PreferencesDialog,
+    config: &Rc<RefCell<Config>>,
+    id: &str,
+) {
+    let (word, shortcut) = config
+        .borrow()
+        .command_keywords
+        .iter()
+        .find(|k| k.id == id)
+        .map(|k| (k.word.clone(), k.shortcut.clone()))
+        .unwrap_or_default();
+
+    let group = adw::PreferencesGroup::builder()
+        .title(gettext("Trigger"))
+        .description(gettext(
+            "Type the word or press the shortcut to search only these results.",
+        ))
         .build();
-    row.add_suffix(&switch);
-    row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
-    (row, switch)
+
+    let (regular_row, sync_regular) = regular_search_row(config, id);
+    let word_row = adw::EntryRow::builder()
+        .title(gettext("Word"))
+        .text(&word)
+        .show_apply_button(true)
+        .use_markup(false)
+        .build();
+    // The result types' default is no word at all, so Reset clears it.
+    let reset_word = gtk::Button::builder()
+        .icon_name("edit-undo-symbolic")
+        .css_classes(["flat", "circular"])
+        .valign(gtk::Align::Center)
+        .tooltip_text(gettext("Remove Word"))
+        .build();
+    reset_word.set_visible(!word.is_empty());
+    word_row.add_suffix(&reset_word);
+    {
+        let word_row = word_row.clone();
+        let reset = reset_word.clone();
+        reset_word.connect_clicked(move |_| {
+            // Clearing the text and applying it goes through the same save.
+            word_row.set_text("");
+            word_row.emit_by_name::<()>("apply", &[]);
+            reset.set_visible(false);
+        });
+    }
+    {
+        let cfg = config.clone();
+        let dlg = dlg.clone();
+        let id = id.to_string();
+        let reset_word = reset_word.clone();
+        let sync_regular = sync_regular.clone();
+        word_row.connect_apply(move |r| {
+            let w = r.text().trim().to_lowercase();
+            if w.contains(char::is_whitespace) {
+                dlg.add_toast(adw::Toast::new(&gettext("A trigger word is a single word")));
+                return;
+            }
+            if !w.is_empty() && word_taken(&id, &w, &cfg) {
+                dlg.add_toast(adw::Toast::new(
+                    &gettext("\"{word}\" is already a trigger word").replace("{word}", &w),
+                ));
+                return;
+            }
+            r.set_text(&w);
+            reset_word.set_visible(!w.is_empty());
+            save_and_refresh(&cfg, |c| c.set_result_word(&id, &w));
+            sync_regular();
+            refresh_trigger_list();
+        });
+    }
+    group.add(&word_row);
+
+    let pending = Rc::new(RefCell::new(shortcut));
+    let (sc_row, _reset) = {
+        let cfg = config.clone();
+        let pending_c = pending.clone();
+        let id = id.to_string();
+        capture_shortcut_row(
+            dlg,
+            &gettext("Shortcut"),
+            &result_title(&id),
+            pending.clone(),
+            Rc::new(move || {
+                let value = pending_c.borrow().clone();
+                save_and_refresh(&cfg, |c| {
+                    if let Some(k) = c.command_keywords.iter_mut().find(|k| k.id == id) {
+                        k.shortcut = value.clone();
+                    }
+                });
+                std::thread::spawn(crate::keybindings::register_all);
+                refresh_trigger_list();
+            }),
+            "",
+        )
+    };
+    group.add(&sc_row);
+    group.add(&regular_row);
+    page.add(&group);
+
+    let id = id.to_string();
+    let cfg = config.clone();
+    page.add(&uninstall_group(dlg, &result_title(&id), move |win| {
+        if let Some(win) = win {
+            uninstall_builtin_from_list(&win, &cfg, &id);
+        }
+    }));
+}
+
+/// The last group of a detail popup: one destructive "Uninstall" row, the
+/// GNOME pattern for removing the thing the dialog is about. `uninstall`
+/// gets the settings window (for its toast) once the popup has closed.
+fn uninstall_group(
+    dlg: &adw::PreferencesDialog,
+    name: &str,
+    uninstall: impl Fn(Option<adw::PreferencesWindow>) + 'static,
+) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::new();
+    let row = adw::ButtonRow::builder().title(gettext("Uninstall")).build();
+    row.add_css_class("destructive-action");
+    row.set_tooltip_text(Some(
+        &gettext("Remove \"{name}\" from Spotty — reinstall it from the Store").replace("{name}", name),
+    ));
+    {
+        let dlg = dlg.clone();
+        row.connect_activated(move |_| {
+            let win = dlg
+                .root()
+                .and_then(|r| r.downcast::<adw::PreferencesWindow>().ok());
+            dlg.close();
+            uninstall(win);
+        });
+    }
+    group.add(&row);
+    group
+}
+
+/// Uninstall a built-in trigger or result type from its list row: it leaves
+/// the list, stops working, and waits in the Store for a reinstall.
+fn uninstall_builtin_from_list(
+    window: &adw::PreferencesWindow,
+    config: &Rc<RefCell<Config>>,
+    id: &str,
+) {
+    save_and_refresh(config, |c| c.uninstall_builtin(id));
+    std::thread::spawn(crate::keybindings::register_all);
+    refresh_trigger_list();
+    window.add_toast(adw::Toast::new(
+        &gettext("Removed \"{name}\" — reinstall it from the Store").replace("{name}", &builtin_title(id)),
+    ));
 }
 
 /// The package-manager choice behind "Search for new apps", as a popup
@@ -360,26 +568,55 @@ fn open_new_apps_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Con
             let flatpak = crate::search::cmd::flatpak_is_available();
             let snap = crate::search::cmd::snap_is_available();
             let appimage = crate::search::appimage::is_supported();
-            let pm = crate::search::cmd::detected_distro_pm();
-            let distro = if pm.is_some() {
-                Some(true)
-            } else if crate::search::cmd::distro_pm_probed() {
-                Some(false)
-            } else {
-                None
+            use crate::search::cmd::SystemPackages;
+            // What this system is, and what it lets Spotty do with packages.
+            let status = crate::search::cmd::system_packages();
+            let distro = match &status {
+                // Known but unusable stays visible (greyed, with the reason),
+                // so it is clear why there is nothing to switch on.
+                SystemPackages::Ready { .. }
+                | SystemPackages::Immutable { .. }
+                | SystemPackages::NoService { .. } => Some(true),
+                SystemPackages::Unsupported { .. } => Some(false),
             };
             apply_source_row(
                 &flatpak_row,
                 flatpak,
                 &gettext("Search and install Flatpak apps"),
             );
-            let distro_sub = match &pm {
-                Some(p) => {
-                    gettext("Search and install system packages ({pm})").replace("{pm}", p)
+            match &status {
+                SystemPackages::Ready { distro: name, pm, via } => {
+                    apply_source_row(
+                        &distro_row,
+                        distro,
+                        &gettext("Search, install and update system packages — {distro} ({pm}, {via})")
+                            .replace("{distro}", name)
+                            .replace("{pm}", pm)
+                            .replace("{via}", via),
+                    );
                 }
-                None => gettext("Search and install system packages ({pm})").replace("{pm}", "…"),
-            };
-            apply_source_row(&distro_row, distro, &distro_sub);
+                SystemPackages::Immutable { distro: name } => {
+                    apply_source_row(&distro_row, distro, "");
+                    distro_row.set_active(false);
+                    distro_row.set_sensitive(false);
+                    distro_row.set_subtitle(
+                        &gettext("{distro} is image-based — system packages aren't changed here, use Flatpak")
+                            .replace("{distro}", name),
+                    );
+                }
+                SystemPackages::NoService { distro: name, pm } => {
+                    apply_source_row(&distro_row, distro, "");
+                    distro_row.set_sensitive(false);
+                    distro_row.set_subtitle(
+                        &gettext("{distro} ({pm}) needs PackageKit to install and update packages")
+                            .replace("{distro}", name)
+                            .replace("{pm}", pm),
+                    );
+                }
+                SystemPackages::Unsupported { .. } => {
+                    apply_source_row(&distro_row, distro, "");
+                }
+            }
             apply_source_row(&snap_row, snap, &gettext("Search and install Snap packages"));
             apply_source_row(
                 &appimage_row,
@@ -419,6 +656,7 @@ fn open_new_apps_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Con
     }
 
     page.add(&g);
+    add_trigger_sections(&page, &dlg, config, "newapps");
     dlg.add(&page);
     dlg.present(Some(parent));
 }
@@ -461,9 +699,7 @@ fn open_web_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>
         .content_width(440)
         .build();
     let page = adw::PreferencesPage::builder().build();
-    let g = adw::PreferencesGroup::builder()
-        .title(gettext("Search Engine"))
-        .build();
+    let g = adw::PreferencesGroup::new();
 
     // The Custom Search URL only makes sense for the Custom engine — the
     // row is hidden entirely for everything else.
@@ -502,38 +738,8 @@ fn open_web_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>
     {
         er.set_selected(i as u32);
     }
-    // Show detected engine name in subtitle when Browser Default is selected.
-    if config.borrow().search_engine == SearchEngine::BrowserDefault {
-        // …plus a row with the engine's own icon, so "Browser Default" is a
-        // concrete answer rather than a promise. This is the same detection the
-        // search rows use, so it always agrees with what Enter will do.
-        let engine = crate::search::browser_engine::engine_name();
-        if let Some(name) = &engine {
-            let row = adw::ActionRow::builder()
-                .title(gettext("Detected search engine"))
-                .subtitle(name.clone())
-                .activatable(false)
-                .use_markup(false)
-                .build();
-            let image = gtk::Image::builder().pixel_size(24).build();
-            row.add_prefix(&image);
-            crate::ui::result_row::set_search_engine_icon(
-                &image,
-                crate::search::browser_engine::engine_icon(),
-                crate::search::browser_engine::engine_domain().as_deref(),
-                "web-browser-symbolic",
-            );
-            g.add(&row);
-        }
-        if let Some(name) = crate::search::browser_engine::engine_name() {
-            er.set_subtitle(&gettext("Uses {name} (detected from your default browser)").replace("{name}", &name));
-        } else {
-            er.set_subtitle("Detecting your default browser\u{2026}");
-        }
-    }
     let cfg = config.clone();
     let custom_web_vis = custom_web.clone();
-    let er_sub = er.clone();
     let is_custom = |e: SearchEngine| e == SearchEngine::Custom;
     custom_web_vis.set_visible(SearchEngine::all()
         .get(er.selected() as usize)
@@ -546,16 +752,6 @@ fn open_web_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>
             c.search_engine = e;
             c.save();
             custom_web_vis.set_visible(is_custom(e));
-            // Update subtitle for Browser Default
-            if e == SearchEngine::BrowserDefault {
-                if let Some(name) = crate::search::browser_engine::engine_name() {
-                    er_sub.set_subtitle(&gettext("Uses {name} (detected from your default browser)").replace("{name}", &name));
-                } else {
-                    er_sub.set_subtitle("Detecting your default browser\u{2026}");
-                }
-            } else {
-                er_sub.set_subtitle("Used for web search results");
-            }
         }
     });
     g.add(&er);
@@ -566,7 +762,7 @@ fn open_web_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>
     // here next to the engine — edited with the same "Set shortcut…" dialog as
     // every other shortcut.
     let shortcuts = adw::PreferencesGroup::builder()
-        .title(gettext("Keyboard Shortcuts"))
+        .title(gettext("On a Web Result"))
         .build();
     {
         let default = Config::default().private_search_shortcut;
@@ -578,7 +774,7 @@ fn open_web_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>
         let (row, _) = capture_shortcut_row(
             &dlg,
             &gettext("Search privately"),
-            &display_shortcut(&current),
+            "",
             cell,
             Rc::new(move || {
                 let mut c = cfg_k.borrow_mut();
@@ -591,6 +787,7 @@ fn open_web_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>
         page.add(&shortcuts);
     }
 
+    add_trigger_sections(&page, &dlg, config, "web");
     dlg.add(&page);
     dlg.present(Some(parent));
 }
@@ -606,7 +803,7 @@ fn open_apps_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>
         .build();
     let page = adw::PreferencesPage::builder().build();
     let g = adw::PreferencesGroup::builder()
-        .title(gettext("Keyboard Shortcuts"))
+        .title(gettext("On an App Result"))
         .build();
 
     for (title, field, default) in [
@@ -621,7 +818,7 @@ fn open_apps_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>
         let (row, _) = capture_shortcut_row(
             &dlg,
             &title,
-            &display_shortcut(&current),
+            "",
             cell,
             Rc::new(move || {
                 let mut c = cfg_k.borrow_mut();
@@ -633,15 +830,15 @@ fn open_apps_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>
         g.add(&row);
     }
     page.add(&g);
+    add_trigger_sections(&page, &dlg, config, "apps");
     dlg.add(&page);
     dlg.present(Some(parent));
 }
 
-/// The calculator settings as a popup: how results are shown and what
-/// Enter does with them.
+/// The calculator settings as a popup: how answers are shaped.
 fn open_calc_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>) {
     let dlg = adw::PreferencesDialog::builder()
-        .title(gettext("Calculator & Converter"))
+        .title(gettext("Calculator"))
         .content_width(440)
         .build();
     let page = adw::PreferencesPage::builder().build();
@@ -709,6 +906,20 @@ fn open_calc_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>
         }
         page.add(&g);
     }
+
+    add_trigger_sections(&page, &dlg, config, "calc");
+    dlg.add(&page);
+    dlg.present(Some(parent));
+}
+
+/// The converter settings as a popup: what it converts, how it is worded and
+/// what a conversion without a target answers with.
+fn open_convert_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>>) {
+    let dlg = adw::PreferencesDialog::builder()
+        .title(gettext("Converter"))
+        .content_width(440)
+        .build();
+    let page = adw::PreferencesPage::builder().build();
 
     // Conversions: what else the search box can answer.
     {
@@ -953,6 +1164,7 @@ fn open_calc_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Config>
         page.add(&g);
     }
 
+    add_trigger_sections(&page, &dlg, config, "convert");
     dlg.add(&page);
     dlg.present(Some(parent));
 }
@@ -1150,6 +1362,7 @@ fn open_updates_dialog(parent: &adw::PreferencesWindow, config: &Rc<RefCell<Conf
         page.add(&g3);
     }
 
+    add_trigger_sections(&page, &dlg, config, "updates");
     dlg.add(&page);
 
     // The status + ↻ keep refreshing while the popup is open, so a check
@@ -1207,89 +1420,6 @@ fn trigger_subtitle(enabled: bool, word: &str, shortcut: &str) -> String {
     }
 }
 
-/// Edit the global "Open Spotty" shortcut in its own dialog, mirroring the
-/// trigger edit windows. Reset only restores the built-in default — the
-/// launcher toggle always stays bound, only rebindable.
-fn open_spotty_edit_dialog(
-    parent: &adw::PreferencesWindow,
-    config: &Rc<RefCell<Config>>,
-    row: &adw::ActionRow,
-) {
-    let dialog = adw::Window::builder()
-        .transient_for(parent)
-        .modal(true)
-        .title(gettext("Edit \"Open Spotty\" shortcut"))
-        .default_width(640)
-        .default_height(600)
-        .build();
-
-    let toolbar = adw::ToolbarView::new();
-    let header = adw::HeaderBar::builder()
-        .title_widget(&adw::WindowTitle::new("Edit \"Open Spotty\" shortcut", ""))
-        .build();
-
-    let cancel_btn = gtk::Button::with_label("Cancel");
-    header.pack_start(&cancel_btn);
-    toolbar.add_top_bar(&header);
-
-    let scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .vexpand(true)
-        .build();
-    let content = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(12)
-        .margin_top(12)
-        .margin_bottom(12)
-        .margin_start(6)
-        .margin_end(6)
-        .build();
-
-    let group = adw::PreferencesGroup::builder()
-        .title(gettext("Keyboard Shortcut"))
-        .description(gettext("Shortcut to focus the Spotty launcher"))
-        .build();
-    let pending: Rc<RefCell<String>> = Rc::new(RefCell::new(config.borrow().shortcut.clone()));
-    let open_default = Config::default().shortcut;
-    let (sc_row, _sc_reset_btn) = {
-        let cfg_s = config.clone();
-        let row_s = row.clone();
-        let pending_s = pending.clone();
-        capture_shortcut_row(
-            &dialog,
-            "Open Spotty",
-            &display_shortcut(&pending.borrow()),
-            pending.clone(),
-            Rc::new(move || {
-                let val = pending_s.borrow().clone();
-                {
-                    let mut c = cfg_s.borrow_mut();
-                    c.shortcut = val.clone();
-                    c.save();
-                }
-                std::thread::spawn(crate::keybindings::register_all);
-                row_s.set_subtitle(&trigger_subtitle(true, "spotty", &val));
-            }),
-            &open_default,
-        )
-    };
-    group.add(&sc_row);
-    content.append(&group);
-
-    let clamp = adw::Clamp::builder().maximum_size(600).build();
-    clamp.set_child(Some(&content));
-    scroll.set_child(Some(&clamp));
-    toolbar.set_content(Some(&scroll));
-    dialog.set_content(Some(&toolbar));
-
-    {
-        let dialog_c = dialog.clone();
-        cancel_btn.connect_clicked(move |_| dialog_c.close());
-    }
-
-    dialog.present();
-}
-
 /// Build the Trigger settings page. Returns a refresh closure that rebuilds
 /// the trigger rows (used when the cached settings window is re-presented, so
 /// triggers installed meanwhile show up).
@@ -1298,103 +1428,110 @@ fn build_keywords_page(
     config: &Rc<RefCell<Config>>,
 ) -> Rc<dyn Fn()> {
     let page = adw::PreferencesPage::builder()
-        .title(gettext("Triggers"))
-        .icon_name("preferences-desktop-keyboard-symbolic")
+        .title(gettext("Search"))
+        .icon_name("system-search-symbolic")
         .build();
     window.add(&page);
 
+    // Result types and triggers in one list, in the user's order: the higher a
+    // row, the higher its results rank in the regular search.
+    // Group titles are markup: the "&" has to be escaped or the title vanishes.
     let g = adw::PreferencesGroup::builder()
-        .description(gettext("Edit trigger words, import a manifest with +, or delete installed triggers."))
+        .title(glib::markup_escape_text(&gettext("Results & Triggers")).as_str())
+        .description(gettext(
+            "Higher rows rank first in the regular search. Drag to reorder.",
+        ))
         .build();
     page.add(&g);
-
-    // Open Spotty shortcut — first row of the trigger list; clicking opens
-    // the edit dialog, matching the other trigger rows' UX.
-    let open_row = adw::ActionRow::builder()
-        .title(gettext("Open Spotty"))
-        .subtitle(&trigger_subtitle(true, "spotty", &config.borrow().shortcut))
-        .activatable(true)
-        .use_markup(false)
+    let other_group = adw::PreferencesGroup::builder()
+        .title(gettext("Only by Trigger Word"))
+        .description(gettext(
+            "Not shown in the regular search, so not ranked. Turn on \u{201c}Show in Regular Search\u{201d} to add one to the order above.",
+        ))
         .build();
-    open_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
-    {
-        let win = window.clone();
-        let cfg = config.clone();
-        let row = open_row.clone();
-        open_row.connect_activated(move |_| {
-            open_spotty_edit_dialog(&win, &cfg, &row);
-        });
-    }
-    g.add(&open_row);
+    page.add(&other_group);
+    OTHER_GROUP.with(|o| *o.borrow_mut() = Some(other_group));
 
     let rows: Rc<RefCell<Vec<TriggerRow>>> = Rc::new(RefCell::new(Vec::new()));
 
-    // Store: browse and install triggers straight from the repository (its
-    // URL is config-only and never shown). Local installs — create your own
-    // or import a downloaded manifest — live behind the + inside the store.
-    let store_row = adw::ActionRow::builder()
-        .title(gettext("Store"))
-        .subtitle(gettext("Browse and install triggers"))
-        .activatable(true)
-        .use_markup(false)
+    // The Store sits in the group header: browse, install and reinstall.
+    let store_btn = gtk::Button::builder()
+        .child(
+            &adw::ButtonContent::builder()
+                .icon_name(store_icon())
+                .label(gettext("Store"))
+                .build(),
+        )
+        .css_classes(["flat"])
+        .valign(gtk::Align::Center)
+        .tooltip_text(gettext("Browse, install and reinstall triggers"))
         .build();
-    store_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
     {
         let win = window.clone();
         let g2 = g.clone();
         let cfg = config.clone();
         let rows2 = rows.clone();
-        store_row.connect_activated(move |_| {
+        store_btn.connect_clicked(move |_| {
             store_dialog(&win, &g2, &cfg, &rows2);
         });
     }
-    g.add(&store_row);
+    g.set_header_suffix(Some(&store_btn));
 
-    // Reset as a compact icon button in the group header (adding triggers
-    // happens in the store now).
-    let header = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .spacing(4)
-        .build();
-    let reset_btn = gtk::Button::builder()
-        .icon_name("edit-undo-symbolic")
-        .css_classes(["flat"])
-        .valign(gtk::Align::Center)
-        .tooltip_text(gettext("Reset trigger words and shortcuts to defaults"))
+    // Reset: last on the page, behind a confirmation — it rewrites every
+    // built-in word and shortcut.
+    let reset_group = adw::PreferencesGroup::new();
+    let reset_row = adw::ButtonRow::builder()
+        .title(gettext("Reset Words and Shortcuts"))
         .build();
     {
         let cfg = config.clone();
         let win = window.clone();
         let g2 = g.clone();
         let rows2 = rows.clone();
-        let open_row2 = open_row.clone();
-        reset_btn.connect_clicked(move |_| {
-            let d = Config::default();
-            {
-                let mut c = cfg.borrow_mut();
-                for def in &d.command_keywords {
-                    if def.id == "cmd" {
-                        continue;
-                    }
-                    if let Some(existing) = c.command_keywords.iter_mut().find(|k| k.id == def.id) {
-                        existing.shortcut = def.shortcut.clone();
-                        existing.word = def.word.clone();
-                        existing.enabled = true;
-                    }
+        reset_row.connect_activated(move |_| {
+            let alert = adw::AlertDialog::builder()
+                .heading(gettext("Reset Words and Shortcuts?"))
+                .body(gettext(
+                    "Every built-in trigger and result type gets its original word and shortcut back, and paused ones are switched on.",
+                ))
+                .close_response("cancel")
+                .default_response("cancel")
+                .build();
+            alert.add_response("cancel", &gettext("Cancel"));
+            alert.add_response("reset", &gettext("Reset"));
+            alert.set_response_appearance("reset", adw::ResponseAppearance::Destructive);
+            let cfg = cfg.clone();
+            let win2 = win.clone();
+            let g3 = g2.clone();
+            let rows3 = rows2.clone();
+            alert.connect_response(None, move |_, response| {
+                if response != "reset" {
+                    return;
                 }
-                c.shortcut = d.shortcut.clone();
-                c.save();
+                let d = Config::default();
+                {
+                    let mut c = cfg.borrow_mut();
+                    for def in &d.command_keywords {
+                        if def.id == "cmd" {
+                            continue;
+                        }
+                        if let Some(existing) = c.command_keywords.iter_mut().find(|k| k.id == def.id) {
+                            existing.shortcut = def.shortcut.clone();
+                            existing.word = def.word.clone();
+                            existing.enabled = true;
+                        }
+                    }
+                    c.save();
+                }
                 std::thread::spawn(crate::keybindings::register_all);
-            }
-            rebuild_trigger_rows(&g2, &win, &cfg, &rows2);
-            open_row2.set_subtitle(&trigger_subtitle(true, "spotty", &d.shortcut));
-            win.add_toast(adw::Toast::new(
-                "Trigger words and shortcuts reset to defaults",
-            ));
+                rebuild_trigger_rows(&g3, &win2, &cfg, &rows3);
+                win2.add_toast(adw::Toast::new(&gettext("Words and shortcuts reset")));
+            });
+            alert.present(Some(&win));
         });
     }
-    header.append(&reset_btn);
-    g.set_header_suffix(Some(&header));
+    reset_group.add(&reset_row);
+    page.add(&reset_group);
 
     {
         let g = g.clone();
@@ -1408,7 +1545,231 @@ fn build_keywords_page(
     let window = window.clone();
     let config = config.clone();
     let rows = rows.clone();
-    Rc::new(move || rebuild_trigger_rows(&g, &window, &config, &rows))
+    let refresh: Rc<dyn Fn()> = Rc::new(move || rebuild_trigger_rows(&g, &window, &config, &rows));
+    TRIGGER_LIST_REFRESH.with(|r| *r.borrow_mut() = Some(refresh.clone()));
+    refresh
+}
+
+/// The symbolic icon at the start of every result and trigger row, so the
+/// list scans by shape as well as by name. Unknown names get a generic one.
+fn row_icon(name: &str) -> gtk::Image {
+    let name = if name == crate::config::STORE_ICON {
+        store_icon()
+    } else if !name.is_empty() && has_icon(name) {
+        name
+    } else {
+        "application-x-addon-symbolic"
+    };
+    gtk::Image::from_icon_name(name)
+}
+
+/// Spotty's store glyph — or Adwaita's legacy bag on an install that lacks
+/// Spotty's icon files.
+pub(crate) fn store_icon() -> &'static str {
+    if has_icon(crate::config::STORE_ICON) {
+        crate::config::STORE_ICON
+    } else {
+        "system-software-install-symbolic"
+    }
+}
+
+/// A result type's row: what it shows (or, for Updates, the live status),
+/// plus its word and shortcut once set; trash, switch and chevron like a
+/// trigger row. The switch is the result type's own on/off; the chevron opens
+/// its settings popup, which ends with the word and shortcut sections.
+fn result_type_row(
+    id: &'static str,
+    window: &adw::PreferencesWindow,
+    config: &Rc<RefCell<Config>>,
+) -> adw::ActionRow {
+    let (on, word, shortcut) = {
+        let c = config.borrow();
+        let kw = c.command_keywords.iter().find(|k| k.id == id);
+        (
+            c.result_enabled(id),
+            kw.map(|k| k.word.clone()).unwrap_or_default(),
+            kw.map(|k| k.shortcut.clone()).unwrap_or_default(),
+        )
+    };
+    let subtitle_for = move |on: bool| {
+        if id == "updates" {
+            result_subtitle(&crate::search::cmd::update_status_text(on), &word, &shortcut)
+        } else {
+            result_subtitle(&result_blurb(id), &word, &shortcut)
+        }
+    };
+    let row = adw::ActionRow::builder()
+        .title(result_title(id))
+        .subtitle(subtitle_for(on))
+        .activatable(true)
+        .use_markup(false)
+        .build();
+    let icon = config
+        .borrow()
+        .command_keywords
+        .iter()
+        .find(|k| k.id == id)
+        .map(|k| k.icon.clone())
+        .unwrap_or_default();
+    add_row_prefixes(&row, &icon, config.borrow().in_regular_search(id));
+    let switch = gtk::Switch::builder()
+        .active(on)
+        .valign(gtk::Align::Center)
+        .build();
+    row.add_suffix(&switch);
+    row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+    {
+        let cfg = config.clone();
+        switch.connect_active_notify(move |sw| {
+            let active = sw.is_active();
+            save_and_refresh(&cfg, |c| c.set_result_enabled(id, active));
+            // A switched-off result type's shortcut goes with it.
+            std::thread::spawn(crate::keybindings::register_all);
+        });
+    }
+    {
+        let win = window.clone();
+        let cfg = config.clone();
+        row.connect_activated(move |_| open_result_dialog(id, &win, &cfg));
+    }
+
+    if id == "updates" {
+        crate::search::cmd::ensure_updates_checked();
+        // Keep the status live: a background check landing updates the
+        // subtitle and the icon without the list being rebuilt. The tick ends
+        // with the row (a rebuild replaces it).
+        let row_c = row.clone();
+        let win = window.clone();
+        let cfg = config.clone();
+        glib::timeout_add_local(std::time::Duration::from_secs(1), move || {
+            if row_c.parent().is_none() {
+                return glib::ControlFlow::Break;
+            }
+            if win.is_visible() {
+                let enabled = cfg.borrow().enable_updates;
+                row_c.set_subtitle(&subtitle_for(enabled));
+            }
+            glib::ControlFlow::Continue
+        });
+    }
+    row
+}
+
+/// The start of every row: the icon, after a drag handle when the row is in
+/// the ordered list (shown in the regular search).
+fn add_row_prefixes(row: &adw::ActionRow, icon: &str, ordered: bool) {
+    let handle = gtk::Image::builder()
+        .icon_name("list-drag-handle-symbolic")
+        .css_classes(["dim-label"])
+        .tooltip_text(gettext("Drag to reorder (Alt+Up / Alt+Down)"))
+        .build();
+    // Prefixes stack from the title outwards: the last one added sits at the
+    // row's edge, where the handle belongs.
+    row.add_prefix(&row_icon(icon));
+    if ordered {
+        row.add_prefix(&handle);
+    }
+}
+
+/// Put `id` right before or after `anchor` in the saved order, then rebuild
+/// the list and keep the keyboard focus on the moved row.
+fn move_next_to(
+    config: &Rc<RefCell<Config>>,
+    rows: &Rc<RefCell<Vec<TriggerRow>>>,
+    id: &str,
+    anchor: &str,
+    after: bool,
+) {
+    if id == anchor {
+        return;
+    }
+    save_and_refresh(config, |c| {
+        let mut ids = c.ordered_ids();
+        if let Some(from) = ids.iter().position(|o| o == id) {
+            ids.remove(from);
+        }
+        if let Some(a) = ids.iter().position(|o| o == anchor) {
+            c.move_in_order(id, if after { a + 1 } else { a });
+        }
+    });
+    // Rebuild after the current event (a drop or key press is still being
+    // handled by a row the rebuild removes).
+    let rows = rows.clone();
+    let id = id.to_string();
+    glib::idle_add_local_once(move || {
+        refresh_trigger_list();
+        if let Some(tr) = rows.borrow().iter().find(|tr| tr.id == id) {
+            tr.row.grab_focus();
+        }
+    });
+}
+
+/// Make a list row reorderable: drag it onto another row (the upper half drops
+/// it before that row, the lower half after), or press Alt+Up / Alt+Down.
+fn make_reorderable(
+    row: &adw::ActionRow,
+    id: &str,
+    prev: Option<String>,
+    next: Option<String>,
+    config: &Rc<RefCell<Config>>,
+    rows: &Rc<RefCell<Vec<TriggerRow>>>,
+) {
+    let source = gtk::DragSource::builder()
+        .actions(gtk::gdk::DragAction::MOVE)
+        .build();
+    {
+        let id = id.to_string();
+        source.connect_prepare(move |_, _, _| {
+            Some(gtk::gdk::ContentProvider::for_value(&id.to_value()))
+        });
+    }
+    {
+        let row = row.clone();
+        source.connect_drag_begin(move |src, _| {
+            let icon = gtk::WidgetPaintable::new(Some(&row));
+            src.set_icon(Some(&icon), 0, 0);
+        });
+    }
+    row.add_controller(source);
+
+    let target = gtk::DropTarget::new(glib::Type::STRING, gtk::gdk::DragAction::MOVE);
+    {
+        let row_c = row.clone();
+        let id = id.to_string();
+        let cfg = config.clone();
+        let rows = rows.clone();
+        target.connect_drop(move |_, value, _x, y| {
+            let Ok(dragged) = value.get::<String>() else {
+                return false;
+            };
+            let after = y > f64::from(row_c.height()) / 2.0;
+            move_next_to(&cfg, &rows, &dragged, &id, after);
+            true
+        });
+    }
+    row.add_controller(target);
+
+    let keys = gtk::EventControllerKey::new();
+    {
+        let id = id.to_string();
+        let cfg = config.clone();
+        let rows = rows.clone();
+        keys.connect_key_pressed(move |_, key, _, state| {
+            if !state.contains(gtk::gdk::ModifierType::ALT_MASK) {
+                return glib::Propagation::Proceed;
+            }
+            let (anchor, after) = match key {
+                gtk::gdk::Key::Up => (prev.clone(), false),
+                gtk::gdk::Key::Down => (next.clone(), true),
+                _ => return glib::Propagation::Proceed,
+            };
+            if let Some(anchor) = anchor {
+                move_next_to(&cfg, &rows, &id, &anchor, after);
+            }
+            glib::Propagation::Stop
+        });
+    }
+    row.add_controller(keys);
 }
 
 /// Rebuild the trigger list (built-in keywords + installed triggers).
@@ -1420,13 +1781,37 @@ fn rebuild_trigger_rows(
     rows: &Rc<RefCell<Vec<TriggerRow>>>,
 ) {
     for tr in rows.borrow().iter() {
-        g.remove(&tr.row);
+        // Rows live in two groups (Results, Triggers): remove each from its own.
+        if let Some(group) = tr
+            .row
+            .ancestor(adw::PreferencesGroup::static_type())
+            .and_then(|w| w.downcast::<adw::PreferencesGroup>().ok())
+        {
+            group.remove(&tr.row);
+        }
     }
     rows.borrow_mut().clear();
+    // Built first, then added in the user's order (see the end).
+    let mut built: Vec<(String, adw::ActionRow)> = Vec::new();
 
     let keywords: Vec<CommandKeyword> = config.borrow().command_keywords.clone();
+
+    // Result types first: what the universal search shows.
+    for id in crate::config::RESULT_IDS {
+        if config.borrow().is_uninstalled(id) {
+            continue;
+        }
+        let row = result_type_row(id, window, config);
+        built.push((id.to_string(), row.clone()));
+        rows.borrow_mut().push(TriggerRow {
+            id: id.to_string(),
+            is_installed: false,
+            row,
+        });
+    }
+
     for kw in &keywords {
-        if kw.id == "cmd" {
+        if kw.id == "cmd" || kw.is_result() || config.borrow().is_uninstalled(&kw.id) {
             continue;
         }
         let row = adw::ActionRow::builder()
@@ -1435,6 +1820,7 @@ fn rebuild_trigger_rows(
             .activatable(true)
             .use_markup(false)
             .build();
+        add_row_prefixes(&row, &kw.icon, config.borrow().in_regular_search(&kw.id));
         let switch = gtk::Switch::builder()
             .active(kw.enabled)
             .valign(gtk::Align::Center)
@@ -1472,7 +1858,7 @@ fn rebuild_trigger_rows(
                 edit_trigger_dialog(&win, &g2, &cfg, &rows2, &id, false);
             });
         }
-        g.add(&row);
+        built.push((kw.id.clone(), row.clone()));
         rows.borrow_mut().push(TriggerRow {
             id: kw.id.clone(),
             is_installed: false,
@@ -1487,29 +1873,13 @@ fn rebuild_trigger_rows(
             .activatable(true)
             .use_markup(false)
             .build();
-        let del_btn = gtk::Button::builder()
-            .icon_name("user-trash-symbolic")
-            .css_classes(["flat", "circular"])
-            .valign(gtk::Align::Center)
-            .tooltip_text(gettext("Uninstall trigger"))
-            .build();
+        add_row_prefixes(&row, &a.icon, config.borrow().in_regular_search(&a.id));
         let switch = gtk::Switch::builder()
             .active(a.enabled)
             .valign(gtk::Align::Center)
             .build();
-        row.add_suffix(&del_btn);
         row.add_suffix(&switch);
         row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
-        {
-            let id = a.id.clone();
-            let win = window.clone();
-            let g2 = g.clone();
-            let cfg = config.clone();
-            let rows2 = rows.clone();
-            del_btn.connect_clicked(move |_| {
-                confirm_uninstall(&win, &g2, &cfg, &rows2, &id);
-            });
-        }
         {
             let id = a.id.clone();
             let cfg = config.clone();
@@ -1543,12 +1913,35 @@ fn rebuild_trigger_rows(
                 edit_trigger_dialog(&win, &g2, &cfg, &rows2, &id, true);
             });
         }
-        g.add(&row);
+        built.push((a.id.clone(), row.clone()));
         rows.borrow_mut().push(TriggerRow {
             id: a.id.clone(),
             is_installed: true,
             row: row.clone(),
         });
+    }
+
+    // Rows shown in the regular search: in the user's order, each draggable
+    // (and movable with Alt+Up/Down). The rest have no rank there, so they sit
+    // in their own group, by name.
+    let (mut ordered, mut others): (Vec<_>, Vec<_>) = built
+        .into_iter()
+        .partition(|(id, _)| config.borrow().in_regular_search(id));
+    let order = config.borrow().ordered_ids();
+    ordered.sort_by_key(|(id, _)| order.iter().position(|o| o == id).unwrap_or(usize::MAX));
+    for (i, (id, row)) in ordered.iter().enumerate() {
+        let prev = i.checked_sub(1).map(|p| ordered[p].0.clone());
+        let next = ordered.get(i + 1).map(|(n, _)| n.clone());
+        make_reorderable(row, id, prev, next, config, rows);
+        g.add(row);
+    }
+    others.sort_by_key(|(_, row)| row.title().to_lowercase());
+    let other_group = OTHER_GROUP.with(|o| o.borrow().clone());
+    for (_, row) in &others {
+        other_group.as_ref().unwrap_or(g).add(row);
+    }
+    if let Some(og) = other_group {
+        og.set_visible(!others.is_empty());
     }
 }
 
@@ -1743,7 +2136,21 @@ fn finish_trigger_install(
     cleanup: bool,
     on_done: Option<Rc<dyn Fn()>>,
 ) {
-    match crate::triggers::install_from_file(path) {
+    // Native manifests enable the shipped backend, preserving customized words,
+    // shortcuts and ordering. They are never copied into the custom registry.
+    let installed = crate::triggers::parse_manifest(path).and_then(|m| {
+        if matches!(m.action, crate::triggers::TriggerAction::Builtin) {
+            if !crate::triggers::BUILTIN_IDS.contains(&m.id.as_str())
+                || !config.borrow().command_keywords.iter().any(|k| k.id == m.id) {
+                return Err(format!("This version of Spotty does not support '{}'", m.id));
+            }
+            save_and_refresh(config, |c| c.install_builtin(&m.id));
+            Ok(m)
+        } else {
+            crate::triggers::install_from_file(path)
+        }
+    });
+    match installed {
         Ok(m) => {
             log::info!("triggers: installed {} (word: {})", m.id, m.word);
             rebuild_trigger_rows(g, window, config, rows);
@@ -2107,7 +2514,6 @@ fn server_trigger_row(
     rows: &Rc<RefCell<Vec<TriggerRow>>>,
     refresh: &Rc<dyn Fn()>,
 ) -> gtk::ListBoxRow {
-    let row = gtk::ListBoxRow::new();
     let subtitle = if t.description.is_empty() {
         t.word.clone()
     } else if t.word.is_empty() {
@@ -2125,7 +2531,46 @@ fn server_trigger_row(
         img.set_pixel_size(24);
         action.add_prefix(&img);
     }
-    if crate::triggers::by_id(&t.id).is_some() {
+    if t.builtin {
+        let supported = crate::triggers::BUILTIN_IDS.contains(&t.id.as_str())
+            && config.borrow().command_keywords.iter().any(|k| k.id == t.id);
+        let uninstalled = config.borrow().is_uninstalled(&t.id);
+        let label = if t.id == "cmd" {
+            gettext("Installed")
+        } else if !supported {
+            gettext("Unavailable")
+        } else if uninstalled {
+            gettext("Install")
+        } else {
+            gettext("Uninstall")
+        };
+        let btn = gtk::Button::builder()
+            .label(label)
+            .css_classes([if uninstalled { "suggested-action" } else { "flat" }])
+            .valign(gtk::Align::Center)
+            .sensitive(supported && t.id != "cmd")
+            .build();
+        let id = t.id.clone();
+        let name = t.name.clone();
+        let win = window.clone();
+        let g2 = g.clone();
+        let cfg = config.clone();
+        let rows2 = rows.clone();
+        let refresh = refresh.clone();
+        btn.connect_clicked(move |_| {
+            save_and_refresh(&cfg, |c| {
+                if uninstalled { c.install_builtin(&id); }
+                else { c.uninstall_builtin(&id); }
+            });
+            rebuild_trigger_rows(&g2, &win, &cfg, &rows2);
+            std::thread::spawn(crate::keybindings::register_all);
+            let text = if uninstalled { gettext("Installed \"{name}\"") }
+                else { gettext("Removed \"{name}\"") };
+            win.add_toast(adw::Toast::new(&text.replace("{name}", &name)));
+            refresh();
+        });
+        action.add_suffix(&btn);
+    } else if crate::triggers::by_id(&t.id).is_some() {
         let uninstall = gtk::Button::builder()
             .label(gettext("Uninstall"))
             .css_classes(["flat"])
@@ -2217,8 +2662,7 @@ fn server_trigger_row(
         }
         action.add_suffix(&install);
     }
-    row.set_child(Some(&action));
-    row
+    action.upcast()
 }
 
 /// The Trigger Store: fetch the repository index, search it, and install
@@ -2244,8 +2688,6 @@ fn store_dialog(
     let header = adw::HeaderBar::builder()
         .title_widget(&adw::WindowTitle::new("Trigger Store", ""))
         .build();
-    let close_btn = gtk::Button::with_label("Close");
-    header.pack_start(&close_btn);
     // Local installs: create your own trigger or import a downloaded
     // manifest — both live in the create dialog behind this +.
     let add_btn = gtk::Button::builder()
@@ -2276,19 +2718,17 @@ fn store_dialog(
     let search = gtk::SearchEntry::builder()
         .placeholder_text(gettext("Search triggers"))
         .build();
-    content.append(&search);
+    content.append(
+        &adw::Clamp::builder()
+            .maximum_size(600)
+            .child(&search)
+            .build(),
+    );
 
     let list_box = gtk::ListBox::builder()
-        .css_classes(["spotty-flat-list"])
+        .css_classes(["boxed-list"])
         .selection_mode(gtk::SelectionMode::None)
         .build();
-    let scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .vexpand(true)
-        .propagate_natural_height(true)
-        .child(&list_box)
-        .build();
-
     let loading_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(12)
@@ -2317,13 +2757,22 @@ fn store_dialog(
         .icon_name("dialog-error-symbolic")
         .build();
 
-    let stack = gtk::Stack::new();
+    let stack = gtk::Stack::builder().vhomogeneous(false).build();
     stack.add_named(&loading_box, Some("loading"));
-    stack.add_named(&scroll, Some("list"));
+    stack.add_named(&list_box, Some("list"));
     stack.add_named(&empty_page, Some("empty"));
     stack.add_named(&error_page, Some("error"));
     stack.set_visible_child_name("loading");
-    content.append(&stack);
+    let clamp = adw::Clamp::builder()
+        .maximum_size(600)
+        .child(&stack)
+        .build();
+    let scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .child(&clamp)
+        .build();
+    content.append(&scroll);
 
     let items: Rc<RefCell<Vec<crate::triggers::RepoTrigger>>> =
         Rc::new(RefCell::new(Vec::new()));
@@ -2350,11 +2799,9 @@ fn store_dialog(
 
     {
         let render = render.clone();
-        search.connect_changed(move |_| render());
-    }
-    {
-        let d = dialog.clone();
-        close_btn.connect_clicked(move |_| d.close());
+        search.connect_changed(move |_| {
+            render();
+        });
     }
     {
         let win = window.clone();
@@ -2511,45 +2958,13 @@ fn edit_trigger_dialog(
             .unwrap_or_else(|| word.clone())
     };
 
-    let dialog = adw::Window::builder()
-        .transient_for(window)
-        .modal(false)
-        .title(gettext("Edit \"{name}\" trigger").replace("{name}", &name))
-        .default_width(640)
-        .default_height(600)
+    // A libadwaita preferences dialog, like the result types' popups: every
+    // change saves as it is made, so there is nothing to confirm or cancel.
+    let dialog = adw::PreferencesDialog::builder()
+        .title(&name)
+        .content_width(480)
         .build();
-
-    let toolbar = adw::ToolbarView::new();
-    let header = adw::HeaderBar::builder()
-        .title_widget(&adw::WindowTitle::new(&gettext("Edit \"{name}\" trigger").replace("{name}", &name), ""))
-        .build();
-
-    let cancel_btn = gtk::Button::with_label("Cancel");
-    header.pack_start(&cancel_btn);
-
-    let uninstall_btn: Option<gtk::Button> = if is_installed {
-        let b = gtk::Button::with_label("Uninstall");
-        b.add_css_class("destructive-action");
-        header.pack_start(&b);
-        Some(b)
-    } else {
-        None
-    };
-    toolbar.add_top_bar(&header);
-
-    let clamp = adw::Clamp::builder().maximum_size(600).build();
-    let scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .vexpand(true)
-        .build();
-    let content = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(12)
-        .margin_top(12)
-        .margin_bottom(12)
-        .margin_start(6)
-        .margin_end(6)
-        .build();
+    let content = adw::PreferencesPage::new();
 
     // ── Trigger group ─────────────────────────────────────────────────
     let trigger_group = adw::PreferencesGroup::new();
@@ -2564,12 +2979,12 @@ fn edit_trigger_dialog(
         .build();
     trigger_group.add(&enabled_row);
     let entry = adw::EntryRow::builder()
-        .title(gettext("Trigger word"))
+        .title(gettext("Word"))
         .text(&word)
         .use_markup(false)
         .build();
     trigger_group.add(&entry);
-    content.append(&trigger_group);
+    content.add(&trigger_group);
 
     // ── Pending state (auto-saved on every change) ─────────────────────
     let pending_shortcut: Rc<RefCell<String>> = Rc::new(RefCell::new(shortcut.clone()));
@@ -2646,10 +3061,7 @@ fn edit_trigger_dialog(
         });
     }
 
-    // ── Shortcut group ──────────────────────────────────────────────
-    let shortcut_group = adw::PreferencesGroup::builder()
-        .title(gettext("Keyboard Shortcut"))
-        .build();
+    // ── Shortcut: in the trigger group, under the word ───────────────
     let shortcut_default = Config::default()
         .command_keywords
         .iter()
@@ -2658,18 +3070,22 @@ fn edit_trigger_dialog(
         .unwrap_or_else(|| shortcut.clone());
     let (short_row, _) = capture_shortcut_row(
         &dialog,
-        "Keyboard shortcut",
-        &display_shortcut(&pending_shortcut.borrow()),
+        &gettext("Shortcut"),
+        &name,
         pending_shortcut.clone(),
         apply.clone(),
         &shortcut_default,
     );
-    shortcut_group.add(&short_row);
-    content.append(&shortcut_group);
+    trigger_group.add(&short_row);
+    // Reachable by its word — and, if the user wants, from the regular search.
+    if id != "cmd" {
+        let (regular_row, _) = regular_search_row(config, &id);
+        trigger_group.add(&regular_row);
+    }
 
     if is_clipboard {
         let clip_group = adw::PreferencesGroup::builder().title(gettext("Clipboard")).build();
-        content.append(&clip_group);
+        content.add(&clip_group);
 
         // History Limit
         let limit_label = gtk::Label::new(Some(
@@ -2758,7 +3174,7 @@ fn edit_trigger_dialog(
         let (_pin_row, _) = capture_shortcut_row(
             &dialog,
             "Pin / Unpin Shortcut",
-            &display_shortcut(&config.borrow().clipboard_pin_shortcut),
+            "",
             pending_pin_shortcut.clone(),
             apply.clone(),
             &Config::default().clipboard_pin_shortcut,
@@ -2768,7 +3184,7 @@ fn edit_trigger_dialog(
 
     if is_find {
         let find_group = adw::PreferencesGroup::builder().title(gettext("Find")).build();
-        content.append(&find_group);
+        content.add(&find_group);
 
         let root_row = adw::SwitchRow::builder()
             .title(gettext("Root Path Browsing"))
@@ -2807,7 +3223,7 @@ fn edit_trigger_dialog(
         let (delete_row, _) = capture_shortcut_row(
             &dialog,
             &gettext("Delete file / folder"),
-            &display_shortcut(&config.borrow().delete_file_shortcut),
+            "",
             pending_delete_file.clone(),
             apply.clone(),
             &Config::default().delete_file_shortcut,
@@ -2817,7 +3233,7 @@ fn edit_trigger_dialog(
         let (open_loc_row, _) = capture_shortcut_row(
             &dialog,
             &gettext("Open location in file manager"),
-            &display_shortcut(&config.borrow().open_location_shortcut),
+            "",
             pending_open_location.clone(),
             apply.clone(),
             &Config::default().open_location_shortcut,
@@ -2828,7 +3244,7 @@ fn edit_trigger_dialog(
         let (terminal_row, _) = capture_shortcut_row(
             &dialog,
             &gettext("Open folder in terminal"),
-            &display_shortcut(&config.borrow().terminal_shortcut),
+            "",
             pending_terminal.clone(),
             apply.clone(),
             &Config::default().terminal_shortcut,
@@ -2836,10 +3252,7 @@ fn edit_trigger_dialog(
         find_group.add(&terminal_row);
     }
 
-    clamp.set_child(Some(&content));
-    scroll.set_child(Some(&clamp));
-    toolbar.set_content(Some(&scroll));
-    dialog.set_content(Some(&toolbar));
+    dialog.add(&content);
 
     // Trigger word: reset button appears only once the word differs from
     // the default; auto-save, debounced so intermediate keystrokes ("f"
@@ -2847,8 +3260,9 @@ fn edit_trigger_dialog(
     {
         let original_word = default_word;
         let reset_btn = gtk::Button::builder()
-            .label(gettext("Reset"))
-            .css_classes(["flat", "spotty-reset"])
+            .icon_name("edit-undo-symbolic")
+            .css_classes(["flat", "circular"])
+            .tooltip_text(gettext("Reset to Default"))
             .valign(gtk::Align::Center)
             .build();
         reset_btn.set_visible(word.trim().to_lowercase() != original_word.trim().to_lowercase());
@@ -2869,7 +3283,7 @@ fn edit_trigger_dialog(
         let entry_cl = entry.clone();
         let entry_changed = entry.clone();
         let apply_c = apply.clone();
-        let win_c = window.clone();
+        let win_c = dialog.clone();
         let id_c = id.clone();
         let cfg_c = config.clone();
         let reset_c = reset_btn.clone();
@@ -2914,25 +3328,24 @@ fn edit_trigger_dialog(
         });
     }
 
-    cancel_btn.connect_clicked({
-        let dialog = dialog.clone();
-        move |_| dialog.close()
-    });
-
-    let win_c = window.clone();
-    let g_c = g.clone();
-    let cfg_c = config.clone();
-    let rows_c = rows.clone();
-    if let Some(uninstall_btn) = uninstall_btn {
-        let dialog_c = dialog.clone();
+    // Last: Uninstall. A repository trigger goes through its confirmation;
+    // a built-in one leaves the list and waits in the Store.
+    if id != "cmd" {
+        let g_c = g.clone();
+        let cfg_c = config.clone();
+        let rows_c = rows.clone();
         let id_c = id.clone();
-        uninstall_btn.connect_clicked(move |_| {
-            confirm_uninstall(&win_c, &g_c, &cfg_c, &rows_c, &id_c);
-            dialog_c.close();
-        });
+        content.add(&uninstall_group(&dialog, &name, move |win| {
+            let Some(win) = win else { return };
+            if is_installed {
+                confirm_uninstall(&win, &g_c, &cfg_c, &rows_c, &id_c);
+            } else {
+                uninstall_builtin_from_list(&win, &cfg_c, &id_c);
+            }
+        }));
     }
 
-    dialog.present();
+    dialog.present(Some(window));
 }
 
 /// True when another trigger (built-in or trigger) already uses `word`.
@@ -3036,6 +3449,30 @@ fn set_shortcut(cfg: &mut Config, field: &str, value: &str) {
 
 /// Human ("Ctrl+Shift+Z") -> GTK ("<Control><Shift>Z") accelerator form;
 /// values already in GTK form pass through unchanged.
+/// A stored shortcut ("Super+Space", "<Control>z") as an accelerator GTK can
+/// parse, for display. GTK key names are case-sensitive ("space", "Return"),
+/// and the stored human form isn't always spelled that way: try as written,
+/// then with the key lowercased. Empty (or unparseable) shows as disabled.
+fn gtk_accelerator(value: &str) -> String {
+    if value.is_empty() {
+        return String::new();
+    }
+    let accel = normalize_accel(value);
+    if gtk::accelerator_parse(&accel).is_some() {
+        return accel;
+    }
+    let (mods, key) = match accel.rfind('>') {
+        Some(i) => accel.split_at(i + 1),
+        None => ("", accel.as_str()),
+    };
+    let lower = format!("{mods}{}", key.to_lowercase());
+    if gtk::accelerator_parse(&lower).is_some() {
+        lower
+    } else {
+        String::new()
+    }
+}
+
 pub(crate) fn normalize_accel(s: &str) -> String {
     // Already GTK form ("<Control><Shift>z") — decided by looking at the
     // string rather than by asking GTK, so this stays usable (and testable)
@@ -3071,183 +3508,203 @@ fn display_shortcut(s: &str) -> String {
 fn capture_shortcut_row(
     parent: &impl IsA<gtk::Widget>,
     title: &str,
-    current: &str,
+    feature: &str,
     pending: Rc<RefCell<String>>,
     on_change: Rc<dyn Fn()>,
     default: &str,
 ) -> (adw::ActionRow, gtk::Button) {
+    // GNOME Settings' keyboard-shortcut row: the whole row opens the capture
+    // dialog, the shortcut sits on the right as keycaps (or "Disabled"), and a
+    // reset icon appears once it differs from the default.
     let row = adw::ActionRow::builder()
         .title(title)
-        .subtitle(if current.is_empty() {
-            "No shortcut"
-        } else {
-            current
-        })
+        .activatable(true)
         .use_markup(false)
         .build();
-
-    // Reset → back to the built-in default. Only visible while the pending
-    // value differs from the default (i.e. the shortcut was customized).
-    let reset_btn = gtk::Button::builder()
-        .label(gettext("Reset"))
-        .css_classes(["flat", "spotty-reset"])
+    let label = gtk::ShortcutLabel::builder()
+        .disabled_text(gettext("Disabled"))
         .valign(gtk::Align::Center)
         .build();
+    let show = {
+        let label = label.clone();
+        move |value: &str| label.set_accelerator(&gtk_accelerator(value))
+    };
+    show(&pending.borrow());
+    let reset_btn = gtk::Button::builder()
+        .icon_name("edit-undo-symbolic")
+        .css_classes(["flat", "circular"])
+        .valign(gtk::Align::Center)
+        .tooltip_text(if default.is_empty() {
+            gettext("Remove Shortcut")
+        } else {
+            gettext("Reset to Default")
+        })
+        .build();
     reset_btn.set_visible(pending.borrow().as_str() != default);
+    row.add_suffix(&label);
     row.add_suffix(&reset_btn);
     {
         let pending_c = pending.clone();
-        let row_c = row.clone();
         let reset_c = reset_btn.clone();
         let on_change_c = on_change.clone();
         let default_c = default.to_string();
+        let show = show.clone();
         reset_btn.connect_clicked(move |_| {
             *pending_c.borrow_mut() = default_c.clone();
-            row_c.set_subtitle(&display_shortcut(&default_c));
+            show(&default_c);
             reset_c.set_visible(false);
             on_change_c();
         });
     }
-
-    let set_btn = gtk::Button::builder()
-        .label(gettext("Set shortcut…"))
-        .css_classes(["flat"])
-        .valign(gtk::Align::Center)
-        .build();
-    row.add_suffix(&set_btn);
-
-    // Set → GNOME's "Set Shortcut" capture dialog.
     {
-        let pending_s = pending.clone();
-        let row_s = row.clone();
+        // Activating the row → GNOME's "Set Shortcut" capture dialog.
         let parent_s = parent.clone();
-        let on_change_s = on_change.clone();
+        // The capture dialog names what is being changed: the feature when
+        // the row's own title is generic ("Shortcut"), else the title.
+        let title_s = if feature.is_empty() { title } else { feature }.to_string();
         let reset_s = reset_btn.clone();
         let default_s = default.to_string();
-        let title_s = title.to_string();
-        let current_s = current.to_string();
-        set_btn.connect_clicked(move |_| {
-            let p = parent_s.clone();
-            let pending_k = pending_s.clone();
-            let row_k = row_s.clone();
+        row.connect_activated(move |_| {
+            let pending_k = pending.clone();
             let reset_k = reset_s.clone();
-            let on_change_k = on_change_s.clone();
+            let on_change_k = on_change.clone();
             let default_k = default_s.clone();
+            let show_k = show.clone();
             let on_accept: Rc<dyn Fn(Option<String>)> = Rc::new(move |captured| {
                 // `None` is Backspace in the dialog: the shortcut is disabled.
                 let value = captured.unwrap_or_default();
                 *pending_k.borrow_mut() = value.clone();
-                let shown = if value.is_empty() {
-                    gettext("No shortcut")
-                } else {
-                    display_shortcut(&value)
-                };
-                row_k.set_subtitle(&shown);
-                reset_k.set_visible(!value.is_empty() && value != default_k);
+                show_k(&value);
+                reset_k.set_visible(value != default_k);
                 on_change_k();
             });
-            shortcut_capture_dialog(&p, &title_s, &current_s, on_accept);
+            shortcut_capture_dialog(&parent_s, &title_s, on_accept);
         });
     }
     (row, reset_btn)
 }
 
-/// GNOME's "Set Shortcut" dialog: a modal window that captures the next key
-/// press and shows it as keycaps, exactly like the keyboard-shortcut editors in
-/// GNOME's own apps.
+/// GNOME's "Set Shortcut" dialog: a modal window that waits for the next key
+/// press, dressed like GNOME's own shortcut editors — a centered "Set Shortcut"
+/// title with a round × close, an illustration of three arrows raining keys
+/// down onto a pile of keycaps, and no buttons anywhere.
 ///
 /// * modifiers alone are shown as they are pressed, but never accepted
-/// * Esc cancels, Backspace disables the shortcut
-/// * a combination is confirmed with Set (or Replace), enabled once a valid one
-///   has been captured
+/// * Esc (or the ×) cancels, Backspace disables the shortcut
+/// * a valid combination applies itself immediately and closes the dialog
 ///
 /// `on_accept` gets `Some(accelerator)` for a new combination and `None` when
 /// the shortcut was disabled. The value is in human form ("Ctrl+Shift+T"), the
 /// same form the rows display — [`set_shortcut`] normalises it for the config.
+/// `feature` is the raw feature name, shown bold in the caption line.
 fn shortcut_capture_dialog(
     parent: &impl IsA<gtk::Widget>,
-    title: &str,
-    current: &str,
+    feature: &str,
     on_accept: Rc<dyn Fn(Option<String>)>,
 ) {
     let mut builder = adw::Window::builder()
         .modal(true)
         .resizable(false)
-        .default_width(400);
+        .default_width(404);
     if let Some(host) = parent_window(parent) {
         builder = builder.transient_for(&host);
     }
     let window = builder.build();
 
-    let cancel = gtk::Button::builder()
-        .label(gettext("Cancel"))
-        .css_classes(["flat"])
+    // Chrome: the dialog's name dead center, a circular × to close it, and
+    // nothing else — Esc cancels, Backspace disables, and a valid
+    // combination is its own confirmation.
+    let close = gtk::Button::builder()
+        .icon_name("window-close-symbolic")
+        .css_classes(["flat", "spotty-close-round"])
+        .tooltip_text(gettext("Close"))
+        .valign(gtk::Align::Center)
         .build();
-    let accept = gtk::Button::builder()
-        .label(gettext("Set shortcut"))
-        .css_classes(["suggested-action"])
-        .sensitive(false)
+    {
+        let win = window.clone();
+        close.connect_clicked(move |_| win.close());
+    }
+    let title = gtk::Label::builder()
+        .label(gettext("Set Shortcut"))
+        .css_classes(["spotty-shortcut-title"])
+        .halign(gtk::Align::Center)
+        .hexpand(true)
         .build();
-    let header = adw::HeaderBar::builder().build();
-    header.pack_start(&cancel);
-    header.pack_end(&accept);
+    // A spacer as wide as the round × keeps the title truly centered.
+    let title_spacer = gtk::Box::builder().width_request(22).build();
+    let title_row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(6)
+        .margin_start(12)
+        .margin_end(12)
+        .margin_top(8)
+        .build();
+    title_row.append(&title_spacer);
+    title_row.append(&title);
+    title_row.append(&close);
 
-    let heading = gtk::Label::builder()
-        .label(title)
+    // "Enter new shortcut to change **Feature name**" — the template keeps
+    // the sentence whole for translators; the name arrives bold and escaped.
+    // Left-aligned, like the reference dialog: only the title is centered.
+    let caption = gtk::Label::builder()
         .wrap(true)
-        .justify(gtk::Justification::Center)
-        .css_classes(["title-4"])
-        .margin_top(18)
-        .margin_bottom(6)
+        .xalign(0.0)
+        .justify(gtk::Justification::Left)
+        .margin_start(28)
+        .margin_end(28)
+        .margin_top(20)
+        .margin_bottom(4)
         .build();
+    caption.set_markup(&shortcut_caption(
+        &gettext("Enter new shortcut to change {name}"),
+        feature,
+    ));
+
+    // Waiting: GNOME's keys-and-arrows illustration. The stack is homogeneous
+    // in both directions, so switching to the captured keycaps doesn't resize
+    // the dialog.
+    let waiting = shortcut_illustration();
+    waiting.set_margin_top(40);
+
     let keycaps = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .halign(gtk::Align::Center)
-        .margin_bottom(12)
+        .valign(gtk::Align::Center)
         .build();
+    let stage = gtk::Stack::builder()
+        .hhomogeneous(true)
+        .vhomogeneous(true)
+        .build();
+    stage.add_named(&waiting, Some("waiting"));
+    stage.add_named(&keycaps, Some("captured"));
+    stage.set_visible_child_name("waiting");
+
     let hint = gtk::Label::builder()
-        .label(gettext("Press Esc to cancel or Backspace to disable"))
+        .label(gettext("Press Esc to cancel or Backspace to disable the keyboard shortcut"))
         .wrap(true)
-        .justify(gtk::Justification::Center)
+        .xalign(0.0)
+        .justify(gtk::Justification::Left)
         .css_classes(["spotty-shortcut-hint"])
-        .margin_bottom(18)
+        .margin_start(28)
+        .margin_end(28)
+        .margin_top(34)
+        .margin_bottom(28)
         .build();
     let body = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .halign(gtk::Align::Fill)
         .build();
-    body.append(&heading);
-    body.append(&keycaps);
+    body.append(&title_row);
+    body.append(&caption);
+    body.append(&stage);
     body.append(&hint);
     window.set_content(Some(&body));
-
-    // Until something is captured, show what the shortcut is now — dimmed, so
-    // it reads as "this is what you're replacing".
-    render_keycaps(&keycaps, keycap_parts(current), true);
-
-    let current_owned = current.to_string();
-    let captured: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
-    {
-        let win = window.clone();
-        cancel.connect_clicked(move |_| win.close());
-    }
-    {
-        let win = window.clone();
-        let captured_k = captured.clone();
-        let on_accept_k = on_accept.clone();
-        accept.connect_clicked(move |_| {
-            let value = captured_k.borrow().clone();
-            on_accept_k(value);
-            win.close();
-        });
-    }
 
     let kc = gtk::EventControllerKey::new();
     {
         let win = window.clone();
-        let captured_k = captured.clone();
+        let stage_k = stage.clone();
         let keycaps_k = keycaps.clone();
-        let accept_k = accept.clone();
         let on_accept_k = on_accept.clone();
         kc.connect_key_pressed(move |_, key, _, state| {
             use gtk::gdk::{Key, ModifierType};
@@ -3261,28 +3718,11 @@ fn shortcut_capture_dialog(
                 win.close();
                 return glib::Propagation::Stop;
             }
+            let default_mods = gtk::accelerator_get_default_mod_mask();
+            let mods = state & default_mods;
             // Modifiers on their own are not a shortcut: show them, keep
             // waiting, exactly like GNOME does.
-            let modifier_only = matches!(
-                key,
-                Key::Control_L
-                    | Key::Control_R
-                    | Key::Shift_L
-                    | Key::Shift_R
-                    | Key::Alt_L
-                    | Key::Alt_R
-                    | Key::Super_L
-                    | Key::Super_R
-                    | Key::Meta_L
-                    | Key::Meta_R
-                    | Key::Caps_Lock
-                    | Key::Num_Lock
-                    | Key::Scroll_Lock
-                    | Key::ISO_Level3_Shift
-            );
-            let default_mods = gtk::accelerator_get_default_mod_mask();
-            let mods = default_mods.union(state & default_mods);
-            if modifier_only {
+            if is_modifier_key(key) {
                 let mut parts: Vec<String> = Vec::new();
                 for (mask, label) in [
                     (ModifierType::CONTROL_MASK, "Ctrl"),
@@ -3295,11 +3735,23 @@ fn shortcut_capture_dialog(
                         parts.push(label.to_string());
                     }
                 }
-                render_keycaps(&keycaps_k, parts, true);
+                // A lock key on its own (Caps Lock…) is not worth replacing
+                // the illustration for.
+                if !parts.is_empty() {
+                    stage_k.set_visible_child_name("captured");
+                    render_keycaps(&keycaps_k, parts, true);
+                }
                 return glib::Propagation::Stop;
             }
-            // A bare letter is not a shortcut GTK will ever deliver back as an
-            // accelerator; leave the previous capture alone.
+            // A shortcut needs a modifier, or a key that stands on its own
+            // (the function row, the media keys) — `accelerator_valid` says
+            // yes to a bare letter, so this is the line gnome-control-center
+            // draws: a stray keypress must never capture anything.
+            if mods.is_empty() && !key_stands_alone(key) {
+                return glib::Propagation::Stop;
+            }
+            // GTK's own exclusions: Tab, the lock and ISO keys — never an
+            // accelerator, whatever else is held.
             if !gtk::accelerator_valid(key, mods) {
                 return glib::Propagation::Stop;
             }
@@ -3307,19 +3759,203 @@ fn shortcut_capture_dialog(
             if combo.is_empty() {
                 return glib::Propagation::Stop;
             }
-            *captured_k.borrow_mut() = Some(combo.clone());
-            render_keycaps(&keycaps_k, keycap_parts(&combo), false);
-            accept_k.set_label(&if current_owned.is_empty() {
-                gettext("Set shortcut")
-            } else {
-                gettext("Replace shortcut")
-            });
-            accept_k.set_sensitive(true);
+            // No buttons in this dialog: a valid combination confirms itself,
+            // exactly like GNOME's — apply it and close.
+            on_accept_k(Some(combo));
+            win.close();
             glib::Propagation::Stop
+        });
+    }
+    // Letting go of the last modifier returns to the illustration; keeping
+    // one held keeps its keycaps on screen.
+    {
+        let stage_k = stage.clone();
+        let keycaps_k = keycaps.clone();
+        kc.connect_key_released(move |_, key, _, state| {
+            let Some(mask) = modifier_mask(key) else {
+                return;
+            };
+            // Whether the event's state still carries the released bit or
+            // not, stripping it here gives the same answer: what is left.
+            let held = state & gtk::accelerator_get_default_mod_mask() & !mask;
+            if held.is_empty() {
+                stage_k.set_visible_child_name("waiting");
+                return;
+            }
+            let mut parts: Vec<String> = Vec::new();
+            for (m, label) in [
+                (gtk::gdk::ModifierType::CONTROL_MASK, "Ctrl"),
+                (gtk::gdk::ModifierType::ALT_MASK, "Alt"),
+                (gtk::gdk::ModifierType::SHIFT_MASK, "Shift"),
+                (gtk::gdk::ModifierType::SUPER_MASK, "Super"),
+                (gtk::gdk::ModifierType::META_MASK, "Meta"),
+            ] {
+                if held.contains(m) {
+                    parts.push(label.to_string());
+                }
+            }
+            render_keycaps(&keycaps_k, parts, true);
         });
     }
     window.add_controller(kc);
     window.present();
+}
+
+/// Whether a pressed key is only a modifier — never a shortcut on its own.
+fn is_modifier_key(key: gtk::gdk::Key) -> bool {
+    use gtk::gdk::Key;
+    matches!(
+        key,
+        Key::Control_L
+            | Key::Control_R
+            | Key::Shift_L
+            | Key::Shift_R
+            | Key::Alt_L
+            | Key::Alt_R
+            | Key::Super_L
+            | Key::Super_R
+            | Key::Meta_L
+            | Key::Meta_R
+            | Key::Caps_Lock
+            | Key::Num_Lock
+            | Key::Scroll_Lock
+            | Key::ISO_Level3_Shift
+    )
+}
+
+/// The mask a released key contributes to a shortcut's modifier set. The lock
+/// keys contribute nothing, so their releases are ignored.
+fn modifier_mask(key: gtk::gdk::Key) -> Option<gtk::gdk::ModifierType> {
+    use gtk::gdk::{Key, ModifierType};
+    match key {
+        Key::Control_L | Key::Control_R => Some(ModifierType::CONTROL_MASK),
+        Key::Shift_L | Key::Shift_R => Some(ModifierType::SHIFT_MASK),
+        Key::Alt_L | Key::Alt_R => Some(ModifierType::ALT_MASK),
+        Key::Super_L | Key::Super_R => Some(ModifierType::SUPER_MASK),
+        Key::Meta_L | Key::Meta_R => Some(ModifierType::META_MASK),
+        _ => None,
+    }
+}
+
+/// Whether a key may form a shortcut with no modifier held: keys that have no
+/// character of their own — the function row, Print, the media keys — while
+/// printable keys and arrows always need a modifier. That is the line
+/// gnome-control-center draws: a stray keypress must never capture.
+fn key_stands_alone(key: gtk::gdk::Key) -> bool {
+    use gtk::gdk::Key;
+    key.to_unicode().is_none()
+        && !matches!(key, Key::Left | Key::Right | Key::Up | Key::Down)
+}
+
+/// The dialog's illustration, drawn to GNOME's measurements: three staggered
+/// rows of seven rounded keys (28×13, a 34px pitch, each row 10px lower and
+/// 6px further right) with three straight ↓ arrows dropping onto them in turn.
+/// Keys are painted back to front, each first clearing a 2px outline into the
+/// rows behind it, so the gaps show the window through in either theme.
+fn shortcut_illustration() -> gtk::DrawingArea {
+    const HEAP_W: f64 = 244.0;
+    const HEAP_TOP: f64 = 44.0;
+    // Arrow stems relative to the heap's left edge, as in the reference.
+    const ARROWS_X: [f64; 3] = [47.5, 117.5, 219.0];
+    let area = gtk::DrawingArea::builder()
+        .content_height(80)
+        .hexpand(true)
+        .build();
+    area.set_draw_func(|w, cr, width, _| {
+        let fg = w.color();
+        let ox = ((width as f64 - HEAP_W) / 2.0).round();
+        // Seconds since the dialog's frame clock started; 0 before mapping.
+        let now = w
+            .frame_clock()
+            .map_or(0.0, |c| c.frame_time() as f64 / 1_000_000.0);
+
+        cr.push_group();
+        for row in 0..3 {
+            for k in 0..7 {
+                let x = ox + 6.0 * row as f64 + 34.0 * k as f64;
+                let y = HEAP_TOP + 10.0 * row as f64;
+                keycap_path(cr, x, y);
+                cr.set_operator(gtk::cairo::Operator::Clear);
+                cr.set_line_width(4.0);
+                let _ = cr.stroke_preserve();
+                cr.set_operator(gtk::cairo::Operator::Over);
+                cr.set_source_rgba(fg.red() as f64, fg.green() as f64, fg.blue() as f64, 1.0);
+                let _ = cr.fill();
+            }
+        }
+        let _ = cr.pop_group_to_source();
+        let _ = cr.paint_with_alpha(fg.alpha() as f64);
+
+        cr.set_line_width(2.5);
+        for (i, ax) in ARROWS_X.iter().enumerate() {
+            let (dy, alpha) = arrow_phase(now, i);
+            let x = ox + ax;
+            let tip = HEAP_TOP - 7.0 + dy;
+            cr.set_source_rgba(
+                fg.red() as f64,
+                fg.green() as f64,
+                fg.blue() as f64,
+                fg.alpha() as f64 * alpha,
+            );
+            cr.move_to(x, tip - 17.0);
+            cr.line_to(x, tip - 1.0);
+            let _ = cr.stroke();
+            cr.move_to(x - 8.0, tip - 8.5);
+            cr.line_to(x, tip - 0.5);
+            cr.line_to(x + 8.0, tip - 8.5);
+            let _ = cr.stroke();
+        }
+    });
+    // Redraw every frame while shown; the callback dies with the widget.
+    area.add_tick_callback(|w, _| {
+        w.queue_draw();
+        glib::ControlFlow::Continue
+    });
+    area
+}
+
+/// Arrow `i` at `now` seconds as (y offset, opacity): each loops over 1.8s,
+/// a third of a cycle behind its left neighbour — fade in 10px up, ease down
+/// to rest 7px above the keys, hold, fade out.
+fn arrow_phase(now: f64, i: usize) -> (f64, f64) {
+    let t = (now / 1.8 + 1.0 - i as f64 / 3.0).fract();
+    let fall = (t / 0.45).min(1.0);
+    let dy = -10.0 * (1.0 - fall).powi(2);
+    let alpha = if t < 0.15 {
+        t / 0.15
+    } else if t > 0.8 {
+        (1.0 - t) / 0.2
+    } else {
+        1.0
+    };
+    (dy, alpha)
+}
+
+/// One 28×13 keycap seen from the front: a top edge dipping 1.3px in the
+/// middle, sides flaring 1px outward, soft bottom corners.
+fn keycap_path(cr: &gtk::cairo::Context, x: f64, y: f64) {
+    cr.new_path();
+    cr.move_to(x + 1.0, y);
+    cr.curve_to(x + 9.0, y + 1.8, x + 19.0, y + 1.8, x + 27.0, y);
+    cr.line_to(x + 28.5, y + 11.5);
+    cr.curve_to(x + 28.8, y + 13.0, x + 28.8, y + 13.0, x + 27.3, y + 13.0);
+    cr.line_to(x + 0.7, y + 13.0);
+    cr.curve_to(x - 0.8, y + 13.0, x - 0.8, y + 13.0, x - 0.5, y + 11.5);
+    cr.close_path();
+}
+
+/// The instruction line above the illustration: the template keeps the
+/// sentence whole for translators; the feature name arrives bold and escaped.
+fn shortcut_caption(template: &str, feature: &str) -> String {
+    template.replace("{name}", &format!("<b>{}</b>", escape_markup(feature)))
+}
+
+/// Pango markup only needs these three escaped — ampersand first, or the
+/// others' replacements would get escaped twice.
+fn escape_markup(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// The window a dialog should be transient for, when there is one.
@@ -3358,86 +3994,6 @@ fn render_keycaps(box_: &gtk::Box, parts: Vec<String>, muted: bool) {
             label = label.css_classes(["spotty-keycap-muted"]);
         }
         box_.append(&label.build());
-    }
-}
-
-/// Split an accelerator ("<Control><Shift>t", "Ctrl+Shift+T") into the keycaps
-/// to draw: one per modifier, then the key itself.
-///
-/// Written against the string rather than `gtk::accelerator_parse`, so the
-/// dialog's markup is unit-testable without a display — and so the keycaps read
-/// exactly like the shortcut rows, which show the same human form.
-fn keycap_parts(accel: &str) -> Vec<String> {
-    let accel = accel.trim();
-    if accel.is_empty() {
-        return Vec::new();
-    }
-    let normalized = normalize_accel(accel);
-    let mut parts: Vec<String> = Vec::new();
-    let mut key = String::new();
-    let mut chars = normalized.chars().peekable();
-    while let Some(c) = chars.next() {
-        match c {
-            '<' => {
-                let mut name = String::new();
-                for c in chars.by_ref() {
-                    if c == '>' {
-                        break;
-                    }
-                    name.push(c);
-                }
-                // Modifiers always come before the key, so anything collected so
-                // far means this was part of the key itself.
-                if key.is_empty() && !name.is_empty() {
-                    parts.push(modifier_label(&name));
-                } else {
-                    key.push('<');
-                    key.push_str(&name);
-                    key.push('>');
-                }
-            }
-            '>' => {}
-            _ => key.push(c),
-        }
-    }
-    if !key.is_empty() {
-        parts.push(key_label(&key));
-    }
-    parts
-}
-
-fn modifier_label(name: &str) -> String {
-    match name.to_ascii_lowercase().as_str() {
-        "control" | "primary" | "ctrl" => "Ctrl".into(),
-        "super" | "meta" | "win" | "logo" => "Super".into(),
-        "shift" => "Shift".into(),
-        "alt" => "Alt".into(),
-        "hyper" => "Hyper".into(),
-        other => {
-            let mut c = other.chars();
-            match (c.next(), c.next()) {
-                (Some(f), None) => f.to_uppercase().collect(),
-                _ => other.to_string(),
-            }
-        }
-    }
-}
-
-/// A key as its keycap reads: single characters upper-case, and the handful of
-/// keysym names shown the way GNOME shows them.
-fn key_label(key: &str) -> String {
-    match key {
-        "Return" | "KP_Enter" | "Enter" | "ISO_Enter" => "Enter".into(),
-        "Escape" => "Esc".into(),
-        "BackSpace" => "Backspace".into(),
-        "space" | "KP_Space" => "Space".into(),
-        "Page_Up" => "Page Up".into(),
-        "Page_Down" => "Page Down".into(),
-        "minus" => "-".into(),
-        "plus" => "+".into(),
-        other if other.chars().count() == 1 => other.to_uppercase(),
-        other if other.contains('_') => other.replace('_', " "),
-        other => other.to_string(),
     }
 }
 
@@ -3480,17 +4036,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn keycaps_split_a_shortcut_into_one_box_per_key() {
-        // The capture dialog draws modifiers and the key separately, from
-        // either storage form — GTK accelerators or the human form rows show.
+    fn the_caption_bolds_and_escapes_the_feature_name() {
+        // The template stays whole for translators; the feature name is
+        // inserted bold, with Pango's three specials escaped — ampersand
+        // first, or the others would be double-escaped.
         assert_eq!(
-            keycap_parts("<Control><Shift>t"),
-            vec!["Ctrl", "Shift", "T"]
+            shortcut_caption("Enter new shortcut to change {name}", "Search privately"),
+            "Enter new shortcut to change <b>Search privately</b>"
         );
-        assert_eq!(keycap_parts("<Super>r"), vec!["Super", "R"]);
-        assert_eq!(keycap_parts("Ctrl+P"), vec!["Ctrl", "P"]);
-        // An empty shortcut draws the placeholder, not a stray box.
-        assert!(keycap_parts("").is_empty());
+        assert_eq!(
+            shortcut_caption("Change {name} now", "A & B <c>"),
+            "Change <b>A &amp; B &lt;c&gt;</b> now"
+        );
+    }
+
+    #[test]
+    fn the_arrows_fall_in_a_left_to_right_cascade() {
+        let near = |a: f64, b: f64| (a - b).abs() < 0.05;
+        // At 0s the left arrow starts its cycle: invisible, 10px up.
+        let (dy, alpha) = arrow_phase(0.0, 0);
+        assert!(near(dy, -10.0) && near(alpha, 0.0));
+        // The middle and right arrows start a third and two thirds later
+        // (just after the start, so they are barely faded in).
+        assert!(arrow_phase(0.61, 1).1 < 0.1);
+        assert!(arrow_phase(1.21, 2).1 < 0.1);
+        // Mid-cycle the left arrow has landed and is fully shown…
+        let (dy, alpha) = arrow_phase(0.9, 0);
+        assert!(near(dy, 0.0) && near(alpha, 1.0));
+        // …and the cycle repeats every 1.8s.
+        assert!(near(arrow_phase(1.801, 0).0, -10.0));
+    }
+
+    #[test]
+    fn only_function_and_media_keys_stand_alone() {
+        // The dialog's capture gate: a stray letter, space, or arrow can
+        // never become a shortcut — but the function row and the media keys
+        // can, with no modifier held.
+        use gtk::gdk::Key;
+        assert!(key_stands_alone(Key::F5));
+        assert!(key_stands_alone(Key::Print));
+        let kx = Key::from_name("XF86AudioPlay").unwrap();
+        assert!(key_stands_alone(kx));
+        assert!(!key_stands_alone(Key::from_name("a").unwrap()));
+        assert!(!key_stands_alone(Key::from_name("space").unwrap()));
+        assert!(!key_stands_alone(Key::Left));
     }
 
     #[test]

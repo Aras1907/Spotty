@@ -1032,7 +1032,7 @@ fn currency_equiv_row(
 /// query. Returns one row or None; unknown words, mismatched
 /// dimensions and half-typed queries all pass straight through.
 pub fn convert(q: &str, config: &Config) -> Option<SearchResult> {
-    if !config.enable_calculator {
+    if !config.converter_enabled() {
         return None;
     }
     let q = q.trim();
@@ -1289,7 +1289,7 @@ mod tests {
         assert!(convert("10", &c).is_none(), "amount alone");
         assert!(
             convert("10 km to mi", &Config {
-                enable_calculator: false,
+                enable_converter: Some(false),
                 ..Config::default()
             })
             .is_none(),

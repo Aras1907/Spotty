@@ -263,16 +263,15 @@ impl ResultRow {
         // the ring colour and status text convey completion, so the icon never
         // disappears or turns into a generic glyph.
         let icon = gtk::Image::builder().pixel_size(24).build();
+        let store = crate::ui::settings_window::store_icon();
         match &icon_name {
-            Some(n) if is_app_id(n) => set_app_icon_or(&icon, n, "system-software-install-symbolic"),
+            Some(n) if is_app_id(n) => set_app_icon_or(&icon, n, store),
             Some(n) if n.starts_with("pkg:") => {
                 let rest = n.strip_prefix("pkg:").unwrap();
-                let (name, fallback) = rest
-                    .rsplit_once(':')
-                    .unwrap_or((rest, "system-software-install-symbolic"));
+                let (name, fallback) = rest.rsplit_once(':').unwrap_or((rest, store));
                 set_pkg_icon(&icon, name, fallback);
             }
-            _ => icon.set_icon_name(Some("system-software-install-symbolic")),
+            _ => icon.set_icon_name(Some(store)),
         }
 
         c.append(&icon);
@@ -655,29 +654,6 @@ fn set_engine_icon_url(icon: &gtk::Image, url: &str) {
             icon.set_from_file(Some(&path));
         }
     });
-}
-
-/// Show a search engine's icon on a plain widget (the Settings row), using the
-/// browser's own icon when there is one and the search site's favicon
-/// otherwise. `image` starts on `fallback_icon_name` until an icon arrives.
-pub(crate) fn set_search_engine_icon(
-    image: &gtk::Image,
-    icon: Option<crate::search::browser_engine::EngineIcon>,
-    fallback_domain: Option<&str>,
-    fallback_icon_name: &str,
-) {
-    use crate::search::browser_engine::EngineIcon;
-    match icon {
-        Some(EngineIcon::Data(uri)) => set_engine_icon_data(image, &uri),
-        Some(EngineIcon::Url(url)) => set_engine_icon_url(image, &url),
-        None => match fallback_domain {
-            Some(domain) => {
-                image.set_icon_name(Some(fallback_icon_name));
-                set_favicon(image, domain);
-            }
-            None => image.set_icon_name(Some(fallback_icon_name)),
-        },
-    }
 }
 
 fn resolve_favicon(domain: &str) -> Option<String> {
