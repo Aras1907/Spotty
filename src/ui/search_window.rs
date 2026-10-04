@@ -3253,6 +3253,10 @@ impl SearchWindow {
         self.entry.grab_focus();
         self.window.present();
         self.window.set_opacity(1.0);
+        // Apply the same global appearance settings as regular search. This
+        // path also opens every built-in and installed trigger mode.
+        self.sync_update_notification();
+        self.sync_footer();
         self.clipboard_mode.set(keyword.id == "clipboard");
         self.mode_from_keybinding.set(true);
         *self.active_mode.borrow_mut() = Some(keyword.clone());
