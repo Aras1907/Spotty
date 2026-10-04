@@ -1806,6 +1806,9 @@ fn store_dialog(
         .css_classes(["boxed-list"])
         .selection_mode(gtk::SelectionMode::None)
         .build();
+    // Keep every Store entry in the same list. Catalog metadata may describe
+    // defaults, but it must never create visual section headers.
+    list_box.set_header_func(|row, _before| row.set_header(None::<&gtk::Widget>));
     let loading_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(12)
