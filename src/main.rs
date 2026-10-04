@@ -40,7 +40,10 @@ mod operations;
 mod packagekit;
 mod preview;
 mod recent_paths;
+#[path = "../trigger-backends/src/search/mod.rs"]
 mod search;
+#[path = "../trigger-backends/src/defaults.rs"]
+mod trigger_defaults;
 mod keybindings;
 mod shell_extension;
 mod ocr;

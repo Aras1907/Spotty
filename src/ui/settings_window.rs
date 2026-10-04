@@ -204,31 +204,7 @@ fn refresh_trigger_list() {
     }
 }
 
-/// A result type's name in the list and the Store.
-fn result_title(id: &str) -> String {
-    match id {
-        "apps" => gettext("Applications"),
-        "newapps" => gettext("Search for new Apps"),
-        "web" => gettext("Web Search"),
-        "calc" => gettext("Calculator"),
-        "convert" => gettext("Converter"),
-        "updates" => gettext("Updates"),
-        _ => capitalized(id),
-    }
-}
-
-/// What a result type adds to the universal search.
-fn result_blurb(id: &str) -> String {
-    match id {
-        "apps" => gettext("System, Flatpak, Snap and AppImage apps"),
-        "newapps" => gettext("Also suggest installable apps as you type"),
-        "web" => gettext("Always show web search row"),
-        "calc" => gettext("Arithmetic as you type"),
-        "convert" => gettext("Units, currency and number bases"),
-        "updates" => gettext("Flatpak, system, Snap and AppImage updates"),
-        _ => String::new(),
-    }
-}
+use crate::trigger_defaults::{result_blurb, result_title};
 
 /// The blurb, plus the word and shortcut once the user gave it any.
 fn result_subtitle(blurb: &str, word: &str, shortcut: &str) -> String {
@@ -2140,7 +2116,7 @@ fn finish_trigger_install(
     // shortcuts and ordering. They are never copied into the custom registry.
     let installed = crate::triggers::parse_manifest(path).and_then(|m| {
         if matches!(m.action, crate::triggers::TriggerAction::Builtin) {
-            if !crate::triggers::BUILTIN_IDS.contains(&m.id.as_str())
+            if !crate::trigger_defaults::supports_builtin(&m.id)
                 || !config.borrow().command_keywords.iter().any(|k| k.id == m.id) {
                 return Err(format!("This version of Spotty does not support '{}'", m.id));
             }
@@ -2532,7 +2508,7 @@ fn server_trigger_row(
         action.add_prefix(&img);
     }
     if t.builtin {
-        let supported = crate::triggers::BUILTIN_IDS.contains(&t.id.as_str())
+        let supported = crate::trigger_defaults::supports_builtin(&t.id)
             && config.borrow().command_keywords.iter().any(|k| k.id == t.id);
         let uninstalled = config.borrow().is_uninstalled(&t.id);
         let label = if t.id == "cmd" {

@@ -1,0 +1,3 @@
+[submodule "trigger-backends"]
+	path = trigger-backends
+	url = https://github.com/Aras1907/spotty-triggers.git

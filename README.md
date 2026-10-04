@@ -2,6 +2,26 @@
 
 A Raycast-style launcher for GNOME Linux.
 
+## Build from source
+
+The trigger and result implementations live in
+[spotty-triggers](https://github.com/Aras1907/spotty-triggers), pinned through
+the `trigger-backends` Git submodule. This repository contains Spotty's
+application, UI, indexer, and host services.
+
+```sh
+git clone --recurse-submodules https://github.com/Aras1907/Spotty.git
+cd Spotty
+cargo build
+cargo run -- --daemon
+```
+
+For an existing checkout, run `git submodule update --init --recursive`
+after pulling. Cargo compiles the pinned trigger source into Spotty; it
+does not fetch or execute Store code at runtime. Change trigger logic in
+the submodule, push it to `spotty-triggers`, and commit the new submodule
+revision here.
+
 ## Security & trust
 
 Spotty runs as your user with broad desktop access — file search over

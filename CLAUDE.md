@@ -1,82 +1,86 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Spotty — a Raycast-style launcher for GNOME Linux, in Rust with GTK4/libadwaita.
 
-## Build Commands
+## Rules: never LibreOffice
+
+- **No LibreOffice, ever.** Office previews and thumbnails must stay
+  native/pure Rust (zip/cfb/calamine/cairo) or use the bundled tools in
+  `flatpak/com.spotty.Spotty.yaml`. Never add a dependency on LibreOffice or
+  `soffice`/`libreoffice` conversions.
+
+## Build & Run
 
 ```bash
-# Development build
-cargo build
-
-# Release build (optimized: LTO, single codegen unit, stripped binary)
-cargo release
-
-# Run directly
-cargo run -- [--toggle] [--daemon] [--files]
-
-# Flatpak build
-#flatpak-builder --user --install --force-clean build-dir flatpak/com.spotty.Spotty.yaml
+cargo build              # dev build
+cargo run                # opens the search window
+cargo run -- --toggle    # toggle search window (uses PID file + SIGUSR1 IPC)
+cargo run -- --daemon    # start hidden in background
+cargo build --release    # release build (LTO, single codegen unit, stripped)
 ```
 
-There are no test suites or lint configurations in this project.
+No test suite, no linter config, no formatter config. `cargo build` is the only verification.
 
-### CLI Flags
+### Dev dependencies
 
-`src/main.rs` defines: `--toggle`/`-t` (show/hide the search window), `--quit`/`-q` (exit the daemon), `--daemon`/`-d` (start hidden, in the background), `--settings`/`-s` (open settings), `--clipboard`/`-c` (open directly in clipboard mode).
+AVIF OCR requires `dav1d` (the AV1 decoder) at build and runtime:
 
-## Architecture Overview
+- Fedora: `sudo dnf install dav1d-devel`
+- Debian/Ubuntu: `sudo apt install libdav1d-dev`
 
-Spotty is a Raycast-style launcher for GNOME Linux, built in Rust with GTK4/libadwaita. It runs as a persistent daemon and shows a search window on demand.
+Flatpak bundles dav1d, so no host package is needed for the Flatpak build.
 
-### Core Data Flow
+## Architecture: threading & state
 
-User types in search box → `ui/search_window.rs` debounces input → `search/mod.rs` dispatches to backends → results rendered via `ui/result_row.rs`. The search dispatcher selects backends based on active **trigger mode** (a keyword like "files", "pdf", "clip") or falls back to universal search.
+- **Single GTK main thread** + one background indexer thread.
+- `AppState` (root state object) is stored in a `thread_local!` as `RefCell<Option<AppState>>`. Passed around as `Rc<RefCell<…>>` on the main thread. Not `Arc`.
+- The indexer's `Snapshot` is shared via `Arc<RwLock<Snapshot>>` between threads.
+- Async work uses `futures` crate, **not tokio**.
 
-### Major Subsystems
+## IPC: daemon toggle
 
-**Indexer** ([src/index.rs](src/index.rs)) — Runs on a background thread. Maintains a `Snapshot` (RwLock-protected) of indexed apps and files. App index refreshes every 300s; file index is lazy (built on first file-mode activation). A filesystem watcher monitors Downloads, Documents, Desktop, etc. for incremental updates.
+`main.rs` implements a single-instance daemon using a PID file (`~/.config/spotty/spotty.pid`). When `--toggle` is passed, it sends `SIGUSR1` to the existing process instead of launching a new one. The signal handler in `app.rs:14` sets a static `AtomicBool` that a 100ms glib timer polls.
 
-**Search backends** ([src/search/](src/search/)) — Each backend is independent:
-- `apps.rs` — fuzzy app matching via `nucleo-matcher`
-- `files.rs` — fuzzy file matching against the index
-- `browse.rs` — live path exploration (e.g., `~/`, `/usr/`)
-- `calculator.rs` — math expression evaluation
-- `clipboard.rs` — clipboard history search
-- `web.rs` — generates search URLs for configured engines
-- `system.rs` / `settings_panels.rs` — GNOME system actions and control center panels
-- `typo.rs` — typo/fuzzy fallback
+## Flatpak & host bridging
 
-**Preview** ([src/preview.rs](src/preview.rs)) — Async previews: images (GTK Picture), text (monospace TextView), PDFs (bundled `pdftoppm`), Office files (zip-extracted embedded thumbnails — no external tool), video (bundled FFmpeg/ffmpegthumbnailer).
+- Primary distribution target is Flatpak (GNOME Platform runtime 50).
+- When running inside a Flatpak sandbox, all external commands (gsettings, keybindings, terminal launch, file manager open, xdg-open) go through `flatpak-spawn --host`.
+- `is_flatpak()` in `app.rs` detects sandbox at startup; cached via `OnceLock`.
+- Dev runs natively — no sandboxing needed.
+- Installing/updating **distro packages never uses `pkexec`**: it goes through PackageKit (`--system-talk-name=org.freedesktop.PackageKit`) or, for Fedora updates, dnf5daemon — both polkit-gated D-Bus services that work from the sandbox. Where neither exists the distro rows are simply not offered.
 
-**Key synthesis** ([src/keysynth.rs](src/keysynth.rs)) — Synthesizes keyboard accelerators (e.g. Ctrl+V) on the focused window via `xdotool`/`wtype`, used to auto-paste after a clipboard-history pick. Runs on the host through `flatpak-spawn --host` when sandboxed.
+## Global shortcuts
 
-**Global shortcuts** ([src/app.rs](src/app.rs)) — `register_all_keybindings`/`register_slot` write GNOME custom-keybindings via `gsettings` (through `flatpak-spawn --host` when sandboxed) so each trigger keyword can carry its own global shortcut (e.g. Super+Ctrl+F to open in files mode).
+Keybindings are registered by writing GNOME custom-keybindings schemas via `gsettings` (`app.rs:536-598`). Each trigger keyword and custom command gets its own slot. When inside Flatpak, `gsettings` is called on the host via `flatpak-spawn --host gsettings`.
 
-**Config** ([src/config.rs](src/config.rs)) — JSON file. Defines trigger keywords (with associated file extensions, icons, shortcuts), custom terminal commands, search engines (7 built-in + custom URL support), and feature flags.
+## Core subsystems
 
-**Background operations** ([src/operations.rs](src/operations.rs)) — Tracks long-running install/uninstall jobs in a global registry so they keep running and reporting progress (as live rows) even while the search window is hidden.
+| Subsystem | File | Notes |
+|---|---|---|
+| Indexer | `src/index.rs` | Background thread, lazy file index, inotify watcher |
+| Search dispatch | `trigger-backends/src/search/mod.rs` | Routes queries to backends based on keyword trigger |
+| Distro | `src/distro.rs` | Which distro Spotty runs on (os-release, `/run/host/os-release` in Flatpak): family, package manager, image-based or not |
+| System packages | `src/packagekit.rs`, `src/dnf5daemon.rs` | Install/update distro packages over D-Bus, no pkexec: PackageKit on every distro, dnf5daemon for Fedora updates. Updates download, then the restart installs them |
+| Config | `src/config.rs` | JSON file, defines keywords, shortcuts, engines, flags |
+| Key synthesis | `src/keysynth.rs` | Auto-pastes via xdotool/wtype through flatpak-spawn |
+| Preview | `src/preview.rs` | Async: images, text, PDF (bundled pdftoppm), Office (zip/cfb — pure Rust, no external tool), video (bundled ffmpeg) |
+| Clipboard | `src/clipboard.rs` | History with auto-paste via key synthesis |
+| File ops | `src/fileops.rs` | Copy/cut/paste, state in thread-local |
+| MPRIS | `src/mpris.rs` | GNOME media controls integration for the music player |
+| OCR (image find) | `src/tesseract_ffi.rs` | dlopen libtesseract.so.5.5; preprocess, upscale, and run tesseract with PSM_AUTO |
+| Content search | `trigger-backends/src/search/files.rs` | Text extraction (PDF, Office, images via tesseract), fuzzy matching |
 
-**File operations** ([src/fileops.rs](src/fileops.rs)) — Copy/cut/paste for selected results, with pending state kept in a thread-local so it survives the window being hidden.
+## Flatpak: bundled tools
 
-**History** ([src/history.rs](src/history.rs)) — Tracks per-query selection counts to power autocompletion suggestions.
+The flatpak manifest (`flatpak/com.spotty.Spotty.yaml`) bundles **poppler** (pdftoppm), **ffmpeg**, **dav1d** (AV1 decoder for AVIF), **leptonica**, and **tesseract** with **eng.traineddata** into `/app`. Spotty’s `resolve_tool()` checks `/app/bin` first before falling back to system PATH. Office file thumbnails need no external tool — extracted directly from zip/cfb.
 
-### Threading Model
+## Key crates
 
-Single GTK main thread + one background indexer thread. Data shared via `Arc<RwLock<Snapshot>>`. Uses the `futures` crate for async work (not tokio).
-
-### Key Technologies
-
-| Concern | Crate/Tool |
-|---|---|
-| GUI | `gtk4`, `libadwaita` |
-| Fuzzy matching | `nucleo-matcher` |
-| File walking | `ignore` (respects .gitignore) |
-| Serialization | `serde` + `serde_json` |
-| Image handling | `image`, `cairo-rs`, `gdk-pixbuf` |
-| Office file previews | `zip`, `cfb` |
-| File type detection | `infer` |
-| Distribution | Flatpak (GNOME Platform runtime 50) |
-
-### Application State
-
-`AppState` in [src/app.rs](src/app.rs) is the root object holding config, the indexer handle, clipboard manager, and window references. It is passed around via `Rc<RefCell<AppState>>` on the main thread.
+- `gtk4` (0.9), `libadwaita` (0.7) — UI
+- `nucleo-matcher` (0.3) — fuzzy matching
+- `ignore` (0.4) — file walking, respects .gitignore
+- `serde` / `serde_json` — config serialization
+- `infer` — MIME detection
+- `zip`, `cfb` — Office file thumbnail extraction
+- `image`, `cairo-rs`, `gdk-pixbuf` — image handling
+- `libheif-rs` with `embedded-libheif` — HEIC/AVIF support (builds libheif from C++ source)

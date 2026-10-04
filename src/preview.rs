@@ -533,14 +533,6 @@ impl PreviewPane {
             wheel_last: std::rc::Rc::new(std::cell::Cell::new(None)),
         };
 
-        // Start a persistent poll to deliver async preview decode results.
-        let pane_clone = pane.clone();
-        let poll_id = gtk::glib::timeout_add_local(Duration::from_millis(16), move || {
-            pane_clone.deliver_pending_preview_payload();
-            gtk::glib::ControlFlow::Continue
-        });
-        pane.preview_poll_id.set(Some(poll_id));
-
         // Live refresh: re-render the preview when the file it's showing is
         // edited/saved externally. One stat per second — a no-op until the
         // (mtime, size) stamp actually changes.
@@ -755,8 +747,10 @@ impl PreviewPane {
         let pending_flag = self.pending.clone();
         pending_flag.set(true);
 
+        let pane = self.clone();
         let id = gtk::glib::timeout_add_local_once(Duration::from_millis(120), move || {
             db.set(None);
+            pane.ensure_payload_poll();
             let new_gen = gen_cell.get().wrapping_add(1);
             gen_cell.set(new_gen);
             if is_video {
@@ -882,6 +876,26 @@ impl PreviewPane {
     }
 
     /// Poll the async decode delivery slot and apply if the generation matches.
+    /// Deliver async preview results with a 16 ms poll that runs only while
+    /// a load is in flight: it stops itself once nothing is pending, so an
+    /// idle (or hidden) pane causes no wakeups.
+    fn ensure_payload_poll(&self) {
+        if let Some(id) = self.preview_poll_id.take() {
+            self.preview_poll_id.set(Some(id));
+            return;
+        }
+        let pane = self.clone();
+        let id = gtk::glib::timeout_add_local(Duration::from_millis(16), move || {
+            pane.deliver_pending_preview_payload();
+            if pane.pending.get() {
+                return gtk::glib::ControlFlow::Continue;
+            }
+            pane.preview_poll_id.set(None);
+            gtk::glib::ControlFlow::Break
+        });
+        self.preview_poll_id.set(Some(id));
+    }
+
     fn deliver_pending_preview_payload(&self) {
         let (gen, path, payload) = {
             let slot = preview_payload_slot().lock().ok();

@@ -7,5 +7,6 @@ target/
 build-dir/
 .flatpak-builder/
 
-# graft's local graph cache — regenerable, not committed (run `graft build`).
-/graft/
+
+# Compiled translations (regenerated from po/*.po)
+po/locale/

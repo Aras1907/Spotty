@@ -28,12 +28,6 @@ use crate::i18n::gettext;
 /// page and the About dialog link here.
 pub const REPO_URL: &str = "https://github.com/Aras1907/spotty-triggers";
 
-/// Backend identifiers supported by native Store manifests.
-pub const BUILTIN_IDS: [&str; 12] = [
-    "files", "clipboard", "cmd", "run", "emoji", "bluetooth",
-    "apps", "newapps", "web", "calc", "convert", "updates",
-];
-
 /// One entry of the repository's `index.json` listing: every manifest field
 /// except `action`, which arrives with the full manifest fetch at install
 /// time. This is what the Trigger Store (Settings → Trigger → Store) shows.
@@ -320,10 +314,8 @@ pub fn validate(m: &TriggerManifest) -> Result<(), String> {
     if m.word.trim().is_empty() {
         return Err(gettext("missing 'word' (the trigger text)"));
     }
-    for builtin in BUILTIN_IDS {
-        if m.id == builtin {
-            return Err(gettext("id '{id}' is a built-in trigger").replace("{id}", &m.id));
-        }
+    if crate::trigger_defaults::supports_builtin(&m.id) {
+        return Err(gettext("id '{id}' is a built-in trigger").replace("{id}", &m.id));
     }
     if by_id(&m.id).is_some() {
         return Err(gettext("trigger '{id}' is already installed").replace("{id}", &m.id));

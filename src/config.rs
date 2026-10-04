@@ -174,22 +174,7 @@ pub struct CommandKeyword {
 
 impl CommandKeyword {
     pub fn display_name(&self) -> &'static str {
-        match self.id.as_str() {
-            "files" => "Find",
-            "clipboard" => "Clip",
-            "cmd" => "App",
-            "run" => "Cmd",
-            "emoji" => "Emoji",
-            "music" => "Music",
-            "translate" => "Translate",
-            "apps" => "Apps",
-            "newapps" => "New Apps",
-            "web" => "Web",
-            "calc" => "Calc",
-            "convert" => "Convert",
-            "updates" => "Updates",
-            _ => "Trigger",
-        }
+        crate::trigger_defaults::display_name(&self.id)
     }
 
     /// True for the result types (Applications, Web Search, …) that sit in
@@ -218,130 +203,9 @@ impl CommandKeyword {
     }
 }
 
-fn default_command_keywords() -> Vec<CommandKeyword> {
-    vec![
-        CommandKeyword {
-            id: "files".into(),
-            word: "find".into(),
-            description: gettext("Search all files and folders").into(),
-            extensions: vec![],
-            icon: "system-search-symbolic".into(),
-            all_files: true,
-            shortcut: "Super+Ctrl+F".into(),
-            enabled: true,
-        },
-        CommandKeyword {
-            id: "clipboard".into(),
-            word: "clip".into(),
-            description: gettext("Search clipboard history").into(),
-            extensions: vec![],
-            icon: "edit-paste-symbolic".into(),
-            all_files: false,
-            shortcut: "Super+Ctrl+V".into(),
-            enabled: true,
-        },
-        CommandKeyword {
-            id: "cmd".into(),
-            word: "app".into(),
-            description: gettext("Install, uninstall, and manage apps").into(),
-            extensions: vec![],
-            icon: "application-x-executable-symbolic".into(),
-            all_files: false,
-            shortcut: "Super+Ctrl+A".into(),
-            enabled: true,
-        },
-        CommandKeyword {
-            id: "run".into(),
-            word: "cmd".into(),
-            description: gettext("Run a command").into(),
-            extensions: vec![],
-            icon: "utilities-terminal-symbolic".into(),
-            all_files: false,
-            shortcut: "Super+Ctrl+T".into(),
-            enabled: true,
-        },
-        CommandKeyword {
-            id: "emoji".into(),
-            word: "emoji".into(),
-            description: gettext("Search emoji").into(),
-            extensions: vec![],
-            icon: "face-smile-symbolic".into(),
-            all_files: false,
-            shortcut: "Super+Ctrl+E".into(),
-            enabled: true,
-        },
-        CommandKeyword {
-            id: "bluetooth".into(),
-            word: "bt".into(),
-            description: gettext("Bluetooth devices").into(),
-            extensions: vec![],
-            icon: "bluetooth-active-symbolic".into(),
-            all_files: false,
-            shortcut: "Super+Ctrl+B".into(),
-            enabled: true,
-        },
-        // Result types, listed with the triggers. No word and no shortcut out
-        // of the box — they show up in the universal search on their own;
-        // setting a word or shortcut opens a search of only that type.
-        result_keyword(
-            "apps",
-            gettext("Search installed applications"),
-            "view-app-grid-symbolic",
-        ),
-        result_keyword(
-            "newapps",
-            gettext("Search apps you can install"),
-            STORE_ICON,
-        ),
-        result_keyword("web", gettext("Search the web"), "web-browser-symbolic"),
-        result_keyword(
-            "calc",
-            gettext("Calculate arithmetic"),
-            "accessories-calculator-symbolic",
-        ),
-        result_keyword(
-            "convert",
-            gettext("Convert units, currency and number bases"),
-            "network-transmit-receive-symbolic",
-        ),
-        result_keyword(
-            "updates",
-            gettext("Check and install updates"),
-            "software-update-available-symbolic",
-        ),
-    ]
-}
+pub use crate::trigger_defaults::{DEFAULT_ORDER, RESULT_IDS, STORE_ICON};
+use crate::trigger_defaults::command_keywords as default_command_keywords;
 
-/// Spotty's own software-store glyph (a bag with a download arrow), shipped in
-/// `data/icons` — Adwaita's `system-software-install-symbolic` is a legacy
-/// icon, and GNOME Software's isn't there when GNOME Software isn't.
-pub const STORE_ICON: &str = "spotty-store-symbolic";
-
-/// The ids of the result types (in list order). Each one is a keyword with an
-/// empty word and shortcut by default, and its switch is a `Config` flag.
-pub const RESULT_IDS: [&str; 6] = ["apps", "newapps", "web", "calc", "convert", "updates"];
-
-/// The out-of-the-box order of result types and built-in triggers — higher
-/// ranks first in the regular search. Answers that only appear for their own
-/// kind of query (a sum, a conversion) lead; the web search, the fallback for
-/// everything, comes last. Installed triggers follow after it.
-pub const DEFAULT_ORDER: [&str; 11] = [
-    "calc", "convert", "apps", "updates", "files", "clipboard", "run", "emoji", "bluetooth",
-    "newapps", "web",
-];
-
-fn result_keyword(id: &str, description: String, icon: &str) -> CommandKeyword {
-    CommandKeyword {
-        id: id.into(),
-        word: String::new(),
-        description,
-        extensions: vec![],
-        icon: icon.into(),
-        all_files: false,
-        shortcut: String::new(),
-        enabled: true,
-    }
-}
 
 /// Root config object. Shared app-wide via `Rc<RefCell<Config>>`; read
 /// everywhere, written only by the settings window and keybinding sync.

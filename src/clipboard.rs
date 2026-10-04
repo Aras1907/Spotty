@@ -375,7 +375,7 @@ impl ClipboardHistory {
         let last_img_signal = last_img_hash.clone();
         let last_file_signal = last_file_hash.clone();
         cb.connect_changed(move |_| {
-            log::info!("clipboard: change signal fired");
+            log::debug!("clipboard: change signal fired");
             read_current_clipboard(
                 &cb_signal,
                 &last_text_signal,
@@ -423,7 +423,7 @@ fn read_current_clipboard(
     last_img_hash: &Rc<RefCell<Option<u64>>>,
     last_file_hash: &Rc<RefCell<Option<u64>>>,
 ) {
-    log::info!("clipboard: read_current_clipboard called");
+    log::debug!("clipboard: read_current_clipboard called");
     let formats = cb.formats();
 
     // Image first so a copied image is not shadowed by text/uri-list.
@@ -437,15 +437,17 @@ fn read_current_clipboard(
         cb.read_texture_async(gio::Cancellable::NONE, move |res| {
             match res {
                 Ok(Some(texture)) => {
-                    let png_bytes = texture.save_to_png_bytes();
-                    let hash = quick_hash(&png_bytes);
-                    log::debug!("clipboard: read image ({} bytes)", png_bytes.len());
+                    // Compare raw pixels: on almost every poll the image is
+                    // the one already captured, and encoding it to PNG just
+                    // to find that out was the costly part.
+                    let hash = texture_hash(&texture);
                     let mut prev = last_h.borrow_mut();
                     if *prev == Some(hash) {
                         return;
                     }
                     log::info!("clipboard: new image captured, adding to history");
                     *prev = Some(hash);
+                    let png_bytes = texture.save_to_png_bytes();
                     if let Some(path) = save_png_bytes(&png_bytes) {
                         crate::app::with_state(|st| st.clipboard.borrow_mut().push_image(path.clone()));
                         crate::app::refresh_search_window();
@@ -660,6 +662,19 @@ fn uri_to_path(uri: &str) -> Option<std::path::PathBuf> {
 }
 
 /// FNV-1a 64-bit hash. Good enough to distinguish two PNG payloads cheaply.
+/// Content hash of a texture's pixels (and size), for change detection only.
+fn texture_hash(texture: &gdk::Texture) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let (w, h) = (texture.width(), texture.height());
+    let stride = w as usize * 4;
+    let mut pixels = vec![0u8; stride * h as usize];
+    texture.download(&mut pixels, stride);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (w, h).hash(&mut hasher);
+    pixels.hash(&mut hasher);
+    hasher.finish()
+}
+
 fn quick_hash(data: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for &b in data {
@@ -779,6 +794,28 @@ pub fn set_image(path: &std::path::Path) {
 
 #[cfg(test)]
 mod tests {
+
+    fn solid_texture(w: i32, h: i32, px: [u8; 4]) -> gdk::Texture {
+        let data: Vec<u8> = px.iter().copied().cycle().take((w * h * 4) as usize).collect();
+        gdk::MemoryTexture::new(
+            w,
+            h,
+            gdk::MemoryFormat::R8g8b8a8,
+            &glib::Bytes::from_owned(data),
+            (w * 4) as usize,
+        )
+        .upcast()
+    }
+
+    #[test]
+    fn texture_hash_tells_images_apart() {
+        let a = solid_texture(4, 3, [1, 2, 3, 255]);
+        assert_eq!(super::texture_hash(&a), super::texture_hash(&solid_texture(4, 3, [1, 2, 3, 255])));
+        assert_ne!(super::texture_hash(&a), super::texture_hash(&solid_texture(4, 3, [1, 2, 4, 255])));
+        // Same pixel bytes, different shape.
+        assert_ne!(super::texture_hash(&a), super::texture_hash(&solid_texture(3, 4, [1, 2, 3, 255])));
+    }
+
     use super::*;
 
     fn temp_dir() -> PathBuf {

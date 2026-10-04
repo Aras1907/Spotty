@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract gettext(...) markers from src/**.rs into po/spotty.pot.
+"""Extract gettext markers from Spotty and trigger backends into po/spotty.pot.
 
 Every user-facing string is marked in the source as gettext("…"); this
 script collects them (with file:line references) into the catalogue that
@@ -8,10 +8,11 @@ po/<lang>.po files are based on. Run after adding or changing markers:
     scripts/extract_i18n.py
 """
 import pathlib
+import json
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SRC = ROOT / "src"
+SOURCES = [ROOT / "src", ROOT / "trigger-backends" / "src"]
 OUT = ROOT / "po" / "spotty.pot"
 # gettext("literal") — literal may contain \" and \\ escapes (C-style, same
 # escaping POT uses, so it passes through unchanged).
@@ -20,12 +21,19 @@ PATTERN = re.compile(r'gettext\(\s*"((?:[^"\\]|\\.)*)"\s*\)')
 
 def main() -> None:
     entries: dict[str, list[str]] = {}
-    for path in sorted(SRC.rglob("*.rs")):
-        for lineno, line in enumerate(path.read_text().splitlines(), 1):
-            for m in PATTERN.finditer(line):
-                entries.setdefault(m.group(1), []).append(
-                    f"{path.relative_to(ROOT)}:{lineno}"
-                )
+    for source in SOURCES:
+        for path in sorted(source.rglob("*.rs")):
+            for lineno, line in enumerate(path.read_text().splitlines(), 1):
+                for m in PATTERN.finditer(line):
+                    entries.setdefault(m.group(1), []).append(
+                        f"{path.relative_to(ROOT)}:{lineno}"
+                    )
+    # Native descriptions come from the pinned catalog rather than Rust literals.
+    catalog = ROOT / "trigger-backends" / "index.json"
+    for entry in json.loads(catalog.read_text()):
+        if entry.get("builtin") and entry.get("description"):
+            msgid = json.dumps(entry["description"], ensure_ascii=False)[1:-1]
+            entries.setdefault(msgid, []).append(str(catalog.relative_to(ROOT)))
 
     lines = [
         "# Spotty translation catalogue.",

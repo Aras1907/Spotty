@@ -22,7 +22,7 @@ Arabic (ar), Hebrew (he), Persian (fa).
 ## Workflow
 
 ```sh
-scripts/extract_i18n.py        # scan src/**.rs for gettext("…") → po/spotty.pot
+scripts/extract_i18n.py        # scan Spotty + trigger-backends for gettext("…") → po/spotty.pot
 scripts/make_po.py <lang>      # rebuild po/<lang>.po from po/i18n/<lang>.json
 scripts/make_po.py --all       # rebuild every language
 scripts/build_locales.sh       # msgfmt → po/locale/<lang>/LC_MESSAGES/spotty.mo
