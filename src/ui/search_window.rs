@@ -2880,10 +2880,7 @@ impl SearchWindow {
                             typed_len_mode.set(0);
                             e.set_text("");
                             e.grab_focus();
-                            let entry = e.clone();
-                            glib::idle_add_local_once(move || {
-                                entry.emit_by_name::<()>("changed", &[])
-                            });
+                            crate::app::refresh_search_window();
                         };
 
                         // 1. If the typed text is exactly a trigger word, enter
