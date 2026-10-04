@@ -23,6 +23,8 @@
 use adw::prelude::*;
 use gtk::{gio, glib};
 mod triggers;
+#[path = "../trigger-backends/src/security.rs"]
+mod security;
 mod app;
 #[path = "../trigger-backends/src/features/clipboard.rs"]
 mod clipboard;
@@ -65,6 +67,10 @@ mod opprogress;
 mod thumbnails;
 mod ui;
 fn main() -> glib::ExitCode {
+    if let Err(e) = security::protect_state_dirs() {
+        eprintln!("Cannot secure Spotty's private state directories: {e}");
+        return glib::ExitCode::FAILURE;
+    }
     let args: Vec<String> = std::env::args().collect();
 
     // ── CLI-only commands (no GTK init) ──
@@ -128,8 +134,9 @@ fn main() -> glib::ExitCode {
             if unsafe { libc::kill(pid, 0) } == 0 {
                 if !mode.is_empty() {
                     let kw_path = config_keyword_file();
-                    let _ = std::fs::create_dir_all(kw_path.parent().unwrap());
-                    let _ = std::fs::write(&kw_path, mode);
+                    if security::write_private(&kw_path, mode).is_err() {
+                        return glib::ExitCode::FAILURE;
+                    }
                 }
                 unsafe { libc::kill(pid, libc::SIGUSR1); }
                 return glib::ExitCode::SUCCESS;
@@ -252,19 +259,30 @@ fn config_keyword_file() -> std::path::PathBuf {
 }
 
 fn read_instance_pid() -> Option<i32> {
-    std::fs::read_to_string(config_pid_file())
+    let pid: i32 = std::fs::read_to_string(config_pid_file())
         .ok()?
         .trim()
         .parse()
-        .ok()
+        .ok()?;
+    // kill(0, ...) and negative PIDs address process groups. Also reject
+    // stale PIDs belonging to a different executable or user.
+    if pid <= 1 { return None; }
+    use std::os::unix::fs::MetadataExt;
+    let proc_dir = std::path::PathBuf::from(format!("/proc/{pid}"));
+    if std::fs::metadata(&proc_dir).ok()?.uid() != unsafe { libc::geteuid() } {
+        return None;
+    }
+    let exe = std::fs::read_link(proc_dir.join("exe")).ok()?;
+    let current = std::env::current_exe().ok()?;
+    // A rebuilt binary leaves a live daemon with the " (deleted)" suffix.
+    let live_path = exe.to_str()?.strip_suffix(" (deleted)").unwrap_or(exe.to_str()?);
+    (std::path::Path::new(live_path) == current).then_some(pid)
 }
 
 fn write_instance_pid(pid: i32) -> std::io::Result<()> {
     let path = config_pid_file();
-    std::fs::create_dir_all(path.parent().unwrap())?;
-    std::fs::write(path, pid.to_string())
+    security::write_private(path, pid.to_string())
 }
-
 
 
 

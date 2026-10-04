@@ -95,6 +95,17 @@ pub fn run_host_shell_command(command: &str) -> std::io::Result<std::process::Ou
     host_shell(command).output()
 }
 
+/// Run a fixed executable with argument boundaries preserved on the host.
+pub fn host_process(program: &str) -> std::process::Command {
+    if is_flatpak() {
+        let mut command = std::process::Command::new("flatpak-spawn");
+        command.args(["--host", program]);
+        command
+    } else {
+        std::process::Command::new(program)
+    }
+}
+
 /// A terminal emulator discovered on the host via its `.desktop` file
 /// (`Categories` containing `TerminalEmulator`). This covers distro-packaged
 /// AND Flatpak terminals automatically, without a hardcoded list.
@@ -389,47 +400,16 @@ fn is_own_flatpak() -> bool {
 }
 
 fn host_command(extra_arg: &str) -> String {
-    // Fast shell signal (~5ms) to the running daemon.  If the daemon isn't
-    // running (no PID file / dead process) the fallback starts one via --toggle.
-    // Keyword slots skip the fallback because they need an already-running daemon.
-    if extra_arg.is_empty() {
-        let bin = host_command_for_launch("--toggle").replace('\'', "'\\''");
-        return format!("sh -c 'kill -USR1 \"$(cat \"$HOME/.config/spotty/spotty.pid\" 2>/dev/null)\" 2>/dev/null || {bin}'");
-    }
-    if extra_arg == "--clipboard" {
-        return host_signal_command("clipboard");
-    }
-    if let Some(kw) = extra_arg.strip_prefix("--keyword=") {
-        return host_signal_command(kw);
-    }
     host_command_for_launch(extra_arg)
 }
 
 pub(crate) fn host_signal_command(keyword: &str) -> String {
-    // GNOME's g_spawn_command_line_async uses g_shell_parse_argv which
-    // handles quotes but NOT $VAR or $(sub) expansion.  Wrap in sh -c so
-    // a real shell evaluates $HOME and reads the pid file.
-    //
-    // Do NOT use `kill ... || fallback`: with an empty operand POSIX-mode
-    // sh's kill prints an error but exits 0, silently swallowing the fallback.
-    // Guard the pid explicitly with `[ -n "$p" ]` instead.
-    // Use `read` (builtin) instead of `$(cat …)` to avoid an extra fork+exec.
-    let base = spotty_base_command();
+    // The CLI validates daemon identity and writes private IPC state before
+    // signaling. Pass the whole argument as data; never interpolate shell code.
     if keyword.is_empty() {
-        format!(
-            "sh -c 'read -r p < \"$HOME/.config/spotty/spotty.pid\" 2>/dev/null; \
-             if [ -n \"$p\" ] && kill -USR1 \"$p\" 2>/dev/null; \
-             then exit 0; fi; exec \"{}\" --toggle'",
-            base,
-        )
+        host_command_for_launch("--toggle")
     } else {
-        format!(
-            "sh -c 'echo \"{}\" > \"$HOME/.config/spotty/spotty_keyword.txt\"; \
-             read -r p < \"$HOME/.config/spotty/spotty.pid\" 2>/dev/null; \
-             if [ -n \"$p\" ] && kill -USR1 \"$p\" 2>/dev/null; \
-             then exit 0; fi; exec \"{}\" --keyword={}'",
-            keyword, base, keyword,
-        )
+        host_command_for_launch(&format!("--keyword={keyword}"))
     }
 }
 
@@ -441,7 +421,7 @@ pub(crate) fn spotty_base_command() -> String {
         format!("/usr/bin/flatpak run --user {}", APP_ID)
     } else {
         std::env::current_exe()
-            .map(|p| p.display().to_string())
+            .map(|p| crate::triggers::shell_escape(&p.to_string_lossy()))
             .unwrap_or_else(|_| "spotty".into())
     }
 }
@@ -450,12 +430,8 @@ pub(crate) fn spotty_base_command() -> String {
 /// This always returns a direct binary invocation that GNOME Shell can run.
 pub(crate) fn host_command_for_launch(extra_arg: &str) -> String {
     let base = spotty_base_command();
-
-    if extra_arg.is_empty() {
-        format!("{} --toggle", base)
-    } else {
-        format!("{} {}", base, extra_arg)
-    }
+    let arg = if extra_arg.is_empty() { "--toggle" } else { extra_arg };
+    format!("{} {}", base, crate::triggers::shell_escape(arg))
 }
 
 fn install_actions(app: &adw::Application, cfg: &Config) {

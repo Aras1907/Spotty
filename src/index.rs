@@ -781,11 +781,11 @@ fn priority_dirs() -> Vec<PathBuf> {
 
 fn save_file_index(files: &[FileEntry]) {
     let dir = index_cache_dir();
-    let _ = std::fs::create_dir_all(&dir);
+    let _ = crate::security::private_dir(&dir);
     if let Ok(json) = serde_json::to_string(files) {
-        let _ = std::fs::write(cached_index_path(), &json);
+        let _ = crate::security::write_private(cached_index_path(), &json);
         let sig = quick_signature(&priority_dirs());
-        let _ = std::fs::write(cached_sig_path(), &sig.to_le_bytes());
+        let _ = crate::security::write_private(cached_sig_path(), &sig.to_le_bytes());
     }
 }
 

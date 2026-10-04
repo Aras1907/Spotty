@@ -47,9 +47,10 @@ pub struct RepoTrigger {
     pub author: String,
     #[serde(default)]
     pub shortcut: String,
-    /// This entry enables a backend shipped in Spotty rather than installing code.
-    #[serde(default)]
-    pub builtin: bool,
+    /// Enable this shipped backend on a fresh Spotty install. This is not a
+    /// Store category: all entries are presented together and are installable.
+    #[serde(default, alias = "builtin")]
+    pub preinstalled: bool,
     /// This entry requires a Rust backend compiled into Spotty.
     #[serde(default)]
     pub native: bool,
@@ -170,6 +171,7 @@ pub fn load_all() {
     let mut loaded = Vec::new();
     let dir = triggers_dir();
     let Ok(entries) = fs::read_dir(&dir) else {
+        write_registry(loaded);
         return;
     };
     for entry in entries.flatten() {
@@ -178,7 +180,11 @@ pub fn load_all() {
             continue;
         }
         match parse_manifest(&path) {
-            Ok(m) => loaded.push(m),
+            Ok(m) if validate_structure(&m).is_ok()
+                && path.file_stem().and_then(|s| s.to_str()) == Some(m.id.as_str())
+                && !loaded.iter().any(|other: &TriggerManifest|
+                    other.id == m.id || other.word.eq_ignore_ascii_case(&m.word)) => loaded.push(m),
+            Ok(_) => log::warn!("triggers: skipping invalid or duplicate manifest {}", path.display()),
             Err(e) => log::warn!("triggers: skipping {}: {}", path.display(), e),
         }
     }
@@ -244,10 +250,14 @@ pub fn keyword_for_id(id: &str) -> Option<CommandKeyword> {
 /// registry. Returns the installed manifest. `path` is the source file
 /// (anywhere — a file the user downloaded from the triggers repository).
 pub fn install_from_file(path: &Path) -> Result<TriggerManifest, String> {
-    let m = parse_manifest(path)?;
+    install_manifest(parse_manifest(path)?)
+}
+
+/// Install the exact manifest that was shown in the confirmation dialog.
+pub fn install_manifest(m: TriggerManifest) -> Result<TriggerManifest, String> {
     validate(&m)?;
     let dir = triggers_dir();
-    fs::create_dir_all(&dir).map_err(|e| format!("cannot create triggers dir: {e}"))?;
+    crate::security::private_dir(&dir).map_err(|e| format!("cannot create triggers dir: {e}"))?;
     let dest = dir.join(format!("{}.json", m.id));
     // Remember the original word so the user can reset an edited one.
     let mut m = m;
@@ -255,13 +265,14 @@ pub fn install_from_file(path: &Path) -> Result<TriggerManifest, String> {
         m.default_word = m.word.clone();
     }
     let raw = serde_json::to_string_pretty(&m).map_err(|e| format!("serialize: {e}"))?;
-    fs::write(&dest, raw).map_err(|e| format!("cannot write trigger: {e}"))?;
+    crate::security::write_private(&dest, raw).map_err(|e| format!("cannot write trigger: {e}"))?;
     load_all();
     Ok(m)
 }
 
 /// Remove an installed trigger (deletes its manifest file) and reload.
 pub fn uninstall(id: &str) -> Result<(), String> {
+    validate_id(id)?;
     let path = triggers_dir().join(format!("{id}.json"));
     if !path.exists() {
         return Err(gettext("trigger '{id}' is not installed").replace("{id}", id));
@@ -277,13 +288,19 @@ pub fn uninstall(id: &str) -> Result<(), String> {
 /// Persist user-edited fields (word, shortcut, enabled) back into an
 /// installed trigger's manifest.
 pub fn update_manifest(id: &str, word: &str, shortcut: &str, enabled: bool) -> Result<(), String> {
+    validate_id(id)?;
     let path = triggers_dir().join(format!("{id}.json"));
     let mut m = parse_manifest(&path)?;
     m.word = word.trim().to_string();
     m.shortcut = shortcut.to_string();
     m.enabled = enabled;
+    validate_structure(&m)?;
+    if m.id != id || all().iter().any(|other|
+        other.id != id && other.word.eq_ignore_ascii_case(&m.word)) {
+        return Err("Mismatched id or trigger word already in use".into());
+    }
     let raw = serde_json::to_string_pretty(&m).map_err(|e| format!("serialize: {e}"))?;
-    fs::write(&path, raw).map_err(|e| format!("write: {e}"))?;
+    crate::security::write_private(&path, raw).map_err(|e| format!("write: {e}"))?;
     load_all();
     Ok(())
 }
@@ -293,38 +310,88 @@ fn default_true() -> bool {
 }
 
 pub fn parse_manifest(path: &Path) -> Result<TriggerManifest, String> {
-    let raw = fs::read_to_string(path).map_err(|e| format!("read: {e}"))?;
+    use std::io::Read;
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path).map_err(|e| format!("read: {e}"))?;
+    if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err("Manifest must be a regular file".into());
+    }
+    let mut raw = String::new();
+    file.take(1_048_577).read_to_string(&mut raw).map_err(|e| format!("read: {e}"))?;
+    if raw.len() > 1_048_576 { return Err("Manifest exceeds 1 MiB".into()); }
     serde_json::from_str(&raw).map_err(|e| format!("invalid JSON: {e}"))
 }
 
 /// Structural checks that keep a bad manifest from wedging the app:
 /// id charset (must be a legal GTK action name), non-empty word, known
 /// action, no word collision with built-ins or other triggers.
-pub fn validate(m: &TriggerManifest) -> Result<(), String> {
+fn validate_id(id: &str) -> Result<(), String> {
+    if crate::security::valid_id(id) { Ok(()) }
+    else { Err("Invalid trigger id".into()) }
+}
+
+fn validate_structure(m: &TriggerManifest) -> Result<(), String> {
+    validate_id(&m.id)?;
     if matches!(m.action, TriggerAction::Native) {
         return Err("Native manifests must be installed through Spotty Settings.".into());
     }
-    if m.id.is_empty()
-        || !m
-            .id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
-    {
-        return Err(gettext("invalid id '{id}': use only letters, digits, '_', '-' or '.'").replace(
-            "{id}",
-            &m.id,
-        ));
-    }
-    if m.word.trim().is_empty() {
-        return Err(gettext("missing 'word' (the trigger text)"));
+    if m.word.is_empty() || m.word.len() > 128
+        || m.word.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err("Trigger word must be one nonempty word (at most 128 bytes)".into());
     }
     if crate::trigger_defaults::supports_native(&m.id) {
         return Err(gettext("id '{id}' is a built-in trigger").replace("{id}", &m.id));
     }
+    if let TriggerAction::Web { url } = &m.action {
+        crate::security::http_uri(&url.replace("{query}", "spotty-query"))?;
+    }
+    if !m.help_image.is_empty() { crate::security::http_uri(&m.help_image)?; }
+    if let TriggerAction::Shell { command } = &m.action {
+        if command.trim().is_empty() || command.contains('\0') {
+            return Err("Shell action needs a command without NUL bytes".into());
+        }
+        // Quoting belongs to the launcher. Wrapping {query} in quotes can
+        // undo shell_escape and expose metacharacters to the shell.
+        validate_shell_template(command)?;
+    }
+    Ok(())
+}
+
+/// {query} may only appear as an unquoted shell word. Templates remain
+/// arbitrary code, but a query must never become code inside that template.
+fn validate_shell_template(command: &str) -> Result<(), String> {
+    let mut quote = None;
+    let mut escaped = false;
+    let mut chars = command.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
+        if command[index..].starts_with("{query}") {
+            // Shell grammar is complex (backticks, substitutions, heredocs).
+            // Reject those contexts rather than guessing how they quote data.
+            if quote.is_some() || escaped || command.contains('`')
+                || command.contains("$(") || command.contains("<<") {
+                return Err("Use {query} unquoted, outside shell substitutions and heredocs".into());
+            }
+        }
+        if escaped { escaped = false; continue; }
+        match ch {
+            '\\' if quote != Some('\'') => escaped = true,
+            '\'' | '"' if quote == Some(ch) => quote = None,
+            '\'' | '"' if quote.is_none() => quote = Some(ch),
+            _ => {},
+        }
+    }
+    Ok(())
+}
+
+pub fn validate(m: &TriggerManifest) -> Result<(), String> {
+    validate_structure(m)?;
     if by_id(&m.id).is_some() {
         return Err(gettext("trigger '{id}' is already installed").replace("{id}", &m.id));
     }
-    if keyword_for_word(&m.word).is_some() {
+    if keyword_for_word(&m.word).is_some()
+        || crate::config::Config::load().command_keywords.iter()
+            .any(|kw| kw.word.eq_ignore_ascii_case(&m.word)) {
         return Err(gettext("trigger word '{word}' is already in use").replace("{word}", &m.word));
     }
     match &m.action {
@@ -339,52 +406,22 @@ pub fn validate(m: &TriggerManifest) -> Result<(), String> {
     Ok(())
 }
 
-/// Fetch a URL via curl (flatpak-spawn aware on the host). Works with
-/// http(s) and file:// URLs — used for dictionary lookups and trigger help
-/// images.
+/// Fetch a bounded HTTP(S) response, with TLS required for remote services.
 pub fn fetch_text(url: &str) -> Result<String, String> {
-    // Redirects capped and responses size-capped — the payloads here
-    // (dictionary APIs) are small; the lenient `-s` (no `-f`) stays, some
-    // callers read 404 bodies deliberately.
-    let out = crate::app::run_host_shell_command(&format!(
-        "curl -sL --max-time 4 --max-redirs 5 --max-filesize 2097152 '{}'",
-        url.replace('\'', "'\\''")
-    ))
-    .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(gettext("curl exited with {status}").replace("{status}", &out.status.to_string()));
-    }
-    let text = String::from_utf8_lossy(&out.stdout).to_string();
-    if text.trim().is_empty() {
-        return Err(gettext("empty response"));
-    }
-    Ok(text)
+    fetch(url, 2_097_152, 4, false)
 }
 
-/// Fetch a URL as JSON: like [`fetch_text`], but `-f` makes HTTP errors
-/// (404, 500, …) fail loudly instead of handing the error page back as if it
-/// were the payload. Used by the Trigger Store, where a missing index or
-/// manifest must read as "couldn't load", not as an unparseable response.
-/// 8s budget — a cold raw-GitHub CDN can take a couple of seconds.
+/// Store downloads fail on HTTP errors and are limited to 1 MiB.
 pub fn fetch_json_text(url: &str) -> Result<String, String> {
-    let out = crate::app::run_host_shell_command(&format!(
-        "curl -fsSL --max-time 8 --max-redirs 5 --max-filesize 1048576 '{}'",
-        url.replace('\'', "'\\''")
-    ))
-    .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let err = err.trim();
-        return Err(if err.is_empty() {
-            format!("curl exited with {}", out.status)
-        } else {
-            err.to_string()
-        });
-    }
+    fetch(url, 1_048_576, 8, true)
+}
+
+fn fetch(url: &str, limit: usize, seconds: u64, fail_http: bool) -> Result<String, String> {
+    let out = crate::security::curl_request(url, None, limit, seconds, fail_http)
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() { return Err(format!("curl exited with {}", out.status)); }
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
-    if text.trim().is_empty() {
-        return Err(gettext("empty response"));
-    }
+    if text.trim().is_empty() { return Err(gettext("empty response")); }
     Ok(text)
 }
 

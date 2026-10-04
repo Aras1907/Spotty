@@ -108,6 +108,29 @@ fn build_general_page(window: &adw::PreferencesWindow, config: &Rc<RefCell<Confi
         general.add(&lg);
     }
 
+    {
+        let group = adw::PreferencesGroup::builder().title(gettext("Privacy")).build();
+        let history = adw::SwitchRow::builder()
+            .title(gettext("Keep search history"))
+            .subtitle(gettext("Save queries and selected results locally to improve ranking. Existing history is kept when turned off."))
+            .active(config.borrow().save_search_history).build();
+        let cfg = config.clone();
+        history.connect_active_notify(move |row| {
+            save_and_refresh(&cfg, |c| c.save_search_history = row.is_active());
+        });
+        group.add(&history);
+        let icons = adw::SwitchRow::builder()
+            .title(gettext("Download missing icons"))
+            .subtitle(gettext("Contact search websites and Flathub for icons. Cached and local icons work offline."))
+            .active(config.borrow().allow_network_icons).build();
+        let cfg = config.clone();
+        icons.connect_active_notify(move |row| {
+            save_and_refresh(&cfg, |c| c.allow_network_icons = row.is_active());
+        });
+        group.add(&icons);
+        general.add(&group);
+    }
+
     // Footer bar: the two buttons at the bottom of the search window. The
     // switches only hide their key indicators — the buttons stay clickable and
     // the shortcuts keep working, so this is purely about the space they take.
@@ -1068,16 +1091,10 @@ enum InstallPreview {
 /// Classify a manifest for the install gate: shell actions confirm with the
 /// exact command; everything else (web links, file filters) installs
 /// directly — a web trigger can only open a browser tab, never run code.
-fn install_preview(path: &std::path::Path) -> InstallPreview {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return InstallPreview::Direct;
-    };
-    let Ok(m) = serde_json::from_str::<crate::triggers::TriggerManifest>(&text) else {
-        return InstallPreview::Direct;
-    };
-    match m.action {
+fn install_preview(m: &crate::triggers::TriggerManifest) -> InstallPreview {
+    match &m.action {
         crate::triggers::TriggerAction::Shell { command } => InstallPreview::Confirm {
-            name: m.name,
+            name: m.name.clone(),
             body: format!(
                 "This trigger runs shell commands on your system.\n\n{command}\n\nInstall only if you trust its author."
             ),
@@ -1100,9 +1117,11 @@ fn install_manifest_file(
     cleanup: bool,
     on_done: Option<Rc<dyn Fn()>>,
 ) {
-    match install_preview(path) {
+    let manifest = crate::triggers::parse_manifest(path);
+    let preview = manifest.as_ref().map(install_preview).unwrap_or(InstallPreview::Direct);
+    match preview {
         InstallPreview::Direct => {
-            finish_trigger_install(window, g, config, rows, path, cleanup, on_done);
+            finish_trigger_install(window, g, config, rows, path, manifest, cleanup, on_done);
         }
         InstallPreview::Confirm {
             name,
@@ -1139,6 +1158,7 @@ fn install_manifest_file(
                             &cfg,
                             &rows2,
                             &path,
+                            manifest.clone(),
                             cleanup,
                             on_done.clone(),
                         );
@@ -1157,6 +1177,7 @@ fn install_manifest_file(
 /// — and the name carries pid + nanoseconds so it isn't predictable.
 fn write_generated_manifest(tag: &str, raw: &str) -> Result<std::path::PathBuf, String> {
     use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
@@ -1168,6 +1189,7 @@ fn write_generated_manifest(tag: &str, raw: &str) -> Result<std::path::PathBuf, 
     let mut f = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
+        .mode(0o600)
         .open(&path)
         .map_err(|e| e.to_string())?;
     if let Err(e) = f.write_all(raw.as_bytes()) {
@@ -1188,12 +1210,13 @@ fn finish_trigger_install(
     config: &Rc<RefCell<Config>>,
     rows: &Rc<RefCell<Vec<TriggerRow>>>,
     path: &std::path::Path,
+    manifest: Result<crate::triggers::TriggerManifest, String>,
     cleanup: bool,
     on_done: Option<Rc<dyn Fn()>>,
 ) {
     // Native manifests enable the shipped backend, preserving customized words,
     // shortcuts and ordering. They are never copied into the custom registry.
-    let installed = crate::triggers::parse_manifest(path).and_then(|m| {
+    let installed = manifest.and_then(|m| {
         if matches!(m.action, crate::triggers::TriggerAction::Native) {
             if !crate::trigger_defaults::supports_native(&m.id) {
                 return Err(format!("This version of Spotty does not support '{}'", m.id));
@@ -1201,7 +1224,7 @@ fn finish_trigger_install(
             save_and_refresh(config, |c| c.install_builtin(&m.id));
             Ok(m)
         } else {
-            crate::triggers::install_from_file(path)
+            crate::triggers::install_manifest(m)
         }
     });
     match installed {
@@ -1455,7 +1478,7 @@ fn create_trigger_dialog(
             {
                 Ok(tmp) => {
                     d.close();
-                    finish_trigger_install(&win, &g2, &cfg, &rows2, &tmp, true, None);
+                    finish_trigger_install(&win, &g2, &cfg, &rows2, &tmp, Ok(manifest.clone()), true, None);
                 }
                 Err(e) => {
                     banner.set_title(&gettext("Cannot save the trigger: {e}").replace("{e}", &e));
@@ -1893,7 +1916,7 @@ fn store_dialog(
                 Ok(raw) => match serde_json::from_str::<Vec<crate::triggers::RepoTrigger>>(&raw)
                 {
                     Ok(list) => {
-                        *items.borrow_mut() = list;
+                        *items.borrow_mut() = list.into_iter().filter(|entry| crate::security::valid_id(&entry.id)).collect();
                         render();
                     }
                     Err(e) => {

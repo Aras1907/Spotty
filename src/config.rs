@@ -419,13 +419,18 @@ pub struct Config {
     /// the user opens Settings → Trigger → Store.
     #[serde(default = "default_trigger_repo_url")]
     pub trigger_repo_url: String,
+    /// Explicit consent for requests to download missing web/app icons.
+    #[serde(default)]
+    pub allow_network_icons: bool,
+    /// Search queries may contain secrets; persistence is opt-in.
+    #[serde(default)]
+    pub save_search_history: bool,
     /// Target-language override for the translate trigger (e.g. "de");
     /// empty = follow the system language.
     #[serde(default)]
     pub translate_target: String,
-    /// Local LibreTranslate endpoint for the translate trigger. The query
-    /// text is only ever POSTed here — by default that is your own machine,
-    /// so translations are 100% private.
+    /// LibreTranslate endpoint: local by default. A remote endpoint receives
+    /// the typed text and any API key over HTTPS.
     #[serde(default = "default_translate_endpoint")]
     pub translate_endpoint: String,
     /// Optional API key for that endpoint (self-hosted instances normally
@@ -621,6 +626,8 @@ impl Default for Config {
             package_manager: PackageManager::default(),
             enable_new_apps: true,
             trigger_repo_url: default_trigger_repo_url(),
+            allow_network_icons: false,
+            save_search_history: false,
             translate_target: String::new(),
             translate_endpoint: default_translate_endpoint(),
             translate_api_key: String::new(),
@@ -678,6 +685,7 @@ impl Config {
         if before != after {
             let _ = cfg.save();
         }
+        cfg.apply_privacy_preferences();
         cfg
     }
 
@@ -715,7 +723,7 @@ impl Config {
     fn migrate_keywords(&mut self) {
         let defaults = default_command_keywords();
         self.command_keywords
-            .retain(|kw| defaults.iter().any(|def| def.id == kw.id));
+            .retain(|kw| crate::trigger_defaults::supports_native(&kw.id));
         for def in &defaults {
             match self.command_keywords.iter_mut().find(|k| k.id == def.id) {
                 Some(existing) => {
@@ -805,10 +813,17 @@ impl Config {
         }
     }
 
+    fn apply_privacy_preferences(&self) {
+        let clipboard = self.command_keywords.iter().any(|kw| kw.id == "clipboard" && kw.enabled)
+            && !self.is_uninstalled("clipboard");
+        crate::security::set_preferences(self.save_search_history, self.allow_network_icons, clipboard);
+    }
+
     pub fn save(&self) {
+        self.apply_privacy_preferences();
         let p = Self::config_path();
-        let _ = fs::create_dir_all(p.parent().unwrap());
-        let _ = fs::write(p, serde_json::to_string_pretty(self).unwrap_or_default());
+        let _ = crate::security::private_dir(p.parent().unwrap());
+        let _ = crate::security::write_private(p, serde_json::to_string_pretty(self).unwrap_or_default());
     }
 
     /// Get the extensions for a command keyword by the word the user typed.

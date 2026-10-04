@@ -28,10 +28,10 @@ def main() -> None:
                     entries.setdefault(m.group(1), []).append(
                         f"{path.relative_to(ROOT)}:{lineno}"
                     )
-    # Native descriptions come from the pinned catalog rather than Rust literals.
+    # Catalog descriptions come from the pinned trigger repository.
     catalog = ROOT / "trigger-backends" / "index.json"
     for entry in json.loads(catalog.read_text()):
-        if entry.get("builtin") and entry.get("description"):
+        if entry.get("description"):
             msgid = json.dumps(entry["description"], ensure_ascii=False)[1:-1]
             entries.setdefault(msgid, []).append(str(catalog.relative_to(ROOT)))
 

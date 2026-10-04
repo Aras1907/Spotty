@@ -59,7 +59,7 @@ fn write_bin_file() {
     if let Some(parent) = p.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let _ = fs::write(p.join("spotty_bin"), base);
+    let _ = crate::security::write_private(p.join("spotty_bin"), base);
 }
 
 fn gdbus_call(method: &str) -> bool {

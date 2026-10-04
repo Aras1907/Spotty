@@ -6094,12 +6094,12 @@ fn trigger_help_image(
     }
     // Only plain web URLs — a manifest must not make curl read local files
     // (file://) or follow exotic schemes into the trigger cache.
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
+    if !crate::security::valid_id(&a.id) || crate::security::http_uri(url).is_err() {
         log::warn!("triggers: ignoring help_image with unsupported scheme: {url}");
         return None;
     }
     let dir = crate::triggers::triggers_dir().join("cache");
-    if std::fs::create_dir_all(&dir).is_err() {
+    if crate::security::private_dir(&dir).is_err() {
         return None;
     }
     let cache = dir.join(format!("{}.img", a.id));
@@ -6110,25 +6110,9 @@ fn trigger_help_image(
     let cache2 = cache.clone();
     let url2 = url.to_string();
     std::thread::spawn(move || {
-        // -f: HTTP errors fail instead of caching an error page;
-        // redirects capped, 2 MiB ceiling — a hostile or broken URL can't
-        // flood the disk or hang past the time budget.
-        let ok = std::process::Command::new("curl")
-            .args([
-                "-fsSL",
-                "--max-time",
-                "8",
-                "--max-redirs",
-                "5",
-                "--max-filesize",
-                "2097152",
-                "-o",
-            ])
-            .arg(&cache2)
-            .arg(&url2)
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+        let ok = crate::security::curl_request(&url2, None, 2_097_152, 8, true)
+            .ok().filter(|out| out.status.success())
+            .is_some_and(|out| crate::security::write_private(&cache2, out.stdout).is_ok());
         if !ok {
             let _ = std::fs::remove_file(&cache2);
         }
@@ -6194,10 +6178,12 @@ fn activate(
             dismiss(window, shown, false);
         }
         Action::OpenUrl(u) => {
+            if crate::security::http_uri(u).is_err() { return; }
             let _ = gio::AppInfo::launch_default_for_uri(u, gio::AppLaunchContext::NONE);
             dismiss(window, shown, false);
         }
         Action::OpenUrlPrivate(u) => {
+            if crate::security::http_uri(u).is_err() { return; }
             // Private or nothing: if this browser has no private window we know
             // how to ask for, the search does not open at all rather than in a
             // window that quietly isn't private.

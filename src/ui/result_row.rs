@@ -660,12 +660,7 @@ fn resolve_favicon(domain: &str) -> Option<String> {
     let candidates: Vec<String> = vec![
         format!("https://{}/apple-touch-icon.png", domain),
         format!("https://{}/apple-touch-icon-precomposed.png", domain),
-        format!("https://icons.duckduckgo.com/ip3/{}.ico", domain),
         format!("https://{}/favicon.ico", domain),
-        format!(
-            "https://www.google.com/s2/favicons?sz=256&domain={}",
-            domain
-        ),
     ];
     fetch_cached_icon(domain, &candidates)
 }
@@ -676,7 +671,6 @@ fn resolve_engine_icon_url(url: &str) -> Option<String> {
     let mut candidates = vec![url.to_string()];
     if let Some(domain) = host_of(url) {
         candidates.push(format!("https://{}/apple-touch-icon.png", domain));
-        candidates.push(format!("https://icons.duckduckgo.com/ip3/{}.ico", domain));
     }
     fetch_cached_icon(url, &candidates)
 }
@@ -687,6 +681,7 @@ fn resolve_engine_icon_url(url: &str) -> Option<String> {
 /// normal case there — and it means the icon works offline and is exactly the
 /// one the browser shows.
 fn cache_data_uri(data_uri: &str) -> Option<String> {
+    if data_uri.len() > 3 * 1024 * 1024 { return None; }
     let (meta, payload) = data_uri.split_once(',')?;
     if !meta.starts_with("data:image/") {
         return None;
@@ -698,11 +693,11 @@ fn cache_data_uri(data_uri: &str) -> Option<String> {
         payload.as_bytes().to_vec()
     };
     let cache_dir = dirs::cache_dir()?.join("spotty/favicons");
-    let _ = std::fs::create_dir_all(&cache_dir);
+    let _ = crate::security::private_dir(&cache_dir);
     let hash = crate::md5::hex(data_uri.as_bytes());
     let ext = image_extension(&bytes)?;
     let out = cache_dir.join(format!("{hash}.{ext}"));
-    std::fs::write(&out, &bytes).ok()?;
+    crate::security::write_private(&out, &bytes).ok()?;
     Some(out.to_string_lossy().to_string())
 }
 
@@ -710,7 +705,7 @@ fn cache_data_uri(data_uri: &str) -> Option<String> {
 /// image that turns out to be one gdk-pixbuf can actually load.
 fn fetch_cached_icon(key: &str, candidates: &[String]) -> Option<String> {
     let cache_dir = dirs::cache_dir()?.join("spotty/favicons");
-    let _ = std::fs::create_dir_all(&cache_dir);
+    let _ = crate::security::private_dir(&cache_dir);
     let hash = crate::md5::hex(key.as_bytes());
     for ext in ["png", "jpg", "svg"] {
         let out = cache_dir.join(format!("{hash}.{ext}"));
@@ -719,6 +714,7 @@ fn fetch_cached_icon(key: &str, candidates: &[String]) -> Option<String> {
         }
     }
 
+    if !crate::security::network_icons_enabled() { return None; }
     for url in candidates {
         let Ok(bytes) = host_curl(url) else { continue };
         if !bytes.status.success() || bytes.stdout.len() <= 100 {
@@ -732,7 +728,7 @@ fn fetch_cached_icon(key: &str, candidates: &[String]) -> Option<String> {
             continue;
         };
         let out = cache_dir.join(format!("{hash}.{ext}"));
-        if std::fs::write(&out, &bytes.stdout).is_ok() {
+        if crate::security::write_private(&out, &bytes.stdout).is_ok() {
             return Some(out.to_string_lossy().to_string());
         }
     }
@@ -742,20 +738,7 @@ fn fetch_cached_icon(key: &str, candidates: &[String]) -> Option<String> {
 /// curl on the host — inside the sandbox the network is the host's, so the
 /// request has to be made there.
 fn host_curl(url: &str) -> std::io::Result<std::process::Output> {
-    let mut cmd = std::process::Command::new("curl");
-    if crate::search::run::is_sandbox() {
-        cmd = std::process::Command::new("flatpak-spawn");
-        cmd.args(["--host", "curl"]);
-    }
-    cmd.args([
-        "-fsSL",
-        "--max-time",
-        "5",
-        "-A",
-        "Mozilla/5.0 (compatible; Spotty)",
-        url,
-    ])
-    .output()
+    crate::security::curl_request(url, None, 2_097_152, 5, true)
 }
 
 /// The image format from its magic bytes, or `None` for something gdk-pixbuf
@@ -910,28 +893,13 @@ fn flathub_icon_fallback(
     cache_dir: &std::path::Path,
     hash: &str,
 ) -> Option<String> {
+    if !crate::security::network_icons_enabled() { return None; }
     if !is_app_id(name) {
         log::debug!("icon: nothing local for {name}");
         return None;
     }
     for url in flathub_icon_urls(name) {
-        let mut cmd = if crate::app::is_flatpak() {
-            let mut c = std::process::Command::new("flatpak-spawn");
-            c.args(["--host", "curl"]);
-            c
-        } else {
-            std::process::Command::new("curl")
-        };
-        let output = cmd
-            .args([
-                "-fsSL",
-                "--max-time",
-                "5",
-                "-A",
-                "Mozilla/5.0 (compatible; Spotty)",
-                &url,
-            ])
-            .output();
+        let output = host_curl(&url);
         let Ok(out) = output else {
             continue;
         };
@@ -947,7 +915,7 @@ fn flathub_icon_fallback(
             continue;
         };
         let path = cache_dir.join(format!("{}.{}", hash, ext));
-        if std::fs::write(&path, &out.stdout).is_ok() {
+        if crate::security::write_private(&path, &out.stdout).is_ok() {
             return Some(path.to_string_lossy().to_string());
         }
     }
@@ -959,7 +927,7 @@ fn flathub_icon_fallback(
 
 fn resolve_host_app_icon(name: &str) -> Option<String> {
     let cache_dir = dirs::cache_dir()?.join("spotty/host-icons");
-    let _ = std::fs::create_dir_all(&cache_dir);
+    let _ = crate::security::private_dir(&cache_dir);
     let hash = crate::md5::hex(name.as_bytes());
     if let Ok(rd) = std::fs::read_dir(&cache_dir) {
         for entry in rd.flatten() {
@@ -1014,7 +982,7 @@ fn resolve_host_app_icon(name: &str) -> Option<String> {
             Err(_) => return flathub_icon_fallback(name, &cache_dir, &hash),
         }
     };
-    if std::fs::write(&out, &file_bytes).is_err() {
+    if crate::security::write_private(&out, &file_bytes).is_err() {
         return flathub_icon_fallback(name, &cache_dir, &hash);
     }
     Some(out.to_string_lossy().to_string())
