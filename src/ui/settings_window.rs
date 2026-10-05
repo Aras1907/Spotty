@@ -218,12 +218,14 @@ thread_local! {
     /// popups call it after a word or shortcut changes.
     static TRIGGER_LIST_REFRESH: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
     static SERVICE_ROW_REFRESH: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
+    static STORE_SERVICE_REFRESH: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
 }
 
 fn refresh_service_row() {
-    SERVICE_ROW_REFRESH.with(|refresh| {
-        if let Some(refresh) = refresh.borrow().clone() { refresh(); }
-    });
+    let settings = SERVICE_ROW_REFRESH.with(|refresh| refresh.borrow().clone());
+    if let Some(refresh) = settings { refresh(); }
+    let store = STORE_SERVICE_REFRESH.with(|refresh| refresh.borrow().clone());
+    if let Some(refresh) = store { refresh(); }
 }
 
 fn refresh_trigger_list() {
@@ -545,24 +547,33 @@ fn build_keywords_page(
         .subtitle(gettext("Local mail server for Proton Mail clients"))
         .use_markup(false)
         .build();
-    let switch = gtk::Switch::builder()
-        .valign(gtk::Align::Center)
-        .active(config.borrow().proton_bridge_enabled)
-        .sensitive(crate::proton_bridge::supported())
-        .build();
-    bridge.add_suffix(&switch);
-    bridge.set_activatable_widget(Some(&switch));
+    let install = gtk::Button::with_label(&gettext("Install"));
+    install.add_css_class("suggested-action");
+    install.set_valign(gtk::Align::Center);
+    install.set_sensitive(crate::proton_bridge::supported());
+    let uninstall = gtk::Button::with_label(&gettext("Uninstall"));
+    uninstall.add_css_class("flat");
+    uninstall.set_valign(gtk::Align::Center);
     let bridge_settings = gtk::Button::with_label(&gettext("Settings"));
     bridge_settings.add_css_class("flat");
     bridge_settings.set_valign(gtk::Align::Center);
-    bridge_settings.set_sensitive(config.borrow().proton_bridge_enabled && crate::proton_bridge::supported());
+    let installed = config.borrow().proton_bridge_enabled;
+    install.set_visible(!installed);
+    uninstall.set_visible(installed);
+    bridge_settings.set_visible(installed);
+    bridge_settings.set_sensitive(installed && crate::proton_bridge::supported());
     {
         let cfg = config.clone();
-        let settings_button = bridge_settings.clone();
-        switch.connect_active_notify(move |sw| {
-            let active = sw.is_active();
-            save_then(&cfg, |c| c.proton_bridge_enabled = active, || ());
-            settings_button.set_sensitive(active && crate::proton_bridge::supported());
+        install.connect_clicked(move |_| {
+            save_and_refresh(&cfg, |c| c.proton_bridge_enabled = true);
+            refresh_service_row();
+        });
+    }
+    {
+        let cfg = config.clone();
+        uninstall.connect_clicked(move |_| {
+            save_and_refresh(&cfg, |c| c.proton_bridge_enabled = false);
+            refresh_service_row();
         });
     }
     let weak_window = window.downgrade();
@@ -573,16 +584,21 @@ fn build_keywords_page(
             }
         }
     });
+    bridge.add_suffix(&install);
     bridge.add_suffix(&bridge_settings);
+    bridge.add_suffix(&uninstall);
     {
-        let switch = switch.clone();
-        let button = bridge_settings.clone();
+        let install = install.clone();
+        let uninstall = uninstall.clone();
+        let settings = bridge_settings.clone();
         let cfg = config.clone();
         SERVICE_ROW_REFRESH.with(|refresh| {
             *refresh.borrow_mut() = Some(Rc::new(move || {
                 let enabled = cfg.borrow().proton_bridge_enabled;
-                switch.set_active(enabled);
-                button.set_sensitive(enabled && crate::proton_bridge::supported());
+                install.set_visible(!enabled);
+                uninstall.set_visible(enabled);
+                settings.set_visible(enabled);
+                settings.set_sensitive(enabled && crate::proton_bridge::supported());
             }));
         });
     }
@@ -1720,6 +1736,55 @@ fn server_trigger_row(
             .valign(gtk::Align::Center)
             .sensitive(supported && t.id != "cmd")
             .build();
+        if service {
+            let win = window.clone();
+            let cfg = config.clone();
+            let refresh = refresh.clone();
+            let name = t.name.clone();
+            btn.set_label(&gettext(if installed { "Settings" } else { "Install" }));
+            btn.set_visible(!installed);
+            let settings = gtk::Button::with_label(&gettext("Settings"));
+            settings.add_css_class("flat");
+            settings.set_valign(gtk::Align::Center);
+            settings.set_visible(installed);
+            settings.set_sensitive(supported && installed);
+            let uninstall = gtk::Button::with_label(&gettext("Uninstall"));
+            uninstall.add_css_class("flat");
+            uninstall.set_valign(gtk::Align::Center);
+            uninstall.set_visible(installed);
+            {
+                let win = win.clone();
+                settings.connect_clicked(move |_| {
+                    if let Err(message) = crate::proton_bridge::open() {
+                        win.add_toast(adw::Toast::new(&message));
+                    }
+                });
+            }
+            {
+                let cfg = cfg.clone();
+                let refresh = refresh.clone();
+                uninstall.connect_clicked(move |_| {
+                    save_and_refresh(&cfg, |c| c.proton_bridge_enabled = false);
+                    refresh_service_row();
+                    refresh();
+                });
+            }
+            action.add_suffix(&btn);
+            action.add_suffix(&settings);
+            action.add_suffix(&uninstall);
+            {
+                let win = win.clone();
+                let cfg = cfg.clone();
+                let refresh = refresh.clone();
+                btn.connect_clicked(move |_| {
+                    save_and_refresh(&cfg, |c| c.proton_bridge_enabled = true);
+                    refresh_service_row();
+                    refresh();
+                    win.add_toast(adw::Toast::new(&gettext("Installed \"{name}\"").replace("{name}", &name)));
+                });
+            }
+            return action.upcast();
+        }
         let id = t.id.clone();
         let name = t.name.clone();
         let win = window.clone();
@@ -1728,18 +1793,10 @@ fn server_trigger_row(
         let rows2 = rows.clone();
         let refresh = refresh.clone();
         btn.connect_clicked(move |_| {
-            if id == "proton-bridge" && installed {
-                if let Err(message) = crate::proton_bridge::open() {
-                    win.add_toast(adw::Toast::new(&message));
-                }
-                return;
-            }
             save_and_refresh(&cfg, |c| {
-                if id == "proton-bridge" { c.proton_bridge_enabled = true; }
-                else if !installed { c.install_builtin(&id); }
+                if !installed { c.install_builtin(&id); }
                 else { c.uninstall_builtin(&id); }
             });
-            if id == "proton-bridge" { refresh_service_row(); refresh(); return; }
             rebuild_trigger_rows(&g2, &win, &cfg, &rows2);
             std::thread::spawn(crate::keybindings::register_all);
             let text = if !installed { gettext("Installed \"{name}\"") }
@@ -1971,6 +2028,14 @@ fn store_dialog(
             );
         })
     };
+
+    STORE_SERVICE_REFRESH.with(|refresh| *refresh.borrow_mut() = Some(render.clone()));
+    {
+        dialog.connect_close_request(move |_| {
+            STORE_SERVICE_REFRESH.with(|callback| *callback.borrow_mut() = None);
+            glib::Propagation::Proceed
+        });
+    }
 
     {
         let render = render.clone();

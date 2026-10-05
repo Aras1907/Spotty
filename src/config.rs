@@ -1111,6 +1111,22 @@ mod tests {
     }
 
     #[test]
+    fn proton_bridge_service_install_and_uninstall_preserve_keyword_absence() {
+        let mut config = Config::default();
+        config.proton_bridge_enabled = true;
+        let installed = serde_json::to_string(&config).unwrap();
+        let mut restored: Config = serde_json::from_str(&installed).unwrap();
+        assert!(restored.proton_bridge_enabled);
+        assert!(restored.keyword_for_id("proton-bridge").is_none());
+
+        restored.proton_bridge_enabled = false;
+        let uninstalled = serde_json::to_string(&restored).unwrap();
+        let restored: Config = serde_json::from_str(&uninstalled).unwrap();
+        assert!(!restored.proton_bridge_enabled);
+        assert!(restored.keyword_for_id("proton-bridge").is_none());
+    }
+
+    #[test]
     fn result_types_are_store_installs_and_begin_unavailable() {
         let mut c = Config::default();
         for id in RESULT_IDS {
