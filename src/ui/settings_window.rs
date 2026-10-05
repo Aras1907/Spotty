@@ -1222,6 +1222,9 @@ fn finish_trigger_install(
                 return Err(format!("This version of Spotty does not support '{}'", m.id));
             }
             save_and_refresh(config, |c| c.install_builtin(&m.id));
+            if m.id == "proton-bridge" {
+                crate::search::proton_bridge::open()?;
+            }
             Ok(m)
         } else {
             crate::triggers::install_manifest(m)
@@ -1635,6 +1638,12 @@ fn server_trigger_row(
         let rows2 = rows.clone();
         let refresh = refresh.clone();
         btn.connect_clicked(move |_| {
+            if !installed && id == "proton-bridge" {
+                if let Err(message) = crate::search::proton_bridge::open() {
+                    win.add_toast(adw::Toast::new(&message));
+                    return;
+                }
+            }
             save_and_refresh(&cfg, |c| {
                 if !installed { c.install_builtin(&id); }
                 else { c.uninstall_builtin(&id); }
@@ -3187,28 +3196,14 @@ mod tests {
     }
 
     #[test]
-    fn install_gate_confirms_shell_and_web_but_not_files() {
-        let dir = std::env::temp_dir();
-        let tag = std::process::id();
-        let write = |name: &str, body: &str| -> std::path::PathBuf {
-            let p = dir.join(format!("spotty_gate_test_{tag}_{name}.json"));
-            std::fs::write(&p, body).expect("write fixture");
-            p
+    fn install_gate_confirms_shell_and_allows_web_files_and_native() {
+        let parse = |body: &str| -> crate::triggers::TriggerManifest {
+            serde_json::from_str(body).expect("valid fixture")
         };
-        let shell = write(
-            "shell",
-            r#"{"id":"x","name":"X","word":"x","description":"d","action":{"type":"shell","command":"rm -rf ~"}}"#,
-        );
-        let web = write(
-            "web",
-            r#"{"id":"y","name":"Y","word":"y","description":"d","action":{"type":"web","url":"https://e/{query}"}}"#,
-        );
-        let files = write(
-            "files",
-            r#"{"id":"z","name":"Z","word":"z","description":"d","action":{"type":"files","extensions":["pdf"]}}"#,
-        );
-
-        // Shell = destructive confirmation showing the exact command.
+        let shell = parse(r#"{"id":"x","name":"X","word":"x","description":"d","action":{"type":"shell","command":"rm -rf ~"}}"#);
+        let web = parse(r#"{"id":"y","name":"Y","word":"y","description":"d","action":{"type":"web","url":"https://e/{query}"}}"#);
+        let files = parse(r#"{"id":"z","name":"Z","word":"z","description":"d","action":{"type":"files","extensions":["pdf"]}}"#);
+        let native = parse(include_str!("../../trigger-backends/triggers/proton-bridge.json"));
         match install_preview(&shell) {
             InstallPreview::Confirm { body, destructive, .. } => {
                 assert!(destructive);
@@ -3216,19 +3211,10 @@ mod tests {
             }
             _ => panic!("shell triggers must confirm"),
         }
-        // Web triggers can only open a browser link — install directly,
-        // no dialog (shell is the only gate, checked above).
         assert!(matches!(install_preview(&web), InstallPreview::Direct));
-        // File filters are harmless: install directly.
         assert!(matches!(install_preview(&files), InstallPreview::Direct));
-        // A non-manifest file must not bypass anything by accident —
-        // it goes Direct and fails later in validation instead.
-        let junk = write("junk", "not json at all");
-        assert!(matches!(install_preview(&junk), InstallPreview::Direct));
-
-        for p in [&shell, &web, &files, &junk] {
-            let _ = std::fs::remove_file(p);
-        }
+        assert!(matches!(install_preview(&native), InstallPreview::Direct));
+        assert!(serde_json::from_str::<crate::triggers::TriggerManifest>("not json at all").is_err());
     }
 }
 

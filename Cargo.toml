@@ -6,6 +6,7 @@ edition = "2021"
 name = "spotty"
 path = "src/main.rs"
 [dependencies]
+spotty-proton-bridge-gui = { path = "trigger-backends/proton-bridge-gui", default-features = false }
 libc = "0.2"
 gtk = { version = "0.9", package = "gtk4", features = ["v4_12"] }
 adw = { version = "0.7", package = "libadwaita", features = ["v1_6"] }
@@ -35,6 +36,9 @@ resvg = "0.44"
 tiny-skia = "0.11"
 symphonia = { version = "0.5.5", default-features = false, features = ["aac", "flac", "mp3", "pcm", "vorbis", "isomp4", "ogg", "wav"] }
 libheif-rs = { version = "2.7.0", features = ["embedded-libheif"] }
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+spotty-proton-bridge-gui = { path = "trigger-backends/proton-bridge-gui", features = ["bundled-bridge"] }
+
 [profile.release]
 opt-level = 3
 lto = "fat"

@@ -40,3 +40,19 @@ using [SECURITY.md](SECURITY.md).
 
 The manifests and backend source are documented in
 [spotty-triggers](https://github.com/Aras1907/spotty-triggers).
+
+### Optional Proton Mail Bridge
+
+Native Linux x86_64 Cargo builds include the Proton Bridge login window and
+verified Bridge runtime. In **Settings → Triggers → Store**, click **Install**
+for Proton Mail Bridge. The window starts Bridge and requests your login
+information, then shows the generated Bridge password and local IMAP/SMTP
+settings to copy into your mail client. No separate Bridge installation is
+needed. The trigger starts disabled; Bridge is activated only after opting in.
+
+Use `proton login` or `proton settings` to reopen it. Closing the window keeps
+Bridge running. A paid Proton Mail plan and an unlocked Linux keyring are
+required. Build with current submodules (`git submodule update --init --recursive`)
+and `cargo install --path . --locked`. The build requires Python 3 and network
+access once to prepare the pinned native payload. It installs no system packages.
+See [package details](trigger-backends/proton-bridge-gui/README.md).

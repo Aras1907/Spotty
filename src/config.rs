@@ -1053,6 +1053,21 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn optional_proton_bridge_install_enables_keyword_and_uninstall_disables_it() {
+        let mut config = Config::default();
+        assert!(config.keyword_for_id("proton-bridge").is_none());
+        config.install_builtin("proton-bridge");
+        let keyword = config.keyword_for_id("proton-bridge").expect("installed Bridge");
+        assert_eq!(keyword.word, "proton");
+        assert!(keyword.enabled);
+        config.uninstall_builtin("proton-bridge");
+        assert!(config.keyword_for_id("proton-bridge").is_none());
+        config.install_builtin("proton-bridge");
+        assert_eq!(config.keyword_for_id("proton-bridge").unwrap().word, "proton");
+    }
+
+    #[test]
     fn result_types_are_store_installs_and_begin_unavailable() {
         let mut c = Config::default();
         for id in RESULT_IDS {

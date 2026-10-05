@@ -67,6 +67,17 @@ mod opprogress;
 mod thumbnails;
 mod ui;
 fn main() -> glib::ExitCode {
+    // The optional Bridge runs in its own process, before daemon/GTK setup.
+    // Its runtime is packaged in this executable; no second install needed.
+    if std::env::args().nth(1).as_deref() == Some("--proton-bridge-gui") {
+        return match spotty_proton_bridge_gui::gui::run() {
+            Ok(()) => glib::ExitCode::SUCCESS,
+            Err(_) => {
+                eprintln!("Cannot open the Proton Mail Bridge login window.");
+                glib::ExitCode::FAILURE
+            }
+        };
+    }
     if let Err(e) = security::protect_state_dirs() {
         eprintln!("Cannot secure Spotty's private state directories: {e}");
         return glib::ExitCode::FAILURE;
@@ -283,6 +294,5 @@ fn write_instance_pid(pid: i32) -> std::io::Result<()> {
     let path = config_pid_file();
     security::write_private(path, pid.to_string())
 }
-
 
 
