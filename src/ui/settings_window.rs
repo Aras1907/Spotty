@@ -219,6 +219,14 @@ thread_local! {
     static TRIGGER_LIST_REFRESH: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
     static SERVICE_ROW_REFRESH: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
     static STORE_SERVICE_REFRESH: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
+    static BRIDGE_SETTINGS_OPEN: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
+}
+
+fn show_bridge_settings() {
+    let open = BRIDGE_SETTINGS_OPEN.with(|callback| callback.borrow().clone());
+    if let Some(open) = open {
+        open();
+    }
 }
 
 fn refresh_service_row() {
@@ -519,6 +527,43 @@ fn build_keywords_page(
         .build();
     window.add(&page);
 
+    // Proton Bridge is a lazily-created page in this PreferencesWindow, so
+    // opening its settings never starts another Spotty process or window.
+    let bridge_page: Rc<RefCell<Option<adw::PreferencesPage>>> =
+        Rc::new(RefCell::new(None));
+    let weak_window = window.downgrade();
+    let return_page = page.clone();
+    BRIDGE_SETTINGS_OPEN.with(|callback| {
+        let bridge_page = bridge_page.clone();
+        *callback.borrow_mut() = Some(Rc::new(move || {
+            let Some(window) = weak_window.upgrade() else {
+                return;
+            };
+            let page = if let Some(page) = bridge_page.borrow().as_ref() {
+                page.clone()
+            } else {
+                let page = adw::PreferencesPage::builder()
+                    .title(gettext("Proton Mail Bridge"))
+                    .icon_name("mail-send-receive-symbolic")
+                    .build();
+                let group = adw::PreferencesGroup::new();
+                let weak_window = window.downgrade();
+                let return_page = return_page.clone();
+                let content = spotty_proton_bridge_gui::gui::embedded(&window, move || {
+                    if let Some(window) = weak_window.upgrade() {
+                        window.set_visible_page(&return_page);
+                    }
+                });
+                group.add(&content);
+                page.add(&group);
+                window.add(&page);
+                *bridge_page.borrow_mut() = Some(page.clone());
+                page
+            };
+            window.set_visible_page(&page);
+        }));
+    });
+
     // Result types and triggers in one list, in the user's order: the higher a
     // row, the higher its results rank in the regular search.
     // Group titles are markup: the "&" has to be escaped or the title vanishes.
@@ -576,13 +621,8 @@ fn build_keywords_page(
             refresh_service_row();
         });
     }
-    let weak_window = window.downgrade();
     bridge_settings.connect_clicked(move |_| {
-        if let Err(message) = crate::proton_bridge::open() {
-            if let Some(window) = weak_window.upgrade() {
-                window.add_toast(adw::Toast::new(&message));
-            }
-        }
+        show_bridge_settings();
     });
     bridge.add_suffix(&install);
     bridge.add_suffix(&bridge_settings);
@@ -1753,11 +1793,8 @@ fn server_trigger_row(
             uninstall.set_valign(gtk::Align::Center);
             uninstall.set_visible(installed);
             {
-                let win = win.clone();
                 settings.connect_clicked(move |_| {
-                    if let Err(message) = crate::proton_bridge::open() {
-                        win.add_toast(adw::Toast::new(&message));
-                    }
+                    show_bridge_settings();
                 });
             }
             {
