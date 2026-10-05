@@ -531,15 +531,25 @@ fn build_keywords_page(
     // opening its settings never starts another Spotty process or window.
     let bridge_page: Rc<RefCell<Option<adw::PreferencesPage>>> =
         Rc::new(RefCell::new(None));
+    let bridge_handle: Rc<RefCell<Option<spotty_proton_bridge_gui::gui::EmbeddedBridge>>> =
+        Rc::new(RefCell::new(None));
     let weak_window = window.downgrade();
     let return_page = page.clone();
     BRIDGE_SETTINGS_OPEN.with(|callback| {
         let bridge_page = bridge_page.clone();
+        let bridge_handle = bridge_handle.clone();
+        let config = config.clone();
         *callback.borrow_mut() = Some(Rc::new(move || {
+            if !config.borrow().proton_bridge_enabled {
+                return;
+            }
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
-            let page = if let Some(page) = bridge_page.borrow().as_ref() {
+            // Drop the Ref before creating a page: the creation branch stores
+            // the new page through borrow_mut below.
+            let existing_page = bridge_page.borrow().clone();
+            let page = if let Some(page) = existing_page {
                 page.clone()
             } else {
                 let page = adw::PreferencesPage::builder()
@@ -549,18 +559,20 @@ fn build_keywords_page(
                 let group = adw::PreferencesGroup::new();
                 let weak_window = window.downgrade();
                 let return_page = return_page.clone();
-                let content = spotty_proton_bridge_gui::gui::embedded(&window, move || {
+                let handle = spotty_proton_bridge_gui::gui::EmbeddedBridge::new(&window, move || {
                     if let Some(window) = weak_window.upgrade() {
                         window.set_visible_page(&return_page);
                     }
                 });
-                group.add(&content);
+                group.add(&handle.widget());
                 page.add(&group);
                 window.add(&page);
+                *bridge_handle.borrow_mut() = Some(handle);
                 *bridge_page.borrow_mut() = Some(page.clone());
                 page
             };
             window.set_visible_page(&page);
+            window.present();
         }));
     });
 
@@ -592,10 +604,6 @@ fn build_keywords_page(
         .subtitle(gettext("Local mail server for Proton Mail clients"))
         .use_markup(false)
         .build();
-    let install = gtk::Button::with_label(&gettext("Install"));
-    install.add_css_class("suggested-action");
-    install.set_valign(gtk::Align::Center);
-    install.set_sensitive(crate::proton_bridge::supported());
     let uninstall = gtk::Button::with_label(&gettext("Uninstall"));
     uninstall.add_css_class("flat");
     uninstall.set_valign(gtk::Align::Center);
@@ -603,17 +611,9 @@ fn build_keywords_page(
     bridge_settings.add_css_class("flat");
     bridge_settings.set_valign(gtk::Align::Center);
     let installed = config.borrow().proton_bridge_enabled;
-    install.set_visible(!installed);
     uninstall.set_visible(installed);
     bridge_settings.set_visible(installed);
     bridge_settings.set_sensitive(installed && crate::proton_bridge::supported());
-    {
-        let cfg = config.clone();
-        install.connect_clicked(move |_| {
-            save_and_refresh(&cfg, |c| c.proton_bridge_enabled = true);
-            refresh_service_row();
-        });
-    }
     {
         let cfg = config.clone();
         uninstall.connect_clicked(move |_| {
@@ -624,26 +624,57 @@ fn build_keywords_page(
     bridge_settings.connect_clicked(move |_| {
         show_bridge_settings();
     });
-    bridge.add_suffix(&install);
     bridge.add_suffix(&bridge_settings);
     bridge.add_suffix(&uninstall);
     {
-        let install = install.clone();
         let uninstall = uninstall.clone();
         let settings = bridge_settings.clone();
         let cfg = config.clone();
+        let services = services.clone();
+        let page = page.clone();
+        let search_page = page.clone();
+        let bridge_page = bridge_page.clone();
+        let bridge_handle = bridge_handle.clone();
+        let weak_window = window.downgrade();
+        let attached = Rc::new(std::cell::Cell::new(installed));
+        if installed {
+            page.add(&services);
+        }
         SERVICE_ROW_REFRESH.with(|refresh| {
             *refresh.borrow_mut() = Some(Rc::new(move || {
                 let enabled = cfg.borrow().proton_bridge_enabled;
-                install.set_visible(!enabled);
                 uninstall.set_visible(enabled);
                 settings.set_visible(enabled);
                 settings.set_sensitive(enabled && crate::proton_bridge::supported());
+
+                // Remove the complete service group when Bridge is absent.
+                if attached.get() != enabled {
+                    if enabled {
+                        page.add(&services);
+                    } else {
+                        page.remove(&services);
+                    }
+                    attached.set(enabled);
+                }
+
+                // Uninstalling Bridge must also discard its embedded page so
+                // it cannot remain in Settings or be reopened by a stale row.
+                if !enabled {
+                    if let Some(handle) = bridge_handle.borrow_mut().take() {
+                        handle.close();
+                    }
+                    let old_page = bridge_page.borrow_mut().take();
+                    if let (Some(window), Some(old_page)) =
+                        (weak_window.upgrade(), old_page)
+                    {
+                        window.set_visible_page(&search_page);
+                        window.remove(&old_page);
+                    }
+                }
             }));
         });
     }
     services.add(&bridge);
-    page.add(&services);
 
     let rows: Rc<RefCell<Vec<TriggerRow>>> = Rc::new(RefCell::new(Vec::new()));
 
@@ -1793,7 +1824,10 @@ fn server_trigger_row(
             uninstall.set_valign(gtk::Align::Center);
             uninstall.set_visible(installed);
             {
-                settings.connect_clicked(move |_| {
+                settings.connect_clicked(move |button| {
+                    if let Some(store) = button.root().and_then(|root| root.downcast::<adw::Window>().ok()) {
+                        store.close();
+                    }
                     show_bridge_settings();
                 });
             }

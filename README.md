@@ -43,16 +43,23 @@ The manifests and backend source are documented in
 
 ### Optional Proton Mail Bridge
 
-Native Linux x86_64 Cargo builds include the Proton Bridge login window and
-verified Bridge runtime. In **Settings → Triggers → Store**, click **Install**
-for Proton Mail Bridge. The window starts Bridge and requests your login
-information, then shows the generated Bridge password and local IMAP/SMTP
-settings to copy into your mail client. No separate Bridge installation is
-needed. The trigger starts disabled; Bridge is activated only after opting in.
+Linux x86_64 builds include the verified Proton Bridge runtime and its login
+controls in Spotty. In **Settings → Search → Store**, click **Install** for
+Proton Mail Bridge. Its installed service row then appears under
+**Server-side installations**. Click **Settings** to sign in, manage accounts,
+and copy the generated Bridge password and local IMAP/SMTP settings into your
+mail client, all within Spotty's Settings window.
 
-Use `proton login` or `proton settings` to reopen it. Closing the window keeps
-Bridge running. A paid Proton Mail plan and an unlocked Linux keyring are
-required. Build with current submodules (`git submodule update --init --recursive`)
-and `cargo install --path . --locked`. The build requires Python 3 and network
-access once to prepare the pinned native payload. It installs no system packages.
+Bridge is an optional service, without a search trigger or separate application
+installation. Uninstall removes its Settings row and account page; it remains
+available to reinstall from the Store. Closing its settings keeps the mail
+service running. A paid Proton Mail plan and an unlocked Linux keyring are
+required.
+
+Build with current submodules (`git submodule update --init --recursive`) and
+`cargo install --path . --locked`. Restart a running Spotty after installing a
+new binary so its cached settings use the updated interface. The build requires
+Python 3 and network access once to prepare the pinned native payload. It
+installs no system packages. The Flatpak manifest uses the same embedded Bridge
+controls and enables network and Secret Service access for the bundled backend.
 See [package details](trigger-backends/proton-bridge-gui/README.md).

@@ -24,6 +24,11 @@ finish-args:
   - --socket=fallback-x11
   - --device=dri
   - --filesystem=home
+  # Proton Bridge authenticates with Proton's servers and hosts local IMAP/SMTP
+  # listeners for desktop mail clients.
+  - --share=network
+  # The native Bridge backend stores its vault key in the desktop keyring.
+  - --talk-name=org.freedesktop.secrets
   - --filesystem=xdg-cache/thumbnails:create
   - --filesystem=/usr/share/applications:ro
   - --filesystem=/usr/local/share/applications:ro

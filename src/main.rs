@@ -69,19 +69,26 @@ mod opprogress;
 mod thumbnails;
 mod ui;
 fn main() -> glib::ExitCode {
+    if let Err(e) = security::protect_state_dirs() {
+        eprintln!("Cannot secure Spotty's private state directories: {e}");
+        return glib::ExitCode::FAILURE;
+    }
     // Keep the hidden desktop-login worker entry point used by Bridge's
     // autostart launcher. Interactive Bridge controls are embedded in Spotty.
     if std::env::args().any(|arg| arg == "--proton-bridge-gui")
         && std::env::args().any(|arg| arg == "--background")
     {
+        // Old startup entries must not reactivate an uninstalled service.
+        if !config::Config::load().proton_bridge_enabled
+            || (spotty_proton_bridge_gui::background::is_flatpak()
+                && !spotty_proton_bridge_gui::background::autostart_enabled())
+        {
+            return glib::ExitCode::SUCCESS;
+        }
         return match spotty_proton_bridge_gui::gui::run() {
             Ok(()) => glib::ExitCode::SUCCESS,
             Err(_) => glib::ExitCode::FAILURE,
         };
-    }
-    if let Err(e) = security::protect_state_dirs() {
-        eprintln!("Cannot secure Spotty's private state directories: {e}");
-        return glib::ExitCode::FAILURE;
     }
     let args: Vec<String> = std::env::args().collect();
 
