@@ -47,13 +47,22 @@ pub struct RepoTrigger {
     pub author: String,
     #[serde(default)]
     pub shortcut: String,
+    /// Background services have settings instead of a search keyword.
+    #[serde(default)]
+    pub category: String,
     /// Enable this shipped backend on a fresh Spotty install. This is not a
-    /// Store category: all entries are presented together and are installable.
+    /// Store category; services are never search defaults.
     #[serde(default, alias = "builtin")]
     pub preinstalled: bool,
     /// This entry requires a Rust backend compiled into Spotty.
     #[serde(default)]
     pub native: bool,
+}
+
+impl RepoTrigger {
+    pub fn is_service(&self) -> bool {
+        self.category == "service" || self.id == "proton-bridge"
+    }
 }
 
 /// What a trigger does with the user's typed query.
@@ -180,6 +189,9 @@ pub fn load_all() {
             continue;
         }
         match parse_manifest(&path) {
+            // Preserve legacy files, but never register the mail service as
+            // a keyword or shortcut. Its accounts remain in Bridge's vault.
+            Ok(m) if m.id == "proton-bridge" => {},
             Ok(m) if validate_structure(&m).is_ok()
                 && path.file_stem().and_then(|s| s.to_str()) == Some(m.id.as_str())
                 && !loaded.iter().any(|other: &TriggerManifest|

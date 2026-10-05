@@ -392,6 +392,9 @@ pub struct Config {
     /// Remappable command keywords for built-in search modes.
     #[serde(default = "default_command_keywords")]
     pub command_keywords: Vec<CommandKeyword>,
+    /// Proton Bridge is a local background mail server, configured outside search.
+    #[serde(default)]
+    pub proton_bridge_enabled: bool,
     /// Legacy clipboard shortcut migrated into the clipboard keyword on load.
     #[serde(default, skip_serializing)]
     pub clipboard_shortcut: String,
@@ -618,6 +621,7 @@ impl Default for Config {
             show_shortcut_hints: true,
             max_index_entries: dm(),
             command_keywords: default_command_keywords(),
+            proton_bridge_enabled: false,
             clipboard_shortcut: String::new(),
             pm_flatpak: Some(true),
             pm_distro: Some(false),
@@ -676,6 +680,7 @@ impl Config {
             serde_json::from_value(v).ok()
         }).unwrap_or_default();
         let before = serde_json::to_string(&cfg).unwrap_or_default();
+        cfg.migrate_proton_bridge_service();
         cfg.migrate_keywords();
         cfg.migrate_converter_switch();
         cfg.migrate_resource_defaults();
@@ -788,6 +793,20 @@ impl Config {
             }
             self.clipboard_shortcut.clear();
         }
+    }
+
+    /// Move old Proton Bridge trigger installs into the service switch. The
+    /// account and Bridge data live outside Spotty and are left untouched.
+    fn migrate_proton_bridge_service(&mut self) {
+        if let Some(old) = self.command_keywords.iter().find(|k| k.id == "proton-bridge") {
+            self.proton_bridge_enabled |= old.enabled
+                && !self.uninstalled_builtins.iter().any(|id| id == "proton-bridge");
+        }
+        self.command_keywords.retain(|k| k.id != "proton-bridge");
+        self.uninstalled_builtins.retain(|id| id != "proton-bridge");
+        self.regular_search_on.retain(|id| id != "proton-bridge");
+        self.regular_search_off.retain(|id| id != "proton-bridge");
+        self.result_order.retain(|id| id != "proton-bridge");
     }
 
     /// The converter used to live under the calculator's switch: keep whatever
@@ -1053,18 +1072,42 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    fn optional_proton_bridge_install_enables_keyword_and_uninstall_disables_it() {
+    fn proton_bridge_trigger_migrates_to_service_flag_without_keyword() {
         let mut config = Config::default();
+        let legacy = CommandKeyword {
+            id: "proton-bridge".into(), word: "proton".into(),
+            description: "Legacy Bridge trigger".into(), extensions: vec![],
+            icon: String::new(), all_files: false, shortcut: "<Super>p".into(), enabled: true,
+        };
+        config.command_keywords.push(legacy);
+        config.regular_search_on.push("proton-bridge".into());
+        config.regular_search_off.push("proton-bridge".into());
+        config.result_order.push("proton-bridge".into());
+        config.migrate_proton_bridge_service();
+        config.migrate_keywords();
+        assert!(config.proton_bridge_enabled);
         assert!(config.keyword_for_id("proton-bridge").is_none());
-        config.install_builtin("proton-bridge");
-        let keyword = config.keyword_for_id("proton-bridge").expect("installed Bridge");
-        assert_eq!(keyword.word, "proton");
-        assert!(keyword.enabled);
-        config.uninstall_builtin("proton-bridge");
-        assert!(config.keyword_for_id("proton-bridge").is_none());
-        config.install_builtin("proton-bridge");
-        assert_eq!(config.keyword_for_id("proton-bridge").unwrap().word, "proton");
+        assert!(!config.command_keywords.iter().any(|k| k.word == "proton"));
+        assert!(config.regular_search_on.iter().all(|id| id != "proton-bridge"));
+        assert!(config.regular_search_off.iter().all(|id| id != "proton-bridge"));
+        assert!(config.result_order.iter().all(|id| id != "proton-bridge"));
+        config.proton_bridge_enabled = false;
+        config.migrate_proton_bridge_service();
+        assert!(!config.proton_bridge_enabled, "Migration must not re-enable a disabled service");
+    }
+
+    #[test]
+    fn proton_bridge_migration_respects_uninstalled_state() {
+        let mut config = Config::default();
+        config.command_keywords.push(CommandKeyword {
+            id: "proton-bridge".into(), word: "proton".into(),
+            description: String::new(), extensions: vec![], icon: String::new(),
+            all_files: false, shortcut: String::new(), enabled: true,
+        });
+        config.uninstalled_builtins.push("proton-bridge".into());
+        config.migrate_proton_bridge_service();
+        assert!(!config.proton_bridge_enabled);
+        assert!(config.command_keywords.iter().all(|k| k.id != "proton-bridge"));
     }
 
     #[test]

@@ -51,6 +51,8 @@ mod operations;
 mod packagekit;
 #[path = "../trigger-backends/src/features/preview.rs"]
 mod preview;
+#[path = "../trigger-backends/src/features/proton_bridge.rs"]
+mod proton_bridge;
 #[path = "../trigger-backends/src/features/recent_paths.rs"]
 mod recent_paths;
 #[path = "../trigger-backends/src/search/mod.rs"]
@@ -294,5 +296,4 @@ fn write_instance_pid(pid: i32) -> std::io::Result<()> {
     let path = config_pid_file();
     security::write_private(path, pid.to_string())
 }
-
 

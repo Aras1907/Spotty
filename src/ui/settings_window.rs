@@ -38,6 +38,7 @@ impl SettingsWindow {
         // Rebuild the trigger list so triggers installed since the window was
         // first opened (trigger imports) appear without re-opening.
         (self.refresh_triggers)();
+        refresh_service_row();
         self.window.present();
         // On Wayland, present() on an already-visible window doesn't reliably
         // grab keyboard focus — grab it on the next main-loop iteration.
@@ -216,6 +217,13 @@ thread_local! {
     /// Rebuilds the trigger list. Set by the Triggers page; the result-type
     /// popups call it after a word or shortcut changes.
     static TRIGGER_LIST_REFRESH: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
+    static SERVICE_ROW_REFRESH: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
+}
+
+fn refresh_service_row() {
+    SERVICE_ROW_REFRESH.with(|refresh| {
+        if let Some(refresh) = refresh.borrow().clone() { refresh(); }
+    });
 }
 
 fn refresh_trigger_list() {
@@ -527,6 +535,59 @@ fn build_keywords_page(
         .build();
     page.add(&other_group);
     OTHER_GROUP.with(|o| *o.borrow_mut() = Some(other_group));
+
+    let services = adw::PreferencesGroup::builder()
+        .title(gettext("Server-side installations"))
+        .description(gettext("Local background services configured outside search."))
+        .build();
+    let bridge = adw::ActionRow::builder()
+        .title(gettext("Proton Mail Bridge"))
+        .subtitle(gettext("Local mail server for Proton Mail clients"))
+        .use_markup(false)
+        .build();
+    let switch = gtk::Switch::builder()
+        .valign(gtk::Align::Center)
+        .active(config.borrow().proton_bridge_enabled)
+        .sensitive(crate::proton_bridge::supported())
+        .build();
+    bridge.add_suffix(&switch);
+    bridge.set_activatable_widget(Some(&switch));
+    let bridge_settings = gtk::Button::with_label(&gettext("Settings"));
+    bridge_settings.add_css_class("flat");
+    bridge_settings.set_valign(gtk::Align::Center);
+    bridge_settings.set_sensitive(config.borrow().proton_bridge_enabled && crate::proton_bridge::supported());
+    {
+        let cfg = config.clone();
+        let settings_button = bridge_settings.clone();
+        switch.connect_active_notify(move |sw| {
+            let active = sw.is_active();
+            save_then(&cfg, |c| c.proton_bridge_enabled = active, || ());
+            settings_button.set_sensitive(active && crate::proton_bridge::supported());
+        });
+    }
+    let weak_window = window.downgrade();
+    bridge_settings.connect_clicked(move |_| {
+        if let Err(message) = crate::proton_bridge::open() {
+            if let Some(window) = weak_window.upgrade() {
+                window.add_toast(adw::Toast::new(&message));
+            }
+        }
+    });
+    bridge.add_suffix(&bridge_settings);
+    {
+        let switch = switch.clone();
+        let button = bridge_settings.clone();
+        let cfg = config.clone();
+        SERVICE_ROW_REFRESH.with(|refresh| {
+            *refresh.borrow_mut() = Some(Rc::new(move || {
+                let enabled = cfg.borrow().proton_bridge_enabled;
+                switch.set_active(enabled);
+                button.set_sensitive(enabled && crate::proton_bridge::supported());
+            }));
+        });
+    }
+    services.add(&bridge);
+    page.add(&services);
 
     let rows: Rc<RefCell<Vec<TriggerRow>>> = Rc::new(RefCell::new(Vec::new()));
 
@@ -1218,13 +1279,18 @@ fn finish_trigger_install(
     // shortcuts and ordering. They are never copied into the custom registry.
     let installed = manifest.and_then(|m| {
         if matches!(m.action, crate::triggers::TriggerAction::Native) {
+            if m.id == "proton-bridge" {
+                if !crate::proton_bridge::supported() {
+                    return Err(gettext("Proton Mail Bridge is not supported on this system."));
+                }
+                save_and_refresh(config, |c| c.proton_bridge_enabled = true);
+                refresh_service_row();
+                return Ok(m);
+            }
             if !crate::trigger_defaults::supports_native(&m.id) {
                 return Err(format!("This version of Spotty does not support '{}'", m.id));
             }
             save_and_refresh(config, |c| c.install_builtin(&m.id));
-            if m.id == "proton-bridge" {
-                crate::search::proton_bridge::open()?;
-            }
             Ok(m)
         } else {
             crate::triggers::install_manifest(m)
@@ -1522,7 +1588,7 @@ fn show_browse_error(window: &adw::PreferencesWindow, msg: &str) {
 /// `refresh` closure that calls this again after install/uninstall, so
 /// their state flips without reopening the dialog.
 fn render_store_list(
-    list_box: &gtk::ListBox,
+    list_box: &gtk::Box,
     items: &Rc<RefCell<Vec<crate::triggers::RepoTrigger>>>,
     search: &gtk::SearchEntry,
     empty_page: &adw::StatusPage,
@@ -1538,7 +1604,7 @@ fn render_store_list(
     }
     let q = search.text().to_string();
     let ql = q.trim().to_lowercase();
-    let shown: Vec<_> = items
+    let mut shown: Vec<_> = items
         .borrow()
         .iter()
         .filter(|t| {
@@ -1550,6 +1616,7 @@ fn render_store_list(
         })
         .cloned()
         .collect();
+    shown.sort_by_key(|t| t.is_service());
     if shown.is_empty() {
         let desc = if ql.is_empty() {
             gettext("The repository has no triggers yet.")
@@ -1577,9 +1644,25 @@ fn render_store_list(
             );
         })
     };
+    let triggers = adw::PreferencesGroup::builder().title(gettext("Triggers")).build();
+    let services = adw::PreferencesGroup::builder()
+        .title(gettext("Server-side installations"))
+        .description(gettext("Local background servers configured through Settings."))
+        .build();
+    let mut has_triggers = false;
+    let mut has_services = false;
     for t in &shown {
-        list_box.append(&server_trigger_row(t, base, window, g, config, rows, &refresh));
+        let row = server_trigger_row(t, base, window, g, config, rows, &refresh);
+        if t.is_service() {
+            services.add(&row);
+            has_services = true;
+        } else {
+            triggers.add(&row);
+            has_triggers = true;
+        }
     }
+    if has_triggers { list_box.append(&triggers); }
+    if has_services { list_box.append(&services); }
     stack.set_visible_child_name("list");
 }
 
@@ -1594,7 +1677,9 @@ fn server_trigger_row(
     rows: &Rc<RefCell<Vec<TriggerRow>>>,
     refresh: &Rc<dyn Fn()>,
 ) -> gtk::ListBoxRow {
-    let subtitle = if t.description.is_empty() {
+    let subtitle = if t.is_service() {
+        gettext("Local mail server · Login and mail-client credentials in Settings")
+    } else if t.description.is_empty() {
         t.word.clone()
     } else if t.word.is_empty() {
         t.description.clone()
@@ -1612,10 +1697,15 @@ fn server_trigger_row(
         action.add_prefix(&img);
     }
     if t.native {
-        let supported = crate::trigger_defaults::supports_native(&t.id);
-        let installed = config.borrow().command_keywords.iter().any(|k| k.id == t.id)
-            && !config.borrow().is_uninstalled(&t.id);
-        let label = if t.id == "cmd" {
+        let service = t.is_service() && t.id == "proton-bridge";
+        let supported = if service { crate::proton_bridge::supported() } else { crate::trigger_defaults::supports_native(&t.id) };
+        let installed = if service { config.borrow().proton_bridge_enabled } else {
+            config.borrow().command_keywords.iter().any(|k| k.id == t.id)
+                && !config.borrow().is_uninstalled(&t.id)
+        };
+        let label = if service && installed {
+            gettext("Settings")
+        } else if t.id == "cmd" {
             gettext("Installed")
         } else if !supported {
             gettext("Unavailable")
@@ -1638,16 +1728,18 @@ fn server_trigger_row(
         let rows2 = rows.clone();
         let refresh = refresh.clone();
         btn.connect_clicked(move |_| {
-            if !installed && id == "proton-bridge" {
-                if let Err(message) = crate::search::proton_bridge::open() {
+            if id == "proton-bridge" && installed {
+                if let Err(message) = crate::proton_bridge::open() {
                     win.add_toast(adw::Toast::new(&message));
-                    return;
                 }
+                return;
             }
             save_and_refresh(&cfg, |c| {
-                if !installed { c.install_builtin(&id); }
+                if id == "proton-bridge" { c.proton_bridge_enabled = true; }
+                else if !installed { c.install_builtin(&id); }
                 else { c.uninstall_builtin(&id); }
             });
+            if id == "proton-bridge" { refresh_service_row(); refresh(); return; }
             rebuild_trigger_rows(&g2, &win, &cfg, &rows2);
             std::thread::spawn(crate::keybindings::register_all);
             let text = if !installed { gettext("Installed \"{name}\"") }
@@ -1765,14 +1857,14 @@ fn store_dialog(
     let dialog = adw::Window::builder()
         .transient_for(window)
         .modal(false)
-        .title(gettext("Trigger Store"))
+        .title(gettext("Store"))
         .default_width(640)
         .default_height(640)
         .build();
 
     let toolbar = adw::ToolbarView::new();
     let header = adw::HeaderBar::builder()
-        .title_widget(&adw::WindowTitle::new("Trigger Store", ""))
+        .title_widget(&adw::WindowTitle::new("Store", ""))
         .build();
     // Local installs: create your own trigger or import a downloaded
     // manifest — both live in the create dialog behind this +.
@@ -1802,7 +1894,7 @@ fn store_dialog(
         .to_string();
 
     let search = gtk::SearchEntry::builder()
-        .placeholder_text(gettext("Search triggers"))
+        .placeholder_text(gettext("Search triggers and services"))
         .build();
     content.append(
         &adw::Clamp::builder()
@@ -1811,13 +1903,7 @@ fn store_dialog(
             .build(),
     );
 
-    let list_box = gtk::ListBox::builder()
-        .css_classes(["boxed-list"])
-        .selection_mode(gtk::SelectionMode::None)
-        .build();
-    // Keep every Store entry in the same list. Catalog metadata may describe
-    // defaults, but it must never create visual section headers.
-    list_box.set_header_func(|row, _before| row.set_header(None::<&gtk::Widget>));
+    let list_box = gtk::Box::new(gtk::Orientation::Vertical, 24);
     let loading_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(12)
