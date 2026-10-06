@@ -648,7 +648,8 @@ fn build_keywords_page(
                 settings.set_sensitive(enabled && crate::proton_bridge::supported());
 
                 // Remove the complete service group when Bridge is absent.
-                if attached.get() != enabled {
+                let installation_changed = attached.get() != enabled;
+                if installation_changed {
                     if enabled {
                         page.add(&services);
                     } else {
@@ -670,6 +671,21 @@ fn build_keywords_page(
                         window.set_visible_page(&search_page);
                         window.remove(&old_page);
                     }
+                }
+                if installation_changed {
+                    let startup = enabled.then(spotty_proton_bridge_gui::engine::start_service_async);
+                    std::thread::spawn(move || {
+                        let result = if let Some(worker) = startup {
+                            worker
+                                .join()
+                                .unwrap_or_else(|_| Err("Bridge startup worker failed.".into()))
+                        } else {
+                            spotty_proton_bridge_gui::engine::stop()
+                        };
+                        if let Err(message) = result {
+                            log::warn!("bridge: service change failed: {message}");
+                        }
+                    });
                 }
             }));
         });

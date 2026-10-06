@@ -50,16 +50,20 @@ Proton Mail Bridge. Its installed service row then appears under
 and copy the generated Bridge password and local IMAP/SMTP settings into your
 mail client, all within Spotty's Settings window.
 
-Bridge is an optional service, without a search trigger or separate application
-installation. Uninstall removes its Settings row and account page; it remains
-available to reinstall from the Store. Closing its settings keeps the mail
-service running. A paid Proton Mail plan and an unlocked Linux keyring are
-required.
+Bridge is an optional service compiled as a Go library and loaded inside
+Spotty's process when installed. It has no separate mail-server process, search
+trigger, or application installation. Uninstall removes its Settings row and
+account page and stops its mail listeners; saved accounts remain available for
+reinstallation. Closing Settings keeps mail connected in the Spotty daemon.
+Quitting Spotty also stops Bridge. A paid Proton Mail plan and an unlocked
+Linux keyring are required.
 
 Build with current submodules (`git submodule update --init --recursive`) and
 `cargo install --path . --locked`. Restart a running Spotty after installing a
 new binary so its cached settings use the updated interface. The build requires
-Python 3 and network access once to prepare the pinned native payload. It
-installs no system packages. The Flatpak manifest uses the same embedded Bridge
-controls and enables network and Secret Service access for the bundled backend.
+Python 3, Go 1.26.7 or newer, a C compiler, and libfido2 development headers.
+Network access prepares the pinned source and Go modules on the first build.
+It installs no system packages. The Flatpak manifest supplies the Go SDK and
+native headers, uses the same in-process engine, and enables network and Secret
+Service access for the mail service.
 See [package details](trigger-backends/proton-bridge-gui/README.md).

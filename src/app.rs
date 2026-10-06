@@ -508,6 +508,16 @@ pub fn on_startup(app: &adw::Application) {
         }
     }
     let config = Rc::new(RefCell::new(Config::load()));
+    if config.borrow().proton_bridge_enabled {
+        let worker = spotty_proton_bridge_gui::engine::start_service_async();
+        std::thread::spawn(move || {
+            match worker.join() {
+                Ok(Ok(())) => log::info!("bridge: running inside Spotty"),
+                Ok(Err(message)) => log::warn!("bridge: startup failed: {message}"),
+                Err(_) => log::warn!("bridge: startup worker failed"),
+            }
+        });
+    }
     crate::search::cmd::preload_install_cache_async(config.borrow().app_sources());
     // Background update check: once shortly after startup, then hourly
     // ticks that honour the user-configured interval (Settings → Updates).
@@ -681,6 +691,15 @@ pub fn on_startup(app: &adw::Application) {
     install_actions(app, &config.borrow());
 
     // Install SIGUSR1 handler for fast keyboard-shortcut toggle
+    for signal in [libc::SIGTERM, libc::SIGINT] {
+        let app_weak = app.downgrade();
+        glib::unix_signal_add_local(signal, move || {
+            if let Some(app) = app_weak.upgrade() {
+                app.quit();
+            }
+            glib::ControlFlow::Break
+        });
+    }
     let app_weak = app.downgrade();
     glib::unix_signal_add_local(libc::SIGUSR1, move || {
         // Record mark: timestamp + major page-fault count at signal arrival.
@@ -693,7 +712,11 @@ pub fn on_startup(app: &adw::Application) {
             let kw_path = keyword_signal_file();
             if let Ok(kw) = std::fs::read_to_string(&kw_path) {
                 let _ = std::fs::remove_file(&kw_path);
-                show_keyword_search(&app, kw.trim());
+                if kw.trim() == "__spotty_settings__" {
+                    open_settings(&app);
+                } else {
+                    show_keyword_search(&app, kw.trim());
+                }
             } else {
                 toggle_search(&app);
             }

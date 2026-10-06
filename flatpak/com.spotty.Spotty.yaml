@@ -17,6 +17,7 @@ runtime-version: '50'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.golang
 command: spotty
 
 finish-args:
@@ -49,7 +50,7 @@ finish-args:
   - --own-name=com.spotty.Spotty
 
 build-options:
-  append-path: /usr/lib/sdk/rust-stable/bin
+  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/golang/bin
 
 modules:
   # ---- Bundled preview tools -------------------------------------------
@@ -111,6 +112,29 @@ modules:
       - type: archive
         url: https://code.videolan.org/videolan/dav1d/-/archive/1.5.0/dav1d-1.5.0.tar.gz
         sha256: 14a1ab4cba1df8375fe2243c7b1e7e4c87b6e667216f87f4d546b8c35ffa2f9b
+
+  # ---- Headers for the in-process Go mail engine ------------------------
+  - name: libcbor
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DBUILD_SHARED_LIBS=ON
+      - -DWITH_EXAMPLES=OFF
+      - -DWITH_TESTS=OFF
+    sources:
+      - type: archive
+        url: https://deb.debian.org/debian/pool/main/libc/libcbor/libcbor_0.10.2.orig.tar.gz
+        sha256: e75f712215d7b7e5c89ef322a09b701f7159f028b8b48978865725f00f79875b
+
+  - name: libfido2
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DBUILD_EXAMPLES=OFF
+      - -DBUILD_TOOLS=OFF
+      - -DBUILD_MANPAGES=OFF
+    sources:
+      - type: archive
+        url: https://deb.debian.org/debian/pool/main/libf/libfido2/libfido2_1.15.0.orig.tar.gz
+        sha256: abaab1318d21d262ece416fb8a7132fa9374bda89f6fa52b86a98a2f5712b61e
 
   # ---- Spotty itself ----------------------------------------------------
   - name: spotty

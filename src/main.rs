@@ -73,10 +73,25 @@ fn main() -> glib::ExitCode {
         eprintln!("Cannot secure Spotty's private state directories: {e}");
         return glib::ExitCode::FAILURE;
     }
-    // Keep the hidden desktop-login worker entry point used by Bridge's
-    // autostart launcher. Interactive Bridge controls are embedded in Spotty.
-    if std::env::args().any(|arg| arg == "--proton-bridge-gui")
-        && std::env::args().any(|arg| arg == "--background")
+    let mut args: Vec<String> = std::env::args().collect();
+    // Explicit migration of a previously packaged, detached Bridge server.
+    // The helper verifies ownership and the old bundle before sending Quit.
+    if let Some(pid) = args.get(1).and_then(|arg| arg.strip_prefix("--bridge-stop-legacy=")) {
+        return match pid.parse::<u32>()
+            .map_err(|_| "Invalid legacy Bridge process ID.".to_owned())
+            .and_then(spotty_proton_bridge_gui::engine::stop_legacy_bundled)
+        {
+            Ok(()) => glib::ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("{message}");
+                glib::ExitCode::FAILURE
+            }
+        };
+    }
+    // Migrate old Bridge startup entries to Spotty's normal daemon. The mail
+    // server now runs in this process and needs the application to stay alive.
+    if args.iter().any(|arg| arg == "--proton-bridge-gui")
+        && args.iter().any(|arg| arg == "--background")
     {
         // Old startup entries must not reactivate an uninstalled service.
         if !config::Config::load().proton_bridge_enabled
@@ -85,12 +100,9 @@ fn main() -> glib::ExitCode {
         {
             return glib::ExitCode::SUCCESS;
         }
-        return match spotty_proton_bridge_gui::gui::run() {
-            Ok(()) => glib::ExitCode::SUCCESS,
-            Err(_) => glib::ExitCode::FAILURE,
-        };
+        args.truncate(1);
+        args.push("--daemon".into());
     }
-    let args: Vec<String> = std::env::args().collect();
 
     // ── CLI-only commands (no GTK init) ──
     if args.len() >= 2 && args[1] == "--ocr-scan" {
@@ -136,6 +148,8 @@ fn main() -> glib::ExitCode {
         let a1 = &args[1];
         if a1 == "--toggle" {
             Some("")
+        } else if a1 == "--settings" {
+            Some("__spotty_settings__")
         } else if a1 == "--clipboard" {
             Some("clipboard")
         } else if let Some(val) = a1.strip_prefix("--keyword=") {
@@ -148,6 +162,19 @@ fn main() -> glib::ExitCode {
     } else {
         None
     };
+    if args.len() == 1 || args.get(1).is_some_and(|arg| arg == "--daemon" || arg == "--quit") {
+        if let Some(pid) = read_instance_pid() {
+            if unsafe { libc::kill(pid, 0) } == 0 {
+                if args.get(1).is_some_and(|arg| arg == "--quit") {
+                    unsafe { libc::kill(pid, libc::SIGTERM); }
+                }
+                return glib::ExitCode::SUCCESS;
+            }
+        }
+        if args.get(1).is_some_and(|arg| arg == "--quit") {
+            return glib::ExitCode::SUCCESS;
+        }
+    }
     if let Some(mode) = signal_mode {
         if let Some(pid) = read_instance_pid() {
             if unsafe { libc::kill(pid, 0) } == 0 {
@@ -264,7 +291,13 @@ fn main() -> glib::ExitCode {
         }
     }
 
-    app.run()
+    let exit = app.run_with_args(&args);
+    // The UI loop has ended; wait for the owned mail engine to flush and close
+    // its listeners before allowing this process to exit.
+    if let Err(message) = spotty_proton_bridge_gui::engine::stop() {
+        log::warn!("bridge: shutdown failed: {message}");
+    }
+    exit
 }
 
 fn config_pid_file() -> std::path::PathBuf {
