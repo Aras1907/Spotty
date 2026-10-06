@@ -228,7 +228,7 @@ fn terminal_open_cmd(entry: &TerminalEntry, escaped: &str) -> String {
 
 /// Open a terminal emulator and run `command` in it (interactive).
 /// If `command` is empty, just opens a terminal window.
-/// Tries gnome-terminal, kgx (GNOME Console), and xterm in order.
+/// Tries Ptyxis, GNOME Terminal, kgx (GNOME Console), and xterm in order.
 pub fn run_in_terminal(command: &str) {
     let inner_cmd = if command.is_empty() {
         String::new()
@@ -243,7 +243,7 @@ pub fn run_in_terminal(command: &str) {
     // Build a shell script that tries each terminal in order.
     let script = if inner_cmd.is_empty() {
         // Just open a terminal
-        "for T in gnome-terminal kgx xterm; do \
+        "for T in ptyxis gnome-terminal kgx xterm; do \
             command -v $T >/dev/null 2>&1 && exec $T; \
          done"
             .to_string()
@@ -252,7 +252,9 @@ pub fn run_in_terminal(command: &str) {
         let escaped = inner_cmd.replace('\'', "'\\''");
         format!(
             "CMD='{escaped}'; \
-             if command -v gnome-terminal >/dev/null 2>&1; then \
+             if command -v ptyxis >/dev/null 2>&1; then \
+                 ptyxis --new-window -- bash -c \"$CMD\"; \
+             elif command -v gnome-terminal >/dev/null 2>&1; then \
                  gnome-terminal -- bash -c \"$CMD\"; \
              elif command -v kgx >/dev/null 2>&1; then \
                  kgx -e bash -c \"$CMD\"; \

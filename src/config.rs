@@ -398,6 +398,9 @@ pub struct Config {
     /// Proton Bridge is a local background mail server, configured outside search.
     #[serde(default)]
     pub proton_bridge_enabled: bool,
+    /// Whether Spotty's optional controls for an already-installed Proton VPN CLI are enabled.
+    #[serde(default)]
+    pub proton_vpn_enabled: bool,
     /// Legacy clipboard shortcut migrated into the clipboard keyword on load.
     #[serde(default, skip_serializing)]
     pub clipboard_shortcut: String,
@@ -629,6 +632,7 @@ impl Default for Config {
             max_index_entries: dm(),
             command_keywords: default_command_keywords(),
             proton_bridge_enabled: false,
+            proton_vpn_enabled: false,
             clipboard_shortcut: String::new(),
             pm_flatpak: Some(true),
             pm_distro: Some(false),

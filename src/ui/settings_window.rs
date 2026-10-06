@@ -71,6 +71,187 @@ fn save_and_refresh(cfg: &Rc<RefCell<Config>>, f: impl FnOnce(&mut Config)) {
     save_then(cfg, f, crate::app::refresh_search_window);
 }
 
+fn run_proton_vpn_task(
+    label: &gtk::Label,
+    busy: &Rc<std::cell::Cell<bool>>,
+    action_buttons: &Rc<Vec<gtk::Button>>,
+    task: impl FnOnce() -> Result<String, String> + Send + 'static,
+) {
+    if busy.replace(true) {
+        return;
+    }
+    for button in action_buttons.iter() {
+        button.set_sensitive(false);
+    }
+    label.set_text(&gettext("Contacting the Proton VPN CLI…"));
+    let label = label.clone();
+    let busy = busy.clone();
+    let action_buttons = action_buttons.clone();
+    let (tx, rx) = futures::channel::oneshot::channel();
+    std::thread::spawn(move || { let _ = tx.send(task()); });
+    glib::MainContext::default().spawn_local(async move {
+        let result = rx.await
+            .unwrap_or_else(|_| Err("The Proton VPN CLI operation did not return.".into()));
+        label.set_text(&result.unwrap_or_else(|message| message));
+        busy.set(false);
+        for button in action_buttons.iter() {
+            button.set_sensitive(true);
+        }
+    });
+}
+
+fn show_proton_vpn_popup(parent: &adw::PreferencesWindow) {
+    let parent_window: &gtk::Window = parent.upcast_ref();
+    let Some(app) = parent
+        .application()
+        .and_then(|app| app.downcast::<adw::Application>().ok())
+    else {
+        return;
+    };
+    let popup = adw::ApplicationWindow::builder()
+        .application(&app)
+        .title(gettext("Proton VPN"))
+        .default_width(520)
+        .default_height(380)
+        .modal(true)
+        .transient_for(parent_window)
+        .build();
+    let header = adw::HeaderBar::builder()
+        .title_widget(&adw::WindowTitle::new(&gettext("Proton VPN"), &gettext("Spotty")))
+        .build();
+    let status = gtk::Label::builder()
+        .label(gettext("Checking Proton VPN status…"))
+        .wrap(true)
+        .selectable(true)
+        .xalign(0.0)
+        .build();
+    let group = adw::PreferencesGroup::builder().title(gettext("Connection")).build();
+    let connect = gtk::Button::with_label(&gettext("Connect"));
+    connect.add_css_class("suggested-action");
+    let disconnect = gtk::Button::with_label(&gettext("Disconnect"));
+    let sign_in = gtk::Button::with_label(&gettext("Sign in…"));
+    let sign_out = gtk::Button::with_label(&gettext("Sign out"));
+    let refresh = gtk::Button::with_label(&gettext("Refresh status"));
+    let busy = Rc::new(std::cell::Cell::new(false));
+    let action_buttons = Rc::new(vec![
+        connect.clone(),
+        disconnect.clone(),
+        sign_in.clone(),
+        sign_out.clone(),
+        refresh.clone(),
+    ]);
+    for button in [&connect, &disconnect, &sign_in, &sign_out, &refresh] {
+        let row = adw::ActionRow::builder().activatable(false).build();
+        row.add_suffix(button);
+        group.add(&row);
+    }
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(18)
+        .margin_top(18)
+        .margin_bottom(18)
+        .margin_start(18)
+        .margin_end(18)
+        .build();
+    content.append(&adw::StatusPage::builder()
+        .title(gettext("Proton VPN"))
+        .description(gettext("Spotty controls Proton's official Linux CLI. Password and two-factor prompts stay with Proton. The CLI cannot run alongside Proton's GUI app."))
+        .icon_name("network-vpn-symbolic")
+        .build());
+    content.append(&gtk::LinkButton::with_label(
+        "https://protonvpn.com/support/download-and-installation/linux",
+        &gettext("Install the official Proton VPN CLI"),
+    ));
+    content.append(&status);
+    content.append(&group);
+    let scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&content)
+        .vexpand(true)
+        .build();
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&header);
+    toolbar.set_content(Some(&scroll));
+    popup.set_content(Some(&toolbar));
+
+    {
+        let status = status.clone();
+        let busy = busy.clone();
+        let action_buttons = action_buttons.clone();
+        refresh.connect_clicked(move |_| run_proton_vpn_task(&status, &busy, &action_buttons, crate::proton_vpn::status));
+    }
+    {
+        let status = status.clone();
+        let busy = busy.clone();
+        let action_buttons = action_buttons.clone();
+        connect.connect_clicked(move |_| run_proton_vpn_task(&status, &busy, &action_buttons, || crate::proton_vpn::action(crate::proton_vpn::Action::Connect)));
+    }
+    {
+        let status = status.clone();
+        let busy = busy.clone();
+        let action_buttons = action_buttons.clone();
+        disconnect.connect_clicked(move |_| run_proton_vpn_task(&status, &busy, &action_buttons, || crate::proton_vpn::action(crate::proton_vpn::Action::Disconnect)));
+    }
+    {
+        let status = status.clone();
+        let popup_weak = popup.downgrade();
+        let busy = busy.clone();
+        let action_buttons = action_buttons.clone();
+        sign_out.connect_clicked(move |_| {
+            let Some(popup) = popup_weak.upgrade() else { return; };
+            let dialog = adw::AlertDialog::builder()
+                .heading(gettext("Sign out of Proton VPN?"))
+                .body(gettext("This clears Proton's saved VPN sign-in and disconnects an active VPN connection."))
+                .build();
+            dialog.add_response("cancel", &gettext("Cancel"));
+            dialog.add_response("signout", &gettext("Sign out"));
+            dialog.set_response_appearance("signout", adw::ResponseAppearance::Destructive);
+            dialog.set_default_response(Some("cancel"));
+            dialog.set_close_response("cancel");
+            let status = status.clone();
+            let busy = busy.clone();
+            let action_buttons = action_buttons.clone();
+            dialog.connect_response(Some("signout"), move |_, response| {
+                if response == "signout" {
+                    run_proton_vpn_task(&status, &busy, &action_buttons, || crate::proton_vpn::action(crate::proton_vpn::Action::SignOut));
+                }
+            });
+            dialog.present(Some(&popup));
+        });
+    }
+    {
+        let popup_weak = popup.downgrade();
+        sign_in.connect_clicked(move |_| {
+            let Some(popup) = popup_weak.upgrade() else { return; };
+            let dialog = adw::AlertDialog::builder()
+                .heading(gettext("Sign in with Proton's CLI"))
+                .body(gettext("Enter your Proton username. Proton's own CLI will prompt for your password and any two-factor authentication in a terminal. Spotty never reads, passes, or stores your password or 2FA code."))
+                .build();
+            let username = gtk::Entry::builder()
+                .placeholder_text(gettext("Proton username"))
+                .activates_default(true)
+                .build();
+            dialog.set_extra_child(Some(&username));
+            dialog.add_response("cancel", &gettext("Cancel"));
+            dialog.add_response("signin", &gettext("Sign in"));
+            dialog.set_default_response(Some("signin"));
+            dialog.set_close_response("cancel");
+            let username_weak = username.downgrade();
+            dialog.connect_response(Some("signin"), move |_, response| {
+                if response != "signin" { return; }
+                let Some(username) = username_weak.upgrade() else { return; };
+                let value = username.text().trim().to_owned();
+                if value.is_empty() { return; }
+                let escaped = value.replace('\'', "'\\''");
+                crate::app::run_in_terminal(&format!("protonvpn signin '{escaped}'"));
+            });
+            dialog.present(Some(&popup));
+        });
+    }
+    run_proton_vpn_task(&status, &busy, &action_buttons, crate::proton_vpn::status);
+    popup.present();
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // General page
 // ──────────────────────────────────────────────────────────────────────
@@ -719,21 +900,23 @@ fn build_keywords_page(
     OTHER_GROUP.with(|o| *o.borrow_mut() = Some(other_group));
 
     let services = adw::PreferencesGroup::builder()
-        .title(gettext("Server-side installations"))
-        .description(gettext("Local background services configured outside search."))
+        .title(gettext("Services and integrations"))
+        .description(gettext("Optional local services configured outside search."))
         .build();
+    let installed = config.borrow().proton_bridge_enabled;
+    services.set_visible(installed || config.borrow().proton_vpn_enabled);
     let bridge = adw::ActionRow::builder()
         .title(gettext("Proton Mail Bridge"))
         .subtitle(gettext("Local mail server for Proton Mail clients"))
         .use_markup(false)
         .build();
+    bridge.set_visible(installed);
     let uninstall = gtk::Button::with_label(&gettext("Uninstall"));
     uninstall.add_css_class("flat");
     uninstall.set_valign(gtk::Align::Center);
     let bridge_settings = gtk::Button::with_label(&gettext("Settings"));
     bridge_settings.add_css_class("flat");
     bridge_settings.set_valign(gtk::Align::Center);
-    let installed = config.borrow().proton_bridge_enabled;
     uninstall.set_visible(installed);
     bridge_settings.set_visible(installed);
     bridge_settings.set_sensitive(installed && crate::proton_bridge::supported());
@@ -749,34 +932,29 @@ fn build_keywords_page(
     });
     bridge.add_suffix(&bridge_settings);
     bridge.add_suffix(&uninstall);
+    let vpn_row_refresh: Rc<RefCell<Option<adw::ActionRow>>> = Rc::new(RefCell::new(None));
     {
         let uninstall = uninstall.clone();
         let settings = bridge_settings.clone();
+        let bridge_row = bridge.clone();
         let cfg = config.clone();
-        let services = services.clone();
-        let page = page.clone();
         let bridge_popup = bridge_popup.clone();
         let bridge_reopen_pending = bridge_reopen_pending.clone();
-        let attached = Rc::new(std::cell::Cell::new(installed));
-        if installed {
-            page.add(&services);
-        }
+        let services_row = services.clone();
+        let vpn_row_for_refresh = vpn_row_refresh.clone();
+        let bridge_was_enabled = Rc::new(std::cell::Cell::new(installed));
+        page.add(&services);
         SERVICE_ROW_REFRESH.with(|refresh| {
             *refresh.borrow_mut() = Some(Rc::new(move || {
                 let enabled = cfg.borrow().proton_bridge_enabled;
+                let vpn_enabled = cfg.borrow().proton_vpn_enabled;
+                services_row.set_visible(enabled || vpn_enabled);
+                bridge_row.set_visible(enabled);
                 uninstall.set_visible(enabled);
                 settings.set_visible(enabled);
                 settings.set_sensitive(enabled && crate::proton_bridge::supported());
-
-                // Remove the complete service group when Bridge is absent.
-                let installation_changed = attached.get() != enabled;
-                if installation_changed {
-                    if enabled {
-                        page.add(&services);
-                    } else {
-                        page.remove(&services);
-                    }
-                    attached.set(enabled);
+                if let Some(vpn_row) = vpn_row_for_refresh.borrow().as_ref() {
+                    vpn_row.set_visible(vpn_enabled);
                 }
 
                 // Uninstalling Bridge also closes its popup and drains the
@@ -785,7 +963,7 @@ fn build_keywords_page(
                     bridge_reopen_pending.set(false);
                     close_bridge_popup(&bridge_popup);
                 }
-                if installation_changed {
+                if bridge_was_enabled.replace(enabled) != enabled {
                     let startup = enabled.then(spotty_proton_bridge_gui::engine::start_service_async);
                     std::thread::spawn(move || {
                         let result = if let Some(worker) = startup {
@@ -804,6 +982,44 @@ fn build_keywords_page(
         });
     }
     services.add(&bridge);
+
+    // The Trigger Store owns Proton VPN installation. This row appears only
+    // after the service has been enabled there.
+    {
+        let vpn = adw::ActionRow::builder()
+            .title(gettext("Proton VPN"))
+            .subtitle(gettext("Controls Proton's official Linux VPN CLI"))
+            .use_markup(false)
+            .build();
+        vpn.set_visible(config.borrow().proton_vpn_enabled);
+        let settings = gtk::Button::with_label(&gettext("Settings"));
+        settings.add_css_class("flat");
+        settings.set_valign(gtk::Align::Center);
+        let uninstall = gtk::Button::with_label(&gettext("Uninstall"));
+        uninstall.add_css_class("flat");
+        uninstall.set_valign(gtk::Align::Center);
+        let enabled = config.borrow().proton_vpn_enabled;
+        settings.set_visible(enabled);
+        uninstall.set_visible(enabled);
+        {
+            let cfg = config.clone();
+            let settings = settings.clone();
+            let uninstall_for_click = uninstall.clone();
+            uninstall.connect_clicked(move |_| {
+                save_then(&cfg, |c| c.proton_vpn_enabled = false, refresh_service_row);
+                settings.set_visible(false);
+                uninstall_for_click.set_visible(false);
+            });
+        }
+        {
+            let parent = window.clone();
+            settings.connect_clicked(move |_| show_proton_vpn_popup(&parent));
+        }
+        vpn.add_suffix(&settings);
+        vpn.add_suffix(&uninstall);
+        vpn_row_refresh.borrow_mut().replace(vpn.clone());
+        services.add(&vpn);
+    }
 
     let rows: Rc<RefCell<Vec<TriggerRow>>> = Rc::new(RefCell::new(Vec::new()));
 
@@ -1503,6 +1719,11 @@ fn finish_trigger_install(
                 refresh_service_row();
                 return Ok(m);
             }
+            if m.id == "proton-vpn" {
+                save_and_refresh(config, |c| c.proton_vpn_enabled = true);
+                refresh_service_row();
+                return Ok(m);
+            }
             if !crate::trigger_defaults::supports_native(&m.id) {
                 return Err(format!("This version of Spotty does not support '{}'", m.id));
             }
@@ -1862,8 +2083,8 @@ fn render_store_list(
     };
     let triggers = adw::PreferencesGroup::builder().title(gettext("Triggers")).build();
     let services = adw::PreferencesGroup::builder()
-        .title(gettext("Server-side installations"))
-        .description(gettext("Local background servers configured through Settings."))
+        .title(gettext("Services and integrations"))
+        .description(gettext("Optional local services and integrations configured through Settings."))
         .build();
     let mut has_triggers = false;
     let mut has_services = false;
@@ -1893,8 +2114,10 @@ fn server_trigger_row(
     rows: &Rc<RefCell<Vec<TriggerRow>>>,
     refresh: &Rc<dyn Fn()>,
 ) -> gtk::ListBoxRow {
-    let subtitle = if t.is_service() {
+    let subtitle = if t.id == "proton-bridge" {
         gettext("Local mail server · Login and mail-client credentials in Settings")
+    } else if t.id == "proton-vpn" {
+        gettext("Control Proton's official Linux VPN CLI from Settings")
     } else if t.description.is_empty() {
         t.word.clone()
     } else if t.word.is_empty() {
@@ -1912,10 +2135,18 @@ fn server_trigger_row(
         img.set_pixel_size(24);
         action.add_prefix(&img);
     }
-    if t.native {
-        let service = t.is_service() && t.id == "proton-bridge";
-        let supported = if service { crate::proton_bridge::supported() } else { crate::trigger_defaults::supports_native(&t.id) };
-        let installed = if service { config.borrow().proton_bridge_enabled } else {
+    if t.native || (t.is_service() && matches!(t.id.as_str(), "proton-bridge" | "proton-vpn")) {
+        let bridge_service = t.is_service() && t.id == "proton-bridge";
+        let vpn_service = t.is_service() && t.id == "proton-vpn";
+        let service = bridge_service || vpn_service;
+        let supported = if bridge_service { crate::proton_bridge::supported() } else if vpn_service {
+            true
+        } else { crate::trigger_defaults::supports_native(&t.id) };
+        let installed = if bridge_service {
+            config.borrow().proton_bridge_enabled
+        } else if vpn_service {
+            config.borrow().proton_vpn_enabled
+        } else {
             config.borrow().command_keywords.iter().any(|k| k.id == t.id)
                 && !config.borrow().is_uninstalled(&t.id)
         };
@@ -1953,18 +2184,27 @@ fn server_trigger_row(
             uninstall.set_valign(gtk::Align::Center);
             uninstall.set_visible(installed);
             {
+                let parent = window.clone();
                 settings.connect_clicked(move |button| {
                     if let Some(store) = button.root().and_then(|root| root.downcast::<adw::Window>().ok()) {
                         store.close();
                     }
-                    show_bridge_settings();
+                    if bridge_service {
+                        show_bridge_settings();
+                    } else {
+                        show_proton_vpn_popup(&parent);
+                    }
                 });
             }
             {
                 let cfg = cfg.clone();
                 let refresh = refresh.clone();
                 uninstall.connect_clicked(move |_| {
-                    save_and_refresh(&cfg, |c| c.proton_bridge_enabled = false);
+                    if bridge_service {
+                        save_and_refresh(&cfg, |c| c.proton_bridge_enabled = false);
+                    } else {
+                        save_and_refresh(&cfg, |c| c.proton_vpn_enabled = false);
+                    }
                     refresh_service_row();
                     refresh();
                 });
@@ -1977,7 +2217,11 @@ fn server_trigger_row(
                 let cfg = cfg.clone();
                 let refresh = refresh.clone();
                 btn.connect_clicked(move |_| {
-                    save_and_refresh(&cfg, |c| c.proton_bridge_enabled = true);
+                    if bridge_service {
+                        save_and_refresh(&cfg, |c| c.proton_bridge_enabled = true);
+                    } else {
+                        save_and_refresh(&cfg, |c| c.proton_vpn_enabled = true);
+                    }
                     refresh_service_row();
                     refresh();
                     win.add_toast(adw::Toast::new(&gettext("Installed \"{name}\"").replace("{name}", &name)));

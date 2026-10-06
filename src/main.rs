@@ -53,6 +53,7 @@ mod packagekit;
 mod preview;
 #[path = "../trigger-backends/src/features/proton_bridge.rs"]
 mod proton_bridge;
+mod proton_vpn;
 #[path = "../trigger-backends/src/features/recent_paths.rs"]
 mod recent_paths;
 #[path = "../trigger-backends/src/search/mod.rs"]

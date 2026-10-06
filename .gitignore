@@ -5,6 +5,7 @@ target/
 
 # Flatpak build cache (large, regenerated)
 build-dir/
+/build/spotty-go-cache/
 .flatpak-builder/
 
 

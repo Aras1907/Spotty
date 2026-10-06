@@ -61,7 +61,7 @@ pub struct RepoTrigger {
 
 impl RepoTrigger {
     pub fn is_service(&self) -> bool {
-        self.category == "service" || self.id == "proton-bridge"
+        self.category == "service" || matches!(self.id.as_str(), "proton-bridge" | "proton-vpn")
     }
 }
 
@@ -189,9 +189,9 @@ pub fn load_all() {
             continue;
         }
         match parse_manifest(&path) {
-            // Preserve legacy files, but never register the mail service as
-            // a keyword or shortcut. Its accounts remain in Bridge's vault.
-            Ok(m) if m.id == "proton-bridge" => {},
+            // Preserve legacy files, but never register either Proton service
+            // as a keyword or shortcut.
+            Ok(m) if matches!(m.id.as_str(), "proton-bridge" | "proton-vpn") => {},
             Ok(m) if validate_structure(&m).is_ok()
                 && path.file_stem().and_then(|s| s.to_str()) == Some(m.id.as_str())
                 && !loaded.iter().any(|other: &TriggerManifest|

@@ -53,7 +53,7 @@ rejected rather than followed. XDG parent directories are not chmodded.
 
 | Data | Location/content | Retention and control |
 |---|---|---|
-| Configuration | `config.json`: preferences, shortcuts, pins, endpoint and optional translation API key | Until changed/reset; plaintext, not encrypted |
+| Configuration | `config.json`: preferences, shortcuts, pins, endpoint, optional translation API key, and whether Proton Bridge/VPN controls are enabled | Until changed/reset; plaintext, not encrypted; the Proton flag stores no account credentials |
 | Clipboard history | `clipboard_history.json`; images under `clipboard-images` in the cache | Captured while Clipboard is enabled and installed, including while the window is hidden. Default limit is 1,000 entries; default time retention is unlimited. Configure retention, remove entries, or disable/uninstall Clipboard to stop new capture |
 | Pinned clipboard items | Configuration, including pinned text or image paths | Pins have separate persistence; disabling capture does not erase them |
 | Search ranking history | `history.json`: selected queries, result titles and counts | **Off by default**; enable “Keep search history” in General → Privacy. Existing history is retained when switched off; new history is bounded to 1,000 query keys |
@@ -91,6 +91,7 @@ review. This does **not** mean the application never uses the network.
 | Currency conversion | When used, exchange-rate and currency-name downloads contact jsDelivr or the currency API's Cloudflare Pages endpoint; the rate request does not contain the amount being converted |
 | Apps and updates | Configured package managers and repositories can receive install/search/update requests. Automatic update notifications require the Updates provider to be installed/enabled and notifications to be enabled |
 | Shell commands/triggers | Their network behavior is determined by the command and the programs it starts |
+| Proton VPN controls | When its popup opens or a control is clicked, Spotty invokes the official `protonvpn` CLI on the host. Proton receives the CLI's sign-in, status or connection requests and normal network metadata. Spotty passes only the username for sign-in; password and 2FA stay in Proton's interactive prompt, and VPN account data is not stored by Spotty |
 
 Shared HTTP downloads have time/redirect limits and a hard limit on bytes read.
 Remote downloads and translation require HTTPS; HTTP is allowed for the

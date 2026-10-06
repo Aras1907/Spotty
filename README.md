@@ -46,7 +46,7 @@ The manifests and backend source are documented in
 Linux x86_64 builds include the verified Proton Bridge runtime and its login
 controls in Spotty. In **Settings → Search → Store**, click **Install** for
 Proton Mail Bridge. Its installed service row then appears under
-**Server-side installations**. Click **Settings** to sign in, manage accounts,
+**Services and integrations**. Click **Settings** to sign in, manage accounts,
 and copy the generated Bridge password and local IMAP/SMTP settings into your
 mail client in a modal Bridge popup attached to Spotty's Settings window.
 Passwords start hidden and can be revealed or copied. Copied passwords carry
@@ -69,3 +69,20 @@ It installs no system packages. The Flatpak manifest supplies the Go SDK and
 native headers, uses the same in-process engine, and enables network and Secret
 Service access for the mail service.
 See [package details](trigger-backends/proton-bridge-gui/README.md).
+
+### Optional Proton VPN controls
+
+Install **Proton VPN** from **Settings → Search → Store** to add a connection
+popup under **Services and integrations**. Spotty uses the official Proton VPN
+Linux CLI on the host for status, connect, disconnect, sign-in and sign-out.
+The popup asks only for the account username; Proton's own CLI handles the
+password, two-factor authentication and security-key prompts in a terminal.
+Spotty never reads or stores those credentials and does not implement or
+install a VPN tunnel.
+
+Install the official Proton VPN CLI separately from
+[Proton's Linux guide](https://protonvpn.com/support/download-and-installation/linux).
+Proton's CLI and GUI apps cannot run at the same time. Flatpak builds call the
+host CLI through Spotty's existing host-command bridge. Uninstalling this
+integration removes only Spotty's controls; it leaves the Proton package,
+account and current VPN connection alone.
