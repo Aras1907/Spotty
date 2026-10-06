@@ -191,6 +191,34 @@ fn build_general_page(window: &adw::PreferencesWindow, config: &Rc<RefCell<Confi
             }
             fg.add(&sw);
         }
+        let adjustment = gtk::Adjustment::new(
+            config.borrow().visible_result_limit.clamp(1, 20) as f64,
+            1.0,
+            20.0,
+            1.0,
+            5.0,
+            0.0,
+        );
+        let spin = gtk::SpinButton::builder()
+            .adjustment(&adjustment)
+            .numeric(true)
+            .valign(gtk::Align::Center)
+            .width_chars(3)
+            .build();
+        let row = adw::ActionRow::builder()
+            .title(gettext("Visible Results"))
+            .subtitle(gettext("Maximum search results shown before the list scrolls"))
+            .use_markup(false)
+            .build();
+        row.add_suffix(&spin);
+        {
+            let cfg = config.clone();
+            spin.connect_value_changed(move |spin| {
+                let limit = spin.value_as_int().clamp(1, 20) as usize;
+                save_and_refresh(&cfg, |c| c.visible_result_limit = limit);
+            });
+        }
+        fg.add(&row);
         general.add(&fg);
     }
 

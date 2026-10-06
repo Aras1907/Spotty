@@ -282,6 +282,9 @@ pub struct Config {
     pub calc_default_targets: std::collections::BTreeMap<String, String>,
     #[serde(default = "dt")]
     pub show_recent_file_searches: bool,
+    /// Maximum number of search results shown before the list scrolls.
+    #[serde(default = "default_visible_result_limit")]
+    pub visible_result_limit: usize,
     /// Allow browsing absolute paths (/ and ~/) in the main search box.
     #[serde(default = "dt")]
     pub enable_root_browsing: bool,
@@ -507,6 +510,9 @@ fn dc() -> usize {
 fn dm() -> usize {
     50_000
 }
+fn default_visible_result_limit() -> usize {
+    5
+}
 fn default_pin_shortcut() -> String {
     "<Control>p".into()
 }
@@ -586,6 +592,7 @@ impl Default for Config {
             calc_default_currency: default_calc_default_currency(),
             calc_default_targets: std::collections::BTreeMap::new(),
             show_recent_file_searches: true,
+            visible_result_limit: default_visible_result_limit(),
             enable_root_browsing: true,
             shortcut: ds(),
             clipboard_history_limit: dc(),

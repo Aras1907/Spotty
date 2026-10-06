@@ -2027,6 +2027,12 @@ impl SearchWindow {
                     return;
                 }
                 if !results_changed {
+                    size_results_to_limit(
+                        &list,
+                        &scroll_cb_results,
+                        new.len(),
+                        config.borrow().visible_result_limit,
+                    );
                     return;
                 }
 
@@ -2299,21 +2305,15 @@ impl SearchWindow {
                     }
                     list.append(&row.container);
                 }
-                // Size the results list so at most 5 rows are visible by
-                // default; with fewer results the list (and window) shrink
+                // Size the results list to the user's visible-row limit;
+                // with fewer results the list (and window) shrink
                 // to fit exactly that many rows, with the rest scrollable.
-                {
-                    let visible_rows = new.len().min(5).max(1);
-                    if let Some(first) = list.row_at_index(0) {
-                        let (_, natural, _, _) = first.measure(gtk::Orientation::Vertical, -1);
-                        if natural > 0 {
-                            scroll_cb_results.set_max_content_height(natural * visible_rows as i32);
-                        }
-                    }
-                    // Release the canonical min set before map so the window
-                    // can shrink to fit the actual content.
-                    scroll_cb_results.set_min_content_height(0);
-                }
+                size_results_to_limit(
+                    &list,
+                    &scroll_cb_results,
+                    new.len(),
+                    config.borrow().visible_result_limit,
+                );
                 // Restore selection across rebuilds (BT scan or same-query refresh).
                 rebuild_flag.set(false);
                 if let Some(sel_action) = &prev_selected_action {
@@ -6010,6 +6010,23 @@ fn previewable(r: &SearchResult) -> bool {
 /// for a restart).
 fn is_restart_command(cmd: &str) -> bool {
     cmd == crate::search::system::reboot_command()
+}
+
+fn size_results_to_limit(
+    list: &gtk::ListBox,
+    scroll: &gtk::ScrolledWindow,
+    result_count: usize,
+    configured_limit: usize,
+) {
+    let visible_rows = result_count.min(configured_limit.clamp(1, 20)).max(1);
+    if let Some(first) = list.row_at_index(0) {
+        let (_, natural, _, _) = first.measure(gtk::Orientation::Vertical, -1);
+        if natural > 0 {
+            scroll.set_max_content_height(natural * visible_rows as i32);
+        }
+    }
+    // Release the canonical minimum so fewer results let the window shrink.
+    scroll.set_min_content_height(0);
 }
 
 fn upd_preview(row: &gtk::ListBoxRow, rs: &[SearchResult], p: &PreviewPane) {
