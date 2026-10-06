@@ -673,6 +673,11 @@ impl SearchWindow {
             .hscrollbar_policy(gtk::PolicyType::Never)
             .vscrollbar_policy(gtk::PolicyType::Automatic)
             .hexpand(true)
+            // The sibling preview can have a taller natural height than the
+            // configured result-row cap. Keep this scroller at its capped
+            // natural height instead of letting the horizontal Box stretch it.
+            .vexpand(false)
+            .valign(gtk::Align::Start)
             .propagate_natural_height(true)
             .min_content_height(0)
             .max_content_height(0)
