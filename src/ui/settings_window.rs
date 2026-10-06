@@ -27,7 +27,7 @@ impl SettingsWindow {
             .build();
 
         build_general_page(&window, &config);
-        let refresh_triggers = build_keywords_page(&window, &config);
+        let refresh_triggers = build_keywords_page(&window, app, &config);
 
         Self {
             window,
@@ -223,14 +223,14 @@ thread_local! {
 }
 
 struct BridgePopup {
-    dialog: adw::Dialog,
+    window: adw::ApplicationWindow,
     close_bridge: Option<Box<dyn FnOnce()>>,
 }
 
 impl BridgePopup {
     fn close(mut self) {
         self.drain_inner();
-        self.dialog.close();
+        self.window.close();
     }
 
     fn drain(mut self) {
@@ -246,11 +246,10 @@ impl BridgePopup {
 
 fn present_existing_bridge_popup(
     popup: &Rc<RefCell<Option<BridgePopup>>>,
-    parent: &impl IsA<gtk::Widget>,
 ) -> bool {
-    let dialog = popup.borrow().as_ref().map(|popup| popup.dialog.clone());
-    if let Some(dialog) = dialog {
-        dialog.present(Some(parent));
+    let window = popup.borrow().as_ref().map(|popup| popup.window.clone());
+    if let Some(window) = window {
+        window.present();
         true
     } else {
         false
@@ -258,20 +257,15 @@ fn present_existing_bridge_popup(
 }
 
 fn connect_bridge_popup_close(
-    dialog: &adw::Dialog,
+    window: &adw::ApplicationWindow,
     popup: &Rc<RefCell<Option<BridgePopup>>>,
 ) {
     let weak_popup = Rc::downgrade(popup);
-    dialog.connect_close_attempt(move |_| {
+    window.connect_close_request(move |_| {
         if let Some(popup) = weak_popup.upgrade() {
             drain_bridge_popup(&popup);
         }
-    });
-    let weak_popup = Rc::downgrade(popup);
-    dialog.connect_closed(move |_| {
-        if let Some(popup) = weak_popup.upgrade() {
-            drain_bridge_popup(&popup);
-        }
+        glib::Propagation::Proceed
     });
 }
 
@@ -586,6 +580,7 @@ fn trigger_subtitle(enabled: bool, word: &str, shortcut: &str) -> String {
 /// triggers installed meanwhile show up).
 fn build_keywords_page(
     window: &adw::PreferencesWindow,
+    app: &adw::Application,
     config: &Rc<RefCell<Config>>,
 ) -> Rc<dyn Fn()> {
     let page = adw::PreferencesPage::builder()
@@ -600,10 +595,12 @@ fn build_keywords_page(
     let bridge_closing = Rc::new(std::cell::Cell::new(false));
     let bridge_reopen_pending = Rc::new(std::cell::Cell::new(false));
     let weak_window = window.downgrade();
+    let app = app.clone();
     BRIDGE_SETTINGS_OPEN.with(|callback| {
         let bridge_popup = bridge_popup.clone();
         let bridge_closing = bridge_closing.clone();
         let bridge_reopen_pending = bridge_reopen_pending.clone();
+        let app = app.clone();
         let config = config.clone();
         *callback.borrow_mut() = Some(Rc::new(move || {
             if !config.borrow().proton_bridge_enabled {
@@ -616,42 +613,28 @@ fn build_keywords_page(
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
-            if present_existing_bridge_popup(&bridge_popup, &window) {
+            if present_existing_bridge_popup(&bridge_popup) {
                 return;
             }
 
-            let dialog = adw::Dialog::builder()
+            let bridge_window = adw::ApplicationWindow::builder()
+                .application(&app)
                 .title(gettext("Proton Mail Bridge"))
-                .content_width(640)
-                .content_height(720)
-                .follows_content_size(false)
-                .can_close(true)
+                .default_width(640)
+                .default_height(720)
+                .modal(true)
+                .transient_for(&window)
                 .build();
             let header = adw::HeaderBar::builder()
                 .title_widget(&adw::WindowTitle::new(
                     &gettext("Proton Mail Bridge"),
                     &gettext("Spotty"),
                 ))
-                .show_start_title_buttons(false)
-                .show_end_title_buttons(false)
                 .build();
-            let close = gtk::Button::builder()
-                .icon_name("window-close-symbolic")
-                .tooltip_text(gettext("Close"))
-                .css_classes(["flat"])
-                .build();
-            {
-                let bridge_popup = Rc::downgrade(&bridge_popup);
-                close.connect_clicked(move |_| {
-                    if let Some(bridge_popup) = bridge_popup.upgrade() {
-                        close_bridge_popup(&bridge_popup);
-                    }
-                });
-            }
-            header.pack_end(&close);
+            bridge_window.set_titlebar(Some(&header));
 
             let bridge_popup_for_back = Rc::downgrade(&bridge_popup);
-            let handle = spotty_proton_bridge_gui::gui::EmbeddedBridge::new(&dialog, move || {
+            let handle = spotty_proton_bridge_gui::gui::EmbeddedBridge::new(&bridge_window, move || {
                 if let Some(bridge_popup) = bridge_popup_for_back.upgrade() {
                     close_bridge_popup(&bridge_popup);
                 }
@@ -664,11 +647,10 @@ fn build_keywords_page(
                 .child(&handle.widget())
                 .build();
             let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
-            content.append(&header);
             content.append(&scroll);
-            dialog.set_child(Some(&content));
+            bridge_window.set_content(Some(&content));
 
-            connect_bridge_popup_close(&dialog, &bridge_popup);
+            connect_bridge_popup_close(&bridge_window, &bridge_popup);
             let bridge_closing = bridge_closing.clone();
             let bridge_reopen_pending = bridge_reopen_pending.clone();
             let close_bridge = Box::new(move || {
@@ -683,10 +665,10 @@ fn build_keywords_page(
                 });
             });
             *bridge_popup.borrow_mut() = Some(BridgePopup {
-                dialog: dialog.clone(),
+                window: bridge_window.clone(),
                 close_bridge: Some(close_bridge),
             });
-            dialog.present(Some(&window));
+            bridge_window.present();
         }));
     });
 
@@ -3539,34 +3521,40 @@ mod tests {
 
     #[test]
     #[ignore = "requires a native desktop display; run with --ignored --test-threads=1"]
-    fn bridge_popup_reuses_dialog_and_drains_embedded_controller_on_close() {
+    fn bridge_popup_reuses_window_and_drains_embedded_controller_on_close() {
         adw::init().unwrap();
-        let parent = gtk::Window::new();
+        let app = adw::Application::new(None, gtk::gio::ApplicationFlags::NON_UNIQUE);
+        app.register(None::<&gtk::gio::Cancellable>).unwrap();
+        let parent = adw::ApplicationWindow::builder().application(&app).build();
         parent.present();
 
-        let dialog = adw::Dialog::new();
+        let bridge_window = adw::ApplicationWindow::builder()
+            .application(&app)
+            .transient_for(&parent)
+            .modal(true)
+            .build();
         let popup = Rc::new(RefCell::new(None));
         let close_count = Rc::new(std::cell::Cell::new(0));
         {
             let close_count = close_count.clone();
             *popup.borrow_mut() = Some(BridgePopup {
-                dialog: dialog.clone(),
+                window: bridge_window.clone(),
                 close_bridge: Some(Box::new(move || {
                     close_count.set(close_count.get() + 1);
                 })),
             });
         }
-        connect_bridge_popup_close(&dialog, &popup);
+        connect_bridge_popup_close(&bridge_window, &popup);
 
-        assert!(present_existing_bridge_popup(&popup, &parent));
-        assert!(present_existing_bridge_popup(&popup, &parent));
+        assert!(present_existing_bridge_popup(&popup));
+        assert!(present_existing_bridge_popup(&popup));
         assert_eq!(
             close_count.get(),
             0,
             "reopening reuses the active controller"
         );
 
-        dialog.close();
+        bridge_window.close();
         let context = glib::MainContext::default();
         for _ in 0..100 {
             while context.pending() {
