@@ -44,8 +44,9 @@ The manifests and backend source are documented in
 ### Optional Proton Mail Bridge
 
 Linux x86_64 builds include the verified Proton Bridge runtime and its login
-controls in Spotty. In **Settings → Search → Store**, click **Install** for
-Proton Mail Bridge. Its installed service row then appears under
+controls in Spotty. In **Settings → Search → Store**, open the **Proton**
+section and click **Install** for Proton Mail Bridge. Its installed service
+row then appears under
 **Services and integrations**. Click **Settings** to sign in, manage accounts,
 and copy the generated Bridge password and local IMAP/SMTP settings into your
 mail client in a modal Bridge popup attached to Spotty's Settings window.
@@ -72,7 +73,8 @@ See [package details](trigger-backends/proton-bridge-gui/README.md).
 
 ### Optional Proton VPN controls
 
-Install **Proton VPN** from **Settings → Search → Store** to add a connection
+Install **Proton VPN** from the **Proton** section in **Settings → Search → Store**
+to add a connection
 popup under **Services and integrations**. Spotty uses the official Proton VPN
 Linux CLI on the host for status, connect, disconnect, sign-in and sign-out.
 The popup asks only for the account username; Proton's own CLI handles the

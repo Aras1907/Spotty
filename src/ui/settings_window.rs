@@ -2082,15 +2082,23 @@ fn render_store_list(
         })
     };
     let triggers = adw::PreferencesGroup::builder().title(gettext("Triggers")).build();
+    let proton = adw::PreferencesGroup::builder()
+        .title(gettext("Proton"))
+        .description(gettext("Optional Proton services and integrations."))
+        .build();
     let services = adw::PreferencesGroup::builder()
         .title(gettext("Services and integrations"))
         .description(gettext("Optional local services and integrations configured through Settings."))
         .build();
     let mut has_triggers = false;
+    let mut has_proton = false;
     let mut has_services = false;
     for t in &shown {
         let row = server_trigger_row(t, base, window, g, config, rows, &refresh);
-        if t.is_service() {
+        if matches!(t.id.as_str(), "proton-bridge" | "proton-vpn") {
+            proton.add(&row);
+            has_proton = true;
+        } else if t.is_service() {
             services.add(&row);
             has_services = true;
         } else {
