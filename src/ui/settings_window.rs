@@ -222,6 +222,73 @@ thread_local! {
     static BRIDGE_SETTINGS_OPEN: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
 }
 
+struct BridgePopup {
+    dialog: adw::Dialog,
+    close_bridge: Option<Box<dyn FnOnce()>>,
+}
+
+impl BridgePopup {
+    fn close(mut self) {
+        self.drain_inner();
+        self.dialog.close();
+    }
+
+    fn drain(mut self) {
+        self.drain_inner();
+    }
+
+    fn drain_inner(&mut self) {
+        if let Some(close_bridge) = self.close_bridge.take() {
+            close_bridge();
+        }
+    }
+}
+
+fn present_existing_bridge_popup(
+    popup: &Rc<RefCell<Option<BridgePopup>>>,
+    parent: &impl IsA<gtk::Widget>,
+) -> bool {
+    let dialog = popup.borrow().as_ref().map(|popup| popup.dialog.clone());
+    if let Some(dialog) = dialog {
+        dialog.present(Some(parent));
+        true
+    } else {
+        false
+    }
+}
+
+fn connect_bridge_popup_close(
+    dialog: &adw::Dialog,
+    popup: &Rc<RefCell<Option<BridgePopup>>>,
+) {
+    let weak_popup = Rc::downgrade(popup);
+    dialog.connect_close_attempt(move |_| {
+        if let Some(popup) = weak_popup.upgrade() {
+            drain_bridge_popup(&popup);
+        }
+    });
+    let weak_popup = Rc::downgrade(popup);
+    dialog.connect_closed(move |_| {
+        if let Some(popup) = weak_popup.upgrade() {
+            drain_bridge_popup(&popup);
+        }
+    });
+}
+
+fn drain_bridge_popup(popup: &Rc<RefCell<Option<BridgePopup>>>) {
+    let closed = popup.borrow_mut().take();
+    if let Some(popup) = closed {
+        popup.drain();
+    }
+}
+
+fn close_bridge_popup(popup: &Rc<RefCell<Option<BridgePopup>>>) {
+    let closed = popup.borrow_mut().take();
+    if let Some(popup) = closed {
+        popup.close();
+    }
+}
+
 fn show_bridge_settings() {
     let open = BRIDGE_SETTINGS_OPEN.with(|callback| callback.borrow().clone());
     if let Some(open) = open {
@@ -527,52 +594,99 @@ fn build_keywords_page(
         .build();
     window.add(&page);
 
-    // Proton Bridge is a lazily-created page in this PreferencesWindow, so
-    // opening its settings never starts another Spotty process or window.
-    let bridge_page: Rc<RefCell<Option<adw::PreferencesPage>>> =
-        Rc::new(RefCell::new(None));
-    let bridge_handle: Rc<RefCell<Option<spotty_proton_bridge_gui::gui::EmbeddedBridge>>> =
-        Rc::new(RefCell::new(None));
+    // Keep one modal popup while it is open. Wait for its RPC stream to drain
+    // before allowing a queued Settings click to create a fresh controller.
+    let bridge_popup: Rc<RefCell<Option<BridgePopup>>> = Rc::new(RefCell::new(None));
+    let bridge_closing = Rc::new(std::cell::Cell::new(false));
+    let bridge_reopen_pending = Rc::new(std::cell::Cell::new(false));
     let weak_window = window.downgrade();
-    let return_page = page.clone();
     BRIDGE_SETTINGS_OPEN.with(|callback| {
-        let bridge_page = bridge_page.clone();
-        let bridge_handle = bridge_handle.clone();
+        let bridge_popup = bridge_popup.clone();
+        let bridge_closing = bridge_closing.clone();
+        let bridge_reopen_pending = bridge_reopen_pending.clone();
         let config = config.clone();
         *callback.borrow_mut() = Some(Rc::new(move || {
             if !config.borrow().proton_bridge_enabled {
                 return;
             }
+            if bridge_closing.get() {
+                bridge_reopen_pending.set(true);
+                return;
+            }
             let Some(window) = weak_window.upgrade() else {
                 return;
             };
-            // Drop the Ref before creating a page: the creation branch stores
-            // the new page through borrow_mut below.
-            let existing_page = bridge_page.borrow().clone();
-            let page = if let Some(page) = existing_page {
-                page.clone()
-            } else {
-                let page = adw::PreferencesPage::builder()
-                    .title(gettext("Proton Mail Bridge"))
-                    .icon_name("mail-send-receive-symbolic")
-                    .build();
-                let group = adw::PreferencesGroup::new();
-                let weak_window = window.downgrade();
-                let return_page = return_page.clone();
-                let handle = spotty_proton_bridge_gui::gui::EmbeddedBridge::new(&window, move || {
-                    if let Some(window) = weak_window.upgrade() {
-                        window.set_visible_page(&return_page);
+            if present_existing_bridge_popup(&bridge_popup, &window) {
+                return;
+            }
+
+            let dialog = adw::Dialog::builder()
+                .title(gettext("Proton Mail Bridge"))
+                .content_width(640)
+                .content_height(720)
+                .follows_content_size(false)
+                .can_close(true)
+                .build();
+            let header = adw::HeaderBar::builder()
+                .title_widget(&adw::WindowTitle::new(
+                    &gettext("Proton Mail Bridge"),
+                    &gettext("Spotty"),
+                ))
+                .show_start_title_buttons(false)
+                .show_end_title_buttons(false)
+                .build();
+            let close = gtk::Button::builder()
+                .icon_name("window-close-symbolic")
+                .tooltip_text(gettext("Close"))
+                .css_classes(["flat"])
+                .build();
+            {
+                let bridge_popup = Rc::downgrade(&bridge_popup);
+                close.connect_clicked(move |_| {
+                    if let Some(bridge_popup) = bridge_popup.upgrade() {
+                        close_bridge_popup(&bridge_popup);
                     }
                 });
-                group.add(&handle.widget());
-                page.add(&group);
-                window.add(&page);
-                *bridge_handle.borrow_mut() = Some(handle);
-                *bridge_page.borrow_mut() = Some(page.clone());
-                page
-            };
-            window.set_visible_page(&page);
-            window.present();
+            }
+            header.pack_end(&close);
+
+            let bridge_popup_for_back = Rc::downgrade(&bridge_popup);
+            let handle = spotty_proton_bridge_gui::gui::EmbeddedBridge::new(&dialog, move || {
+                if let Some(bridge_popup) = bridge_popup_for_back.upgrade() {
+                    close_bridge_popup(&bridge_popup);
+                }
+            });
+            let scroll = gtk::ScrolledWindow::builder()
+                .hscrollbar_policy(gtk::PolicyType::Never)
+                .vscrollbar_policy(gtk::PolicyType::Automatic)
+                .hexpand(true)
+                .vexpand(true)
+                .child(&handle.widget())
+                .build();
+            let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            content.append(&header);
+            content.append(&scroll);
+            dialog.set_child(Some(&content));
+
+            connect_bridge_popup_close(&dialog, &bridge_popup);
+            let bridge_closing = bridge_closing.clone();
+            let bridge_reopen_pending = bridge_reopen_pending.clone();
+            let close_bridge = Box::new(move || {
+                bridge_closing.set(true);
+                handle.close_with_completion(move || {
+                    glib::idle_add_local_once(move || {
+                        bridge_closing.set(false);
+                        if bridge_reopen_pending.replace(false) {
+                            show_bridge_settings();
+                        }
+                    });
+                });
+            });
+            *bridge_popup.borrow_mut() = Some(BridgePopup {
+                dialog: dialog.clone(),
+                close_bridge: Some(close_bridge),
+            });
+            dialog.present(Some(&window));
         }));
     });
 
@@ -632,10 +746,8 @@ fn build_keywords_page(
         let cfg = config.clone();
         let services = services.clone();
         let page = page.clone();
-        let search_page = page.clone();
-        let bridge_page = bridge_page.clone();
-        let bridge_handle = bridge_handle.clone();
-        let weak_window = window.downgrade();
+        let bridge_popup = bridge_popup.clone();
+        let bridge_reopen_pending = bridge_reopen_pending.clone();
         let attached = Rc::new(std::cell::Cell::new(installed));
         if installed {
             page.add(&services);
@@ -658,19 +770,11 @@ fn build_keywords_page(
                     attached.set(enabled);
                 }
 
-                // Uninstalling Bridge must also discard its embedded page so
-                // it cannot remain in Settings or be reopened by a stale row.
+                // Uninstalling Bridge also closes its popup and drains the
+                // embedded controller before a stale row can reopen it.
                 if !enabled {
-                    if let Some(handle) = bridge_handle.borrow_mut().take() {
-                        handle.close();
-                    }
-                    let old_page = bridge_page.borrow_mut().take();
-                    if let (Some(window), Some(old_page)) =
-                        (weak_window.upgrade(), old_page)
-                    {
-                        window.set_visible_page(&search_page);
-                        window.remove(&old_page);
-                    }
+                    bridge_reopen_pending.set(false);
+                    close_bridge_popup(&bridge_popup);
                 }
                 if installation_changed {
                     let startup = enabled.then(spotty_proton_bridge_gui::engine::start_service_async);
@@ -3431,6 +3535,51 @@ mod tests {
         assert_eq!(trigger_id_from_name("  --weird__  "), "weird");
         assert_eq!(trigger_id_from_name("Updates 2"), "updates-2");
         assert_eq!(trigger_id_from_name("!!!"), "trigger");
+    }
+
+    #[test]
+    #[ignore = "requires a native desktop display; run with --ignored --test-threads=1"]
+    fn bridge_popup_reuses_dialog_and_drains_embedded_controller_on_close() {
+        adw::init().unwrap();
+        let parent = gtk::Window::new();
+        parent.present();
+
+        let dialog = adw::Dialog::new();
+        let popup = Rc::new(RefCell::new(None));
+        let close_count = Rc::new(std::cell::Cell::new(0));
+        {
+            let close_count = close_count.clone();
+            *popup.borrow_mut() = Some(BridgePopup {
+                dialog: dialog.clone(),
+                close_bridge: Some(Box::new(move || {
+                    close_count.set(close_count.get() + 1);
+                })),
+            });
+        }
+        connect_bridge_popup_close(&dialog, &popup);
+
+        assert!(present_existing_bridge_popup(&popup, &parent));
+        assert!(present_existing_bridge_popup(&popup, &parent));
+        assert_eq!(
+            close_count.get(),
+            0,
+            "reopening reuses the active controller"
+        );
+
+        dialog.close();
+        let context = glib::MainContext::default();
+        for _ in 0..100 {
+            while context.pending() {
+                context.iteration(false);
+            }
+            if popup.borrow().is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(popup.borrow().is_none(), "closed popup state is released");
+        assert_eq!(close_count.get(), 1, "close drains exactly once");
+        parent.close();
     }
 
     #[test]

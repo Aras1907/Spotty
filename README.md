@@ -48,7 +48,9 @@ controls in Spotty. In **Settings → Search → Store**, click **Install** for
 Proton Mail Bridge. Its installed service row then appears under
 **Server-side installations**. Click **Settings** to sign in, manage accounts,
 and copy the generated Bridge password and local IMAP/SMTP settings into your
-mail client, all within Spotty's Settings window.
+mail client in a modal Bridge popup attached to Spotty's Settings window.
+Passwords start hidden and can be revealed or copied. Copied passwords carry
+a sensitive-content marker and are excluded from Spotty's clipboard history.
 
 Bridge is an optional service compiled as a Go library and loaded inside
 Spotty's process when installed. It has no separate mail-server process, search
