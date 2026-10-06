@@ -631,8 +631,6 @@ fn build_keywords_page(
                     &gettext("Spotty"),
                 ))
                 .build();
-            bridge_window.set_titlebar(Some(&header));
-
             let bridge_popup_for_back = Rc::downgrade(&bridge_popup);
             let handle = spotty_proton_bridge_gui::gui::EmbeddedBridge::new(&bridge_window, move || {
                 if let Some(bridge_popup) = bridge_popup_for_back.upgrade() {
@@ -646,9 +644,10 @@ fn build_keywords_page(
                 .vexpand(true)
                 .child(&handle.widget())
                 .build();
-            let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
-            content.append(&scroll);
-            bridge_window.set_content(Some(&content));
+            let toolbar = adw::ToolbarView::new();
+            toolbar.add_top_bar(&header);
+            toolbar.set_content(Some(&scroll));
+            bridge_window.set_content(Some(&toolbar));
 
             connect_bridge_popup_close(&bridge_window, &bridge_popup);
             let bridge_closing = bridge_closing.clone();
