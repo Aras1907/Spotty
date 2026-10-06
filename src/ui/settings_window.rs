@@ -2107,6 +2107,7 @@ fn render_store_list(
         }
     }
     if has_triggers { list_box.append(&triggers); }
+    if has_proton { list_box.append(&proton); }
     if has_services { list_box.append(&services); }
     stack.set_visible_child_name("list");
 }
