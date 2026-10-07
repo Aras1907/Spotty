@@ -1197,8 +1197,8 @@ impl SearchWindow {
                     }
                 }
 
-                // Find mode contextual shortcuts: terminal (folder), delete +
-                // open location (file/folder).
+                // Find mode contextual shortcuts: terminal, delete + open
+                // location (file/folder).
                 let in_find = active_mode
                     .borrow()
                     .as_ref()
@@ -1206,9 +1206,9 @@ impl SearchWindow {
                 if in_find {
                     let query = entry.text().to_string();
                     let trimmed = query.trim();
-                    let browsing_folder = trimmed.starts_with('/')
-                        || trimmed.starts_with("~/")
-                        || trimmed == "~";
+                    let typed_path = expand_path(trimmed)
+                        .filter(|path| path.exists())
+                        .map(|path| (path.clone(), path.is_dir()));
                     let selected_target = selected.as_ref().and_then(|res| match &res.action {
                         Action::BrowseInto(p) | Action::OpenInFileManager(p) => {
                             Some((p.clone(), true))
@@ -1221,14 +1221,23 @@ impl SearchWindow {
                     });
                     let selected_is_folder =
                         selected_target.as_ref().is_some_and(|(_, is_dir)| *is_dir);
-                    if browsing_folder || selected_is_folder {
+                    if selected_target.is_some() || typed_path.is_some() {
                         let taccel = accel_or(
                             &config,
                             |c| c.terminal_shortcut.as_str(),
-                            "<Control><Shift>Return",
+                            "<Control>Return",
                         );
                         if !taccel.is_empty() {
-                            entries.insert(0, (gettext("Open folder in terminal"), taccel));
+                            let label = if selected_target
+                                .as_ref()
+                                .or(typed_path.as_ref())
+                                .is_some_and(|(_, is_dir)| !*is_dir)
+                            {
+                                gettext("Open containing folder in terminal")
+                            } else {
+                                gettext("Open folder in terminal")
+                            };
+                            entries.insert(0, (label, taccel));
                         }
                     }
                     if selected_target.is_some() {
@@ -1246,11 +1255,11 @@ impl SearchWindow {
                             entries.push((label, daccel));
                         }
                     }
-                    if selected_target.is_some() || browsing_folder {
+                    if selected_target.is_some() || typed_path.is_some() {
                         let laccel = accel_or(
                             &config,
                             |c| c.open_location_shortcut.as_str(),
-                            "<Control>Return",
+                            "<Control><Shift>Return",
                         );
                         if !laccel.is_empty() {
                             entries.push((gettext("Open location in file manager"), laccel));
@@ -2718,7 +2727,7 @@ impl SearchWindow {
                 }
 
                 // Find mode: open the location of the selected file/folder in
-                // the default file manager (default Ctrl+Enter). A folder
+                // the default file manager (default Ctrl+Shift+Enter). A folder
                 // opens itself, a file opens its containing folder; with
                 // nothing selected the path being browsed is used. Deliberately
                 // FM-agnostic (gio/xdg-open based) so any file manager works.
@@ -2805,24 +2814,17 @@ impl SearchWindow {
                     }
                 }
 
-                // Open folder in a terminal (default Ctrl+Shift+Enter). Only available in the
-                // Find trigger when browsing a folder (query starts with ~/ or /) or when
-                // a folder result is selected.
+                // Open the selected item's location in the default terminal
+                // (default Ctrl+Enter). Folders open themselves; files open
+                // their containing folder. An explicit path in the entry is
+                // used when there is no selected result.
                 {
                     let in_find = mode_kc
                         .borrow()
                         .as_ref()
                         .is_some_and(|kw| kw.all_files);
                     let typed = current_typed(&e, &typed_len_c);
-                    let query = typed.trim();
-                    let browsing_folder = query.starts_with('/') || query.starts_with("~/") || query == "~";
-                    let selected_is_folder = l.selected_row().and_then(|row| {
-                        r.borrow().get(row.index() as usize).map(|res| {
-                            matches!(&res.action, Action::BrowseInto(_) | Action::OpenInFileManager(_))
-                                || matches!(&res.action, Action::OpenPath(_) if matches!(res.kind, crate::search::ResultKind::Folder))
-                        })
-                    }).unwrap_or(false);
-                    if in_find && (browsing_folder || selected_is_folder) {
+                    if in_find {
                         let s = cfg_kc.borrow().terminal_shortcut.clone();
                         if !s.is_empty() {
                             if let Some((accel_key, accel_mods)) = gtk::accelerator_parse(&s) {
@@ -2837,27 +2839,37 @@ impl SearchWindow {
                                 let key_matches =
                                     key == accel_key || (enter_family(accel_key) && enter_family(key));
                                 if key_matches && state == accel_mods {
-                                    let folder_path = l.selected_row().and_then(|row| {
+                                    let terminal_path = l.selected_row().and_then(|row| {
                                         r.borrow()
                                             .get(row.index() as usize)
                                             .and_then(|res| match &res.action {
                                                 Action::BrowseInto(p) => Some(p.clone()),
-                                                Action::OpenInFileManager(p) => Some(p.clone()),
-                                                Action::OpenPath(p)
-                                                    if matches!(res.kind, crate::search::ResultKind::Folder) =>
-                                                {
-                                                    Some(p.clone())
-                                                }
+                                                Action::OpenInFileManager(p) => Some(
+                                                    crate::fileops::location_target(p, p.is_dir()),
+                                                ),
+                                                Action::OpenPath(p) => Some(
+                                                    crate::fileops::location_target(
+                                                        p,
+                                                        matches!(res.kind, crate::search::ResultKind::Folder),
+                                                    ),
+                                                ),
                                                 _ => None,
                                             })
+                                    }).or_else(|| {
+                                        expand_path(typed.trim()).and_then(|path| {
+                                            if !path.exists() {
+                                                return None;
+                                            }
+                                            Some(crate::fileops::location_target(&path, path.is_dir()))
+                                        })
                                     });
-                                    if let Some(p) = folder_path {
+                                    if let Some(p) = terminal_path.filter(|path| path.is_dir()) {
                                         log::info!("terminal shortcut: opening terminal at {}", p.display());
                                         crate::app::open_terminal_at(&p);
                                         dismiss(&w, &shown_kc, false);
                                         return glib::Propagation::Stop;
                                     } else {
-                                        log::info!("terminal shortcut pressed but no folder result selected");
+                                        log::info!("terminal shortcut pressed but no existing file or folder is selected");
                                     }
                                 }
                             }
@@ -4570,6 +4582,7 @@ fn universal_pin_eligible(r: &SearchResult) -> bool {
             | Action::RunWithProgress { .. }
             | Action::InsertCalculatorResult(_)
             | Action::Bluetooth { .. }
+            | Action::ProtonVpn { .. }
             | Action::ConfirmRunCommand(_)
             | Action::ToggleUpdates
             | Action::SnoozeUpdates
@@ -6293,6 +6306,15 @@ fn activate(
             crate::app::run_in_terminal(cmd);
             dismiss(window, shown, false);
         }
+        Action::OpenProtonVpn => {
+            crate::ui::settings_window::show_proton_vpn_popup(window);
+            dismiss(window, shown, false);
+        }
+        Action::ProtonVpn { op, target } => {
+            // Runs in the background; the outcome arrives as a notification.
+            crate::proton_vpn::run_search_action(op, target);
+            dismiss(window, shown, false);
+        }
         Action::RunWithProgress { .. } => {
             // Handled in the row-activation path (run_fn closure), not here.
         }
@@ -6791,12 +6813,12 @@ mod private_search_tests {
 
     #[test]
     fn the_private_search_shortcut_defaults_to_ctrl_enter() {
-        // In the same GTK accelerator form as every other shortcut, so it is
-        // matched by the same code path as open-location — which it shares the
-        // combination with, deliberately: that one only acts on file rows.
+        // In the same GTK accelerator form as every other shortcut. Ctrl+Enter
+        // is scoped to web rows here and to file locations in Find mode.
         let cfg = Config::default();
         assert_eq!(cfg.private_search_shortcut, "<Control>Return");
-        assert_eq!(cfg.open_location_shortcut, "<Control>Return");
+        assert_eq!(cfg.terminal_shortcut, "<Control>Return");
+        assert_eq!(cfg.open_location_shortcut, "<Control><Shift>Return");
         // …and an already-GTK value survives normalisation untouched.
         assert_eq!(
             crate::ui::settings_window::normalize_accel(&cfg.private_search_shortcut),

@@ -941,6 +941,11 @@ pub fn show_clipboard_search(app: &adw::Application) {
     });
 }
 
+/// The live, shared configuration, for windows opened outside Settings.
+pub fn shared_config() -> Option<Rc<RefCell<Config>>> {
+    STATE.with(|s| s.borrow().as_ref().map(|st| st.config.clone()))
+}
+
 pub fn refresh_search_window() {
     STATE.with(|s| {
         if let Some(st) = s.borrow().as_ref() {

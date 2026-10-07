@@ -2833,6 +2833,7 @@ dependencies = [
  "serde",
  "serde_json",
  "spotty-proton-bridge-gui",
+ "spotty-proton-vpn-embedded",
  "symphonia",
  "tiny-skia",
  "urlencoding",
@@ -2864,6 +2865,14 @@ dependencies = [
  "tonic-prost-build",
  "tower",
  "zeroize",
+]
+
+[[package]]
+name = "spotty-proton-vpn-embedded"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "tar",
 ]
 
 [[package]]

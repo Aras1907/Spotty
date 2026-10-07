@@ -343,8 +343,8 @@ pub struct Config {
     #[serde(default = "default_open_location_shortcut")]
     pub open_location_shortcut: String,
     /// A web result: open the search in a private/incognito window of the
-    /// default browser. Shares Ctrl+Enter with `open_location_shortcut` on
-    /// purpose — that one only acts on file rows, so they never collide.
+    /// default browser. Ctrl+Enter is scoped to the selected result type, so
+    /// this does not conflict with Find's terminal shortcut.
     #[serde(default = "default_private_search_shortcut")]
     pub private_search_shortcut: String,
     /// Find mode: move the selected file/folder to the Trash (confirmation
@@ -401,6 +401,28 @@ pub struct Config {
     /// Whether Spotty's optional controls for an already-installed Proton VPN CLI are enabled.
     #[serde(default)]
     pub proton_vpn_enabled: bool,
+    /// Preferred Proton VPN country code for `vpn on` and quick connect;
+    /// empty connects to the fastest server.
+    #[serde(default)]
+    pub proton_vpn_country: String,
+    /// Proton Calendar web integration (`cal` trigger) installed from the Store.
+    #[serde(default)]
+    pub proton_calendar_enabled: bool,
+    /// Proton Calendar view opened by the trigger: day, week or month.
+    #[serde(default = "default_proton_calendar_view")]
+    pub proton_calendar_view: String,
+    /// Proton account slot (`/u/N`) the calendar opens.
+    #[serde(default)]
+    pub proton_calendar_account: u32,
+    /// Proton Drive web integration (`drive` trigger) installed from the Store.
+    #[serde(default)]
+    pub proton_drive_enabled: bool,
+    /// Proton account slot (`/u/N`) Drive opens.
+    #[serde(default)]
+    pub proton_drive_account: u32,
+    /// Optional local folder kept in sync with Proton Drive; searched by `drive`.
+    #[serde(default)]
+    pub proton_drive_folder: String,
     /// Legacy clipboard shortcut migrated into the clipboard keyword on load.
     #[serde(default, skip_serializing)]
     pub clipboard_shortcut: String,
@@ -464,6 +486,10 @@ pub struct Config {
     /// stays hidden until a *different* (new) update shows up.
     #[serde(default)]
     pub update_dismissed_sig: String,
+}
+
+fn default_proton_calendar_view() -> String {
+    "week".into()
 }
 
 /// The default trigger repository: the official spotty-triggers repository
@@ -538,13 +564,10 @@ fn default_paste_shortcut() -> String {
     "<Control>v".into()
 }
 fn default_terminal_shortcut() -> String {
-    // Ctrl+Enter is taken by "open location in file manager"; the terminal
-    // action lives on Ctrl+Shift+Enter (migrate_resource_defaults moves old
-    // configs off the previous Ctrl+Enter default).
-    "<Control><Shift>Return".into()
+    "<Control>Return".into()
 }
 fn default_open_location_shortcut() -> String {
-    "<Control>Return".into()
+    "<Control><Shift>Return".into()
 }
 fn default_private_search_shortcut() -> String {
     "<Control>Return".into()
@@ -633,6 +656,13 @@ impl Default for Config {
             command_keywords: default_command_keywords(),
             proton_bridge_enabled: false,
             proton_vpn_enabled: false,
+            proton_vpn_country: String::new(),
+            proton_calendar_enabled: false,
+            proton_calendar_view: default_proton_calendar_view(),
+            proton_calendar_account: 0,
+            proton_drive_enabled: false,
+            proton_drive_account: 0,
+            proton_drive_folder: String::new(),
             clipboard_shortcut: String::new(),
             pm_flatpak: Some(true),
             pm_distro: Some(false),
@@ -676,9 +706,13 @@ impl Config {
     /// at startup; hot path for every other access is the `Rc` clone, not
     /// this.
     pub fn load() -> Self {
+        Self::load_from_path(&Self::config_path())
+    }
+
+    fn load_from_path(path: &std::path::Path) -> Self {
         // Pre-filter: drop pinned_results entries referencing the removed
         // `PlayMusic` action so old configs don't fail to deserialize.
-        let raw = fs::read_to_string(Self::config_path()).ok();
+        let raw = fs::read_to_string(path).ok();
         let mut cfg: Config = raw.as_deref().and_then(|s| {
             let mut v: serde_json::Value = serde_json::from_str(s).ok()?;
             if let Some(arr) = v.get_mut("pinned_results").and_then(|x| x.as_array_mut()) {
@@ -693,13 +727,16 @@ impl Config {
         let before = serde_json::to_string(&cfg).unwrap_or_default();
         cfg.migrate_proton_bridge_service();
         cfg.migrate_keywords();
+        cfg.migrate_proton_vpn_trigger();
         cfg.migrate_converter_switch();
         cfg.migrate_resource_defaults();
         cfg.migrate_app_sources();
         cfg.migrate_search_engine();
         let after = serde_json::to_string(&cfg).unwrap_or_default();
         if before != after {
-            let _ = cfg.save();
+            if let Err(error) = cfg.save_to_path(path) {
+                log::warn!("config: migration save failed: {error}");
+            }
         }
         cfg.apply_privacy_preferences();
         cfg
@@ -820,6 +857,57 @@ impl Config {
         self.result_order.retain(|id| id != "proton-bridge");
     }
 
+    /// Whether the Store installed the Proton integration `id`.
+    pub fn proton_service_enabled(&self, id: &str) -> bool {
+        match id {
+            "proton-bridge" => self.proton_bridge_enabled,
+            "proton-vpn" => self.proton_vpn_enabled,
+            "proton-calendar" => self.proton_calendar_enabled,
+            "proton-drive" => self.proton_drive_enabled,
+            _ => false,
+        }
+    }
+
+    /// Install or uninstall a Proton integration, together with its search
+    /// trigger when it has one.
+    pub fn set_proton_service(&mut self, id: &str, enabled: bool) {
+        match id {
+            "proton-bridge" => self.proton_bridge_enabled = enabled,
+            "proton-vpn" => self.proton_vpn_enabled = enabled,
+            "proton-calendar" => self.proton_calendar_enabled = enabled,
+            "proton-drive" => self.proton_drive_enabled = enabled,
+            _ => return,
+        }
+        if id == "proton-bridge" {
+            return;
+        }
+        if enabled {
+            self.install_builtin(id);
+        } else {
+            self.uninstall_builtin(id);
+        }
+    }
+
+    /// The Proton VPN, Calendar and Drive integrations are each both a
+    /// Settings service and an optional search trigger. Keep old
+    /// installations in sync while respecting an explicit trigger uninstall
+    /// made from Search settings.
+    fn migrate_proton_vpn_trigger(&mut self) {
+        for (id, ..) in crate::trigger_defaults::PROTON_TRIGGERS {
+            let has_keyword = self.command_keywords.iter().any(|keyword| keyword.id == id);
+            if self.proton_service_enabled(id) {
+                if crate::trigger_defaults::supports_native(id)
+                    && !self.is_uninstalled(id)
+                    && !has_keyword
+                {
+                    self.install_builtin(id);
+                }
+            } else if has_keyword {
+                self.uninstall_builtin(id);
+            }
+        }
+    }
+
     /// The converter used to live under the calculator's switch: keep whatever
     /// that switch said until the user flips the converter's own.
     fn migrate_converter_switch(&mut self) {
@@ -834,12 +922,26 @@ impl Config {
         if self.clipboard_history_limit == 100 {
             self.clipboard_history_limit = 1000;
         }
-        // Ctrl+Enter now opens the location in the file manager; the terminal
-        // action moved to Ctrl+Shift+Enter. Move configs still sitting on the
-        // old default so the two don't both match the same accelerator
-        // (same pattern as the old cmd/run Super+Ctrl+T move).
-        if self.terminal_shortcut == "<Control>Return" {
+        // Restore Ctrl+Enter as the Find terminal shortcut. Previous defaults
+        // assigned Ctrl+Enter to the file manager and Ctrl+Shift+Enter to the
+        // terminal, so swap those stored defaults as a pair.
+        if self.terminal_shortcut == "<Control><Shift>Return"
+            && self.open_location_shortcut == "<Control>Return"
+        {
             self.terminal_shortcut = default_terminal_shortcut();
+            self.open_location_shortcut = default_open_location_shortcut();
+        } else if self.terminal_shortcut == "<Control><Shift>Return"
+            && self.open_location_shortcut == "<Control><Shift>Return"
+        {
+            // Older configs can predate the separate file-manager shortcut;
+            // serde gives that missing field the new Ctrl+Shift+Enter default.
+            self.terminal_shortcut = default_terminal_shortcut();
+        } else if self.terminal_shortcut == "<Control>Return"
+            && self.open_location_shortcut == "<Control>Return"
+        {
+            // Also migrate configs from before the separate location shortcut
+            // was introduced, where both fields can carry Ctrl+Enter.
+            self.open_location_shortcut = default_open_location_shortcut();
         }
     }
 
@@ -850,10 +952,23 @@ impl Config {
     }
 
     pub fn save(&self) {
+        if let Err(error) = self.save_checked() {
+            log::warn!("config: {error}");
+        }
+    }
+
+    /// Save and report filesystem failures so service installation can avoid
+    /// claiming success when its persistent state was not written.
+    pub fn save_checked(&self) -> Result<(), String> {
+        self.save_to_path(&Self::config_path())
+    }
+
+    fn save_to_path(&self, path: &std::path::Path) -> Result<(), String> {
         self.apply_privacy_preferences();
-        let p = Self::config_path();
-        let _ = crate::security::private_dir(p.parent().unwrap());
-        let _ = crate::security::write_private(p, serde_json::to_string_pretty(self).unwrap_or_default());
+        let data = serde_json::to_vec_pretty(self)
+            .map_err(|_| "Cannot encode Spotty settings.".to_owned())?;
+        crate::security::write_private(path, data)
+            .map_err(|error| format!("Cannot save Spotty settings: {error}"))
     }
 
     /// Get the extensions for a command keyword by the word the user typed.
@@ -1320,20 +1435,29 @@ mod tests {
 
     #[test]
     fn new_shortcut_defaults_and_terminal_migration() {
-        // Fresh defaults: Ctrl+Enter opens the location in the file manager,
-        // terminal moved to Ctrl+Shift+Enter, Ctrl+D deletes behind a
+        // Fresh defaults: Ctrl+Enter opens the location in the terminal,
+        // Ctrl+Shift+Enter opens it in the file manager, Ctrl+D deletes behind a
         // confirmation dialog.
         let cfg = Config::default();
-        assert_eq!(cfg.open_location_shortcut, "<Control>Return");
+        assert_eq!(cfg.open_location_shortcut, "<Control><Shift>Return");
         assert_eq!(cfg.delete_file_shortcut, "<Control>d");
-        assert_eq!(cfg.terminal_shortcut, "<Control><Shift>Return");
+        assert_eq!(cfg.terminal_shortcut, "<Control>Return");
 
-        // Old configs still carrying the previous terminal default move off
-        // it so both actions don't match the same accelerator.
+        // Configs from the previous defaults swap the shortcut assignments.
         let mut cfg = Config::default();
-        cfg.terminal_shortcut = "<Control>Return".into();
+        cfg.terminal_shortcut = "<Control><Shift>Return".into();
+        cfg.open_location_shortcut = "<Control>Return".into();
         cfg.migrate_resource_defaults();
-        assert_eq!(cfg.terminal_shortcut, "<Control><Shift>Return");
+        assert_eq!(cfg.terminal_shortcut, "<Control>Return");
+        assert_eq!(cfg.open_location_shortcut, "<Control><Shift>Return");
+
+        // A config without the old location field can deserialize both fields
+        // to the previous defaults; move only the terminal shortcut in that case.
+        cfg.terminal_shortcut = "<Control><Shift>Return".into();
+        cfg.open_location_shortcut = "<Control><Shift>Return".into();
+        cfg.migrate_resource_defaults();
+        assert_eq!(cfg.terminal_shortcut, "<Control>Return");
+        assert_eq!(cfg.open_location_shortcut, "<Control><Shift>Return");
 
         // A deliberately customized terminal shortcut is left alone.
         cfg.terminal_shortcut = "<Super>t".into();
@@ -1347,9 +1471,9 @@ mod tests {
         // up the new defaults via serde.
         let cfg: Config = serde_json::from_str(r#"{"shortcut": "Super+Space"}"#).unwrap();
         assert_eq!(cfg.shortcut, "Super+Space");
-        assert_eq!(cfg.open_location_shortcut, "<Control>Return");
+        assert_eq!(cfg.open_location_shortcut, "<Control><Shift>Return");
         assert_eq!(cfg.delete_file_shortcut, "<Control>d");
-        assert_eq!(cfg.terminal_shortcut, "<Control><Shift>Return");
+        assert_eq!(cfg.terminal_shortcut, "<Control>Return");
         assert_eq!(
             cfg.trigger_repo_url,
             "https://raw.githubusercontent.com/Aras1907/spotty-triggers/main"
@@ -1419,6 +1543,110 @@ mod tests {
             cfg.app_sources(),
             AppSources::new(true, true, false, true)
         );
+    }
+}
+
+#[cfg(test)]
+mod service_persistence_tests {
+    use super::Config;
+    use std::path::PathBuf;
+
+    fn isolated_config_path() -> (PathBuf, PathBuf) {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target/spotty-config-tests")
+            .join(format!("{}-{nonce}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        (root.clone(), root.join("spotty/config.json"))
+    }
+
+    #[test]
+    fn installed_service_state_survives_a_config_reload() {
+        let (root, path) = isolated_config_path();
+        let mut config = Config::default();
+        config.proton_bridge_enabled = true;
+        config.proton_vpn_enabled = true;
+        config.install_builtin("proton-vpn");
+        config.save_to_path(&path).expect("save installed services");
+
+        let loaded = Config::load_from_path(&path);
+        assert!(loaded.proton_bridge_enabled);
+        assert!(loaded.proton_vpn_enabled);
+        assert_eq!(loaded.keyword_for_word("vpn").unwrap().id, "proton-vpn");
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn vpn_service_migration_adds_a_missing_trigger_without_resetting_preferences() {
+        let mut config = Config::default();
+        config.proton_vpn_enabled = true;
+        config.migrate_proton_vpn_trigger();
+        let keyword = config.keyword_for_id("proton-vpn").expect("VPN trigger");
+        assert_eq!(keyword.word, "vpn");
+
+        // An existing row may have been disabled independently of its
+        // service. Migration must preserve that choice and custom settings.
+        if let Some(keyword) = config.command_keywords.iter_mut().find(|item| item.id == "proton-vpn") {
+            keyword.enabled = false;
+            keyword.word = "myvpn".into();
+            keyword.shortcut = "<Control><Alt>v".into();
+        }
+        config.migrate_proton_vpn_trigger();
+        let keyword = config.command_keywords.iter().find(|item| item.id == "proton-vpn").unwrap();
+        assert!(!keyword.enabled);
+        assert_eq!(keyword.word, "myvpn");
+        assert_eq!(keyword.shortcut, "<Control><Alt>v");
+
+        config.uninstall_builtin("proton-vpn");
+        config.migrate_proton_vpn_trigger();
+        assert!(config.is_uninstalled("proton-vpn"));
+        assert!(config.keyword_for_id("proton-vpn").is_none());
+    }
+
+    #[test]
+    fn calendar_and_drive_services_install_their_triggers_and_survive_reload() {
+        let (root, path) = isolated_config_path();
+        let mut config = Config::default();
+        config.set_proton_service("proton-calendar", true);
+        config.set_proton_service("proton-drive", true);
+        config.proton_calendar_view = "month".into();
+        config.proton_drive_folder = "~/ProtonDrive".into();
+        config.save_to_path(&path).expect("save installed services");
+
+        let mut loaded = Config::load_from_path(&path);
+        assert!(loaded.proton_calendar_enabled && loaded.proton_drive_enabled);
+        assert_eq!(loaded.keyword_for_word("cal").unwrap().id, "proton-calendar");
+        assert_eq!(loaded.keyword_for_word("drive").unwrap().id, "proton-drive");
+        assert_eq!(loaded.proton_calendar_view, "month");
+        assert_eq!(loaded.proton_drive_folder, "~/ProtonDrive");
+
+        loaded.set_proton_service("proton-drive", false);
+        assert!(!loaded.proton_drive_enabled);
+        assert!(loaded.keyword_for_id("proton-drive").is_none());
+        assert!(loaded.keyword_for_id("proton-calendar").is_some());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn service_state_save_rejects_a_symlinked_config_directory() {
+        use std::os::unix::fs::symlink;
+
+        let (root, path) = isolated_config_path();
+        let outside = root.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        symlink(&outside, path.parent().unwrap()).unwrap();
+
+        let error = Config::default()
+            .save_to_path(&path)
+            .expect_err("must not follow a pre-planted config-directory symlink");
+        assert!(error.starts_with("Cannot save Spotty settings:"));
+
+        let _ = std::fs::remove_dir_all(root);
     }
 }
 

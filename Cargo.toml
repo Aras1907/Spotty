@@ -2,11 +2,17 @@
 name = "spotty"
 version = "0.6.0"
 edition = "2021"
+[features]
+# Build Proton VPN's official client into Spotty (fetches and compiles Proton's
+# pinned sources; see trigger-backends/proton-vpn-embedded/README.md).
+proton-vpn = ["spotty-proton-vpn-embedded/bundled"]
+
 [[bin]]
 name = "spotty"
 path = "src/main.rs"
 [dependencies]
 spotty-proton-bridge-gui = { path = "trigger-backends/proton-bridge-gui", default-features = false }
+spotty-proton-vpn-embedded = { path = "trigger-backends/proton-vpn-embedded" }
 libc = "0.2"
 gtk = { version = "0.9", package = "gtk4", features = ["v4_12"] }
 adw = { version = "0.7", package = "libadwaita", features = ["v1_6"] }
