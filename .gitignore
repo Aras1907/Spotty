@@ -11,3 +11,4 @@ build-dir/
 
 # Compiled translations (regenerated from po/*.po)
 po/locale/
+/build/spotty-proton-vpn-cache/
