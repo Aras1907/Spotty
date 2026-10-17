@@ -45,6 +45,7 @@ pub enum RingState {
     Running,
     Done,
     Failed,
+    Attention,
 }
 
 // Shared animation state — used by both the draw func and the tick callback.
@@ -131,6 +132,7 @@ impl Ring {
                 RingState::Running => themed(widget, "accent_color", (0.21, 0.52, 0.89, 1.0)),
                 RingState::Done => themed(widget, "success_color", (0.18, 0.76, 0.49, 1.0)),
                 RingState::Failed => themed(widget, "error_color", (0.88, 0.10, 0.14, 1.0)),
+                RingState::Attention => themed(widget, "warning_color", (0.90, 0.55, 0.08, 1.0)),
             };
             cr.set_source_rgba(red, green, blue, 1.0);
 
@@ -138,7 +140,8 @@ impl Ring {
                 None => {
                     // Indeterminate spinner: rotating arc segment.
                     let sweep = 0.28 * 2.0 * PI;
-                    let start = -PI / 2.0 + spinner_phase() * 2.0 * PI;
+                    let phase = if super::appearance::animations_enabled() { spinner_phase() } else { 0.0 };
+                    let start = -PI / 2.0 + phase * 2.0 * PI;
                     let end = start + sweep;
                     cr.arc(cx, cy, r, start, end);
                     cr.set_source_rgba(red, green, blue, 0.9);
@@ -175,13 +178,13 @@ impl Ring {
                 None => {
                     // Indeterminate: the phase comes from the shared clock,
                     // so just keep the frames coming.
-                    w.queue_draw();
+                    if super::appearance::animations_enabled() { w.queue_draw(); }
                 }
                 Some(target_f) => {
                     // Determinate: ease displayed toward target.
                     let d = an.displayed.get();
                     let delta = target_f - d;
-                    if delta.abs() < 0.002 {
+                    if delta.abs() < 0.002 || !super::appearance::animations_enabled() {
                         if d != target_f {
                             an.displayed.set(target_f);
                             w.queue_draw();

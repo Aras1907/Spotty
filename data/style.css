@@ -1,5 +1,9 @@
+/* The toplevel is always transparent: it is taller than the panel (the
+   transparent space is what keeps the bar centred), and GNOME animates the
+   whole window on open and close — an opaque toplevel would show as a box
+   growing and shrinking. The panel (.spotty-outer) paints its own background. */
 window.spotty-window {
-    background-color: @window_bg_color;
+    background: transparent;
     color: @window_fg_color;
     border-radius: 14px;
 }
@@ -242,6 +246,9 @@ window.spotty-window > * {
 .spotty-update-badge {
     color: @accent_color;
 }
+.spotty-update-badge.spotty-update-restart {
+    color: #e5a50a;
+}
 
 /* Keycaps in the "Set Shortcut" dialog — the same visual language GNOME uses
    for its keyboard-shortcut editors: each key in its own rounded box. */
@@ -279,4 +286,26 @@ window.spotty-window > * {
 }
 .spotty-close-round:hover {
     background-color: alpha(@window_fg_color, 0.2);
+}
+
+/* Open/close like a GNOME window: grow in from smaller while fading in,
+   shrink while fading out. The toplevel is transparent so only the panel
+   scales. Timings follow GNOME Shell's window map/destroy animations. */
+window.spotty-window {
+    background: transparent;
+}
+/* The panel only fades, in place: no scale, so nothing moves up or down. */
+@keyframes spotty-open {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes spotty-close {
+    from { opacity: 1; }
+    to   { opacity: 0; }
+}
+.spotty-outer.spotty-anim-in {
+    animation: spotty-open 120ms ease-out;
+}
+.spotty-outer.spotty-anim-out {
+    animation: spotty-close 110ms ease-in forwards;
 }

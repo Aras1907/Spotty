@@ -61,7 +61,7 @@ rejected rather than followed. XDG parent directories are not chmodded.
 | OCR | `ocr.tsv`: extracted document/image text and file paths | Persistent cache; can contain private text even after the original file is removed |
 | Previews and thumbnails | Cached document pages, media, images and thumbnails | Persistent caches; these can reveal document contents |
 | Commands, translation and operation results | Recent commands, translations and command output in process memory | Normally the daemon lifetime; explicitly enabling search history can also persist selected text/titles |
-| IPC | `spotty.pid`, `spotty_keyword.txt`, `spotty_bin` | Local daemon communication; private writes and validated PID identity |
+| IPC | `spotty.pid`, `spotty_keyword.txt` | Local daemon communication; private writes and validated PID identity |
 
 There is **no encryption at rest** in Spotty. File permissions protect against
 other ordinary users, but do not protect against root, malware running as your

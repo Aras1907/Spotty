@@ -49,12 +49,27 @@ fn gsettings(args: &[&str]) -> String {
         Command::new("gsettings").args(args).output()
     };
     match output {
-        Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
+        Ok(o) => {
+            if !o.status.success() {
+                log::warn!(
+                    "keybindings: gsettings {} failed: {}",
+                    args.first().unwrap_or(&""),
+                    String::from_utf8_lossy(&o.stderr).trim()
+                );
+            }
+            String::from_utf8_lossy(&o.stdout).trim().to_string()
+        }
         Err(e) => {
             log::warn!("keybindings: gsettings failed: {e}");
             String::new()
         }
     }
+}
+
+/// `s` as GVariant text (a quoted, escaped string literal) for `gsettings set`.
+fn gvariant_string(s: &str) -> String {
+    use glib::prelude::ToVariant;
+    s.to_variant().print(false).to_string()
 }
 
 fn slot_path(slot: usize) -> String {
@@ -118,7 +133,6 @@ pub fn register_all() {
         let name = match kw.id.as_str() {
             "files" => "Spotty: Files",
             "clipboard" => "Spotty: Clipboard",
-            "cmd" => "Spotty: Apps",
             "run" => "Spotty: Run",
             "emoji" => "Spotty: Emoji",
             "music" => "Spotty: Music",
@@ -174,8 +188,11 @@ pub fn register_all() {
         let schema = slot_schema(i);
         let gtk = to_gtk_accel(shortcut);
         let cmd = crate::app::host_signal_command(keyword_id);
-        gsettings(&["set", &schema, "name", display_name]);
-        gsettings(&["set", &schema, "command", &cmd]);
+        // String values go in as GVariant text: a command that starts with a
+        // quoted path ('/…/spotty-toggle' '--toggle') is otherwise parsed as
+        // GVariant and rejected, and the old command silently stays.
+        gsettings(&["set", &schema, "name", &gvariant_string(display_name)]);
+        gsettings(&["set", &schema, "command", &gvariant_string(&cmd)]);
         gsettings(&["set", &schema, "binding", &gtk]);
         gsettings(&["set", &schema, "enable-in-lockscreen", "false"]);
     }

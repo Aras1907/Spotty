@@ -5,6 +5,9 @@ edition = "2021"
 [[bin]]
 name = "spotty"
 path = "src/main.rs"
+[[bin]]
+name = "spotty-toggle"
+path = "src/toggle.rs"
 [dependencies]
 libc = "0.2"
 gtk = { version = "0.9", package = "gtk4", features = ["v4_12"] }

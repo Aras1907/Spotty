@@ -10,6 +10,186 @@ use std::fs;
 use std::path::PathBuf;
 use crate::i18n::gettext;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ColorMode {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemePalette {
+    #[default]
+    Default,
+    Nord,
+    Solarized,
+    RosePine,
+    Custom,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundStyle {
+    #[default]
+    Solid,
+    Transparent,
+    Frosted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ResultDensity {
+    Compact,
+    #[default]
+    Comfortable,
+    Spacious,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BorderStyle {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BorderColorMode {
+    #[default]
+    Theme,
+    Accent,
+    Custom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LauncherBehavior {
+    pub start_at_login: bool,
+    pub hide_on_focus_loss: bool,
+    pub inline_completions: bool,
+    /// Show all usable trigger words when regular search has no text.
+    pub expand_triggers_in_regular_search: bool,
+}
+
+impl Default for LauncherBehavior {
+    fn default() -> Self {
+        Self {
+            start_at_login: true, hide_on_focus_loss: true, inline_completions: true,
+            expand_triggers_in_regular_search: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeColors {
+    pub background: String,
+    pub foreground: String,
+    pub accent: String,
+}
+
+/// Appearance lives in one defaulted object so older configs keep the
+/// original layout and follow the desktop's light/dark preference.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Appearance {
+    pub color_mode: ColorMode,
+    pub light_theme: ThemePalette,
+    pub dark_theme: ThemePalette,
+    pub light_colors: ThemeColors,
+    pub dark_colors: ThemeColors,
+    pub background_style: BackgroundStyle,
+    pub background_opacity: u32,
+    pub window_width: u32,
+    pub visible_results: u32,
+    pub text_scale: u32,
+    pub density: ResultDensity,
+    pub corner_radius: u32,
+    pub show_border: bool,
+    pub border_width: u32,
+    pub border_style: BorderStyle,
+    pub border_color_mode: BorderColorMode,
+    pub border_color: String,
+    pub border_opacity: u32,
+    pub show_shadow: bool,
+    pub show_preview: bool,
+    pub reduced_motion: bool,
+}
+
+impl Default for Appearance {
+    fn default() -> Self {
+        Self {
+            color_mode: ColorMode::System,
+            light_theme: ThemePalette::Default,
+            dark_theme: ThemePalette::Default,
+            light_colors: ThemeColors {
+                background: "#fafafa".into(),
+                foreground: "#2e3436".into(),
+                accent: "#3584e4".into(),
+            },
+            dark_colors: ThemeColors {
+                background: "#242424".into(),
+                foreground: "#eeeeec".into(),
+                accent: "#78aeed".into(),
+            },
+            background_style: BackgroundStyle::Solid,
+            background_opacity: 85,
+            window_width: 750,
+            visible_results: 5,
+            text_scale: 100,
+            density: ResultDensity::Comfortable,
+            corner_radius: 14,
+            show_border: true,
+            border_width: 2,
+            border_style: BorderStyle::Solid,
+            border_color_mode: BorderColorMode::Theme,
+            border_color: "#3584e4".into(),
+            border_opacity: 100,
+            show_shadow: false,
+            show_preview: true,
+            reduced_motion: false,
+        }
+    }
+}
+
+impl Appearance {
+    pub fn normalize(&mut self) {
+        self.background_opacity = self.background_opacity.clamp(35, 100);
+        self.window_width = self.window_width.clamp(650, 1100);
+        self.visible_results = self.visible_results.clamp(3, 12);
+        self.text_scale = self.text_scale.clamp(80, 140);
+        self.corner_radius = self.corner_radius.min(32);
+        self.border_width = self.border_width.clamp(1, 8);
+        self.border_opacity = self.border_opacity.clamp(10, 100);
+        if self.border_color.len() != 7 || !self.border_color.starts_with('#')
+            || !self.border_color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+        {
+            self.border_color = "#3584e4".into();
+        }
+        let defaults = Self::default();
+        for (colors, fallback) in [
+            (&mut self.light_colors, &defaults.light_colors),
+            (&mut self.dark_colors, &defaults.dark_colors),
+        ] {
+            for (value, default) in [
+                (&mut colors.background, &fallback.background),
+                (&mut colors.foreground, &fallback.foreground),
+                (&mut colors.accent, &fallback.accent),
+            ] {
+                if value.len() != 7 || !value.starts_with('#')
+                    || !value.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+                {
+                    *value = default.clone();
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchEngine {
@@ -212,6 +392,10 @@ use crate::trigger_defaults::command_keywords as default_command_keywords;
 /// Field order and defaults are managed by serde defaults — see module docs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
+    pub appearance: Appearance,
+    #[serde(default)]
+    pub behavior: LauncherBehavior,
     #[serde(default = "de")]
     pub search_engine: SearchEngine,
     #[serde(default = "default_custom_web_search_url")]
@@ -618,6 +802,8 @@ impl Default for Config {
             show_shortcut_hints: true,
             max_index_entries: dm(),
             command_keywords: default_command_keywords(),
+            appearance: Appearance::default(),
+            behavior: LauncherBehavior::default(),
             clipboard_shortcut: String::new(),
             pm_flatpak: Some(true),
             pm_distro: Some(false),
@@ -681,6 +867,7 @@ impl Config {
         cfg.migrate_resource_defaults();
         cfg.migrate_app_sources();
         cfg.migrate_search_engine();
+        cfg.appearance.normalize();
         let after = serde_json::to_string(&cfg).unwrap_or_default();
         if before != after {
             let _ = cfg.save();
@@ -746,19 +933,6 @@ impl Config {
                         )
                     {
                         existing.icon = def.icon.clone();
-                    }
-                    // The "cmd" trigger was originally framed as a terminal
-                    // command runner; older configs may still have its old
-                    // word/wording from before it became app-focused.
-                    if existing.id == "cmd" && existing.word == "cmd" {
-                        existing.word = def.word.clone();
-                    }
-                    // The "cmd"/App trigger used to own Super+Ctrl+T, which now
-                    // belongs to the new free-form "cmd" command runner ("run").
-                    // Move older configs off that shortcut so the two don't
-                    // register the same accelerator with GNOME.
-                    if existing.id == "cmd" && existing.shortcut == "Super+Ctrl+T" {
-                        existing.shortcut = def.shortcut.clone();
                     }
                     // The "files" trigger was originally "files"; rename its
                     // default word to "find" for older configs.
@@ -897,13 +1071,15 @@ impl Config {
 
     /// Whether `id` shows in the regular search.
     ///
-    /// A result type does by default, and always when it has no trigger word —
-    /// nothing else would reach it — unless the user turned it off while
-    /// giving it one. A trigger is the other way round: it is reached by its
-    /// word, and shows in the regular search only if it opted in.
+    /// Wordless entries always contribute to regular search. Result types
+    /// otherwise default to on; triggers with words require an opt-in.
     pub fn in_regular_search(&self, id: &str) -> bool {
         if !RESULT_IDS.contains(&id) {
-            return self.regular_search_on.iter().any(|u| u == id);
+            let wordless = self.command_keywords.iter().find(|k| k.id == id)
+                .map(|k| k.word.trim().is_empty())
+                .or_else(|| crate::triggers::by_id(id).map(|t| t.word.trim().is_empty()))
+                .unwrap_or(false);
+            return wordless || self.regular_search_on.iter().any(|u| u == id);
         }
         let wordless = self
             .command_keywords
@@ -929,8 +1105,7 @@ impl Config {
 
     /// Every result type and trigger, highest priority first: the saved order,
     /// then whatever it doesn't mention yet in the default order, then any
-    /// installed trigger. "cmd" (the app launcher behind every app action) has
-    /// no results of its own and isn't listed.
+    /// installed trigger.
     pub fn ordered_ids(&self) -> Vec<String> {
         let installed: Vec<String> = crate::triggers::all().into_iter().map(|t| t.id).collect();
         self.ordered_ids_with(&installed)
@@ -940,10 +1115,9 @@ impl Config {
     /// without a triggers directory.
     pub fn ordered_ids_with(&self, installed: &[String]) -> Vec<String> {
         let known = |id: &str| {
-            id != "cmd"
-                && (RESULT_IDS.contains(&id)
-                    || self.command_keywords.iter().any(|k| k.id == id)
-                    || installed.iter().any(|i| i == id))
+            RESULT_IDS.contains(&id)
+                || self.command_keywords.iter().any(|k| k.id == id)
+                || installed.iter().any(|i| i == id)
         };
         let mut out: Vec<String> = Vec::new();
         let candidates = self
@@ -998,10 +1172,9 @@ impl Config {
     }
 
     /// Uninstall a built-in trigger or result type: off, out of the list, its
-    /// word and shortcut kept for a later reinstall. "cmd" (the app launcher
-    /// behind every app action) can't be removed.
+    /// word and shortcut kept for a later reinstall.
     pub fn uninstall_builtin(&mut self, id: &str) {
-        if id == "cmd" || self.is_uninstalled(id) {
+        if self.is_uninstalled(id) {
             return;
         }
         self.uninstalled_builtins.push(id.to_string());
@@ -1061,8 +1234,14 @@ mod tests {
             c.install_builtin(id);
             let kw = c.command_keywords.iter().find(|k| k.id == id).expect(id);
             assert!(kw.is_result(), "{id}");
-            assert!(kw.word.is_empty() && kw.shortcut.is_empty(), "{id} starts without a trigger word");
-            assert_eq!(kw.mode_key(), id);
+            if id == "updates" {
+                assert_eq!(kw.word, "update");
+                assert_eq!(kw.mode_key(), "update");
+            } else {
+                assert!(kw.word.is_empty() && kw.shortcut.is_empty(), "{id} starts without a trigger word");
+                assert_eq!(kw.mode_key(), id);
+            }
+            assert!(kw.shortcut.is_empty());
             assert!(!kw.chip_label().is_empty(), "{id} has a chip label");
         }
         assert!(c.keyword_for_word("").is_none(), "an empty word never matches");
@@ -1126,7 +1305,6 @@ mod tests {
         for id in RESULT_IDS.iter().copied().chain(["files", "clipboard", "run", "emoji", "bluetooth", "dictionary"]) {
             assert_eq!(ids.iter().filter(|i| *i == id).count(), 1, "{id}: {ids:?}");
         }
-        assert!(!ids.iter().any(|i| i == "cmd"), "the app launcher isn't a result source");
         // The default: specific answers first, the web fallback last of the
         // built-ins, installed triggers after.
         assert_eq!(ids[0], "calc");
@@ -1227,10 +1405,6 @@ mod tests {
         assert!(!c.enable_calculator);
         c.install_builtin("calc");
         assert!(c.enable_calculator);
-
-        // The app launcher behind every app action stays.
-        c.uninstall_builtin("cmd");
-        assert!(!c.is_uninstalled("cmd"));
     }
 
     #[test]

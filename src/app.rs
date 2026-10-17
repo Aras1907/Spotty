@@ -57,6 +57,9 @@ pub struct AppState {
     pub indexer: Rc<Indexer>,
     pub clipboard: Rc<RefCell<ClipboardHistory>>,
     pub search_win: RefCell<Option<SearchWindow>>,
+    /// The next search window, built and realized ahead of time but never
+    /// shown, so a keypress only has to map it (see `fresh_window`).
+    pub spare_win: RefCell<Option<SearchWindow>>,
     pub settings_win: RefCell<Option<SettingsWindow>>,
 }
 
@@ -406,16 +409,28 @@ fn host_command(extra_arg: &str) -> String {
 pub(crate) fn host_signal_command(keyword: &str) -> String {
     // The CLI validates daemon identity and writes private IPC state before
     // signaling. Pass the whole argument as data; never interpolate shell code.
-    if keyword.is_empty() {
-        host_command_for_launch("--toggle")
-    } else {
-        host_command_for_launch(&format!("--keyword={keyword}"))
+    let arg = if keyword.is_empty() { "--toggle".to_string() } else { format!("--keyword={keyword}") };
+    // Natively, the shortcut runs `spotty-toggle` (next to this binary): the
+    // same checks, but it links only libc, so a keypress isn't spent loading
+    // GTK just to send a signal.
+    if !is_own_flatpak() {
+        if let Ok(exe) = std::env::current_exe() {
+            let toggle = exe.with_file_name("spotty-toggle");
+            if toggle.is_file() {
+                return format!(
+                    "{} {}",
+                    crate::triggers::shell_escape(&toggle.to_string_lossy()),
+                    crate::triggers::shell_escape(&arg)
+                );
+            }
+        }
     }
+    host_command_for_launch(&arg)
 }
 
 /// The base invocation for Spotty itself (no CLI args): the absolute binary
 /// path, or the flatpak run command when running sandboxed. Spawnable on the
-/// host by the GNOME Shell extension.
+/// host.
 pub(crate) fn spotty_base_command() -> String {
     if is_own_flatpak() {
         format!("/usr/bin/flatpak run --user {}", APP_ID)
@@ -508,6 +523,7 @@ pub fn on_startup(app: &adw::Application) {
         }
     }
     let config = Rc::new(RefCell::new(Config::load()));
+    crate::ui::appearance::apply(&config.borrow().appearance);
     crate::search::cmd::preload_install_cache_async(config.borrow().app_sources());
     // Background update check: once shortly after startup, then hourly
     // ticks that honour the user-configured interval (Settings → Updates).
@@ -542,6 +558,7 @@ pub fn on_startup(app: &adw::Application) {
             indexer: indexer.clone(),
             clipboard: clipboard.clone(),
             search_win: RefCell::new(None),
+            spare_win: RefCell::new(None),
             settings_win: RefCell::new(None),
         })
     });
@@ -648,11 +665,8 @@ pub fn on_startup(app: &adw::Application) {
     // Load installed triggers (trigger keywords from imported manifests) before
     // anything wires up keyword actions/keybindings.
     crate::triggers::load_all();
-    // ponytail: build once at startup and keep alive for the daemon's lifetime.
-    // Toggle = present/hide the same window — avoids ~20-50ms per-toggle widget
-    // construction that stalls the compositor frame clock (video freeze).
-    // If Wayland focus ever breaks after hide, set REUSE_WINDOW=false in
-    // toggle_search to fall back to fresh-window-per-show.
+    // Build the first window now, off the hot path, so the first toggle only
+    // maps it (see `fresh_window`).
     {
         STATE.with(|s| {
             if let Some(st) = s.borrow().as_ref() {
@@ -673,7 +687,7 @@ pub fn on_startup(app: &adw::Application) {
                 {
                     log::info!("GSK renderer: {}", renderer.type_().name());
                 }
-                *st.search_win.borrow_mut() = Some(win);
+                *st.spare_win.borrow_mut() = Some(win);
             }
         });
     }
@@ -701,13 +715,9 @@ pub fn on_startup(app: &adw::Application) {
         glib::ControlFlow::Continue
     });
 
+    let start_at_login = config.borrow().behavior.start_at_login;
     std::thread::spawn(move || {
-        setup_autostart();
-        // Keep the GNOME Shell extension installed and current: shortcuts
-        // are gsettings keybindings now, but the extension is what places
-        // the window on Wayland. (This used to delete the old
-        // shortcut-only extension — don't: that removed the placement.)
-        crate::shell_extension::install();
+        setup_autostart(start_at_login);
         crate::keybindings::register_all();
     });
 }
@@ -831,12 +841,47 @@ EOF"#,
     }
 }
 
-fn setup_autostart() {
-    if !autostart_enabled() || autostart_needs_refresh() {
+fn setup_autostart(enabled: bool) {
+    if !enabled {
+        if autostart_enabled() && !set_autostart_enabled(false) {
+            log::warn!("Couldn't disable login startup");
+        }
+    } else if !autostart_enabled() || autostart_needs_refresh() {
         if set_autostart_enabled(true) {
             log::info!("autostart written/refreshed");
         }
     }
+}
+
+/// The window to show next: the pre-built spare if there is one (it was
+/// realized but never mapped, so it counts as a fresh surface for Wayland
+/// focus and placement), else a new one. Either way the following spare is
+/// built shortly after, off the keypress path.
+fn fresh_window(app: &adw::Application, st: &AppState) -> SearchWindow {
+    let spare = st.spare_win.borrow_mut().take();
+    let win = spare.unwrap_or_else(|| {
+        SearchWindow::new(app, st.config.clone(), st.indexer.clone(), st.clipboard.clone())
+    });
+    schedule_spare(app);
+    win
+}
+
+/// Build the next spare a moment after a show, so the widget construction
+/// doesn't compete with the first frame or the first search.
+fn schedule_spare(app: &adw::Application) {
+    let app = app.clone();
+    glib::timeout_add_local_once(std::time::Duration::from_millis(600), move || {
+        STATE.with(|s| {
+            let borrow = s.borrow();
+            let Some(st) = borrow.as_ref() else { return };
+            if st.spare_win.borrow().is_some() {
+                return;
+            }
+            let win = SearchWindow::new(&app, st.config.clone(), st.indexer.clone(), st.clipboard.clone());
+            gtk::prelude::WidgetExt::realize(&win.window);
+            *st.spare_win.borrow_mut() = Some(win);
+        });
+    });
 }
 
 /// Show the search window (or focus it if already visible).
@@ -870,12 +915,7 @@ pub fn show_search(app: &adw::Application) {
             // the window, so a plain drop leaks one window per show.
             old.destroy();
         }
-        let win = SearchWindow::new(
-            app,
-            st.config.clone(),
-            st.indexer.clone(),
-            st.clipboard.clone(),
-        );
+        let win = fresh_window(app, st);
         win.present_and_focus();
         *w = Some(win);
     });
@@ -905,12 +945,7 @@ pub fn show_clipboard_search(app: &adw::Application) {
             // the window, so a plain drop leaks one window per show.
             old.destroy();
         }
-        let win = SearchWindow::new(
-            app,
-            st.config.clone(),
-            st.indexer.clone(),
-            st.clipboard.clone(),
-        );
+        let win = fresh_window(app, st);
         win.present_clipboard_mode();
         *w = Some(win);
     });
@@ -920,10 +955,16 @@ pub fn refresh_search_window() {
     STATE.with(|s| {
         if let Some(st) = s.borrow().as_ref() {
             if let Some(win) = st.search_win.borrow().as_ref() {
+                win.refresh_appearance(&st.config.borrow().appearance);
+                win.refresh_behavior(&st.config.borrow());
                 win.refresh_results();
                 win.refresh_preview_if_stale();
                 win.refresh_ops_indicator();
                 win.refresh_bt_toast();
+            }
+            if let Some(spare) = st.spare_win.borrow().as_ref() {
+                spare.refresh_appearance(&st.config.borrow().appearance);
+                spare.refresh_behavior(&st.config.borrow());
             }
         }
     });
@@ -976,12 +1017,7 @@ pub fn show_keyword_search(app: &adw::Application, keyword_id: &str) {
             // the window, so a plain drop leaks one window per show.
             old.destroy();
         }
-        let win = SearchWindow::new(
-            app,
-            st.config.clone(),
-            st.indexer.clone(),
-            st.clipboard.clone(),
-        );
+        let win = fresh_window(app, st);
         win.present_keyword_mode(keyword);
         *w = Some(win);
     });
@@ -1022,12 +1058,7 @@ pub fn toggle_search(app: &adw::Application) {
             old.destroy();
         }
         // ponytail: fresh window — only when no reusable window or REUSE_WINDOW=false
-        let win = SearchWindow::new(
-            app,
-            st.config.clone(),
-            st.indexer.clone(),
-            st.clipboard.clone(),
-        );
+        let win = fresh_window(app, st);
         log::info!("perf: toggle fresh in {}ms", t0.elapsed().as_millis());
         win.present_and_focus();
         *w = Some(win);

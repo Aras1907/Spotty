@@ -183,7 +183,7 @@ pub fn load_all() {
             Ok(m) if validate_structure(&m).is_ok()
                 && path.file_stem().and_then(|s| s.to_str()) == Some(m.id.as_str())
                 && !loaded.iter().any(|other: &TriggerManifest|
-                    other.id == m.id || other.word.eq_ignore_ascii_case(&m.word)) => loaded.push(m),
+                    other.id == m.id || (!m.word.is_empty() && other.word.eq_ignore_ascii_case(&m.word))) => loaded.push(m),
             Ok(_) => log::warn!("triggers: skipping invalid or duplicate manifest {}", path.display()),
             Err(e) => log::warn!("triggers: skipping {}: {}", path.display(), e),
         }
@@ -233,6 +233,7 @@ pub fn to_keyword(a: &TriggerManifest) -> CommandKeyword {
 }
 
 pub fn keyword_for_word(word: &str) -> Option<CommandKeyword> {
+    if word.is_empty() { return None; }
     all()
         .into_iter()
         .filter(|a| a.enabled)
@@ -296,7 +297,7 @@ pub fn update_manifest(id: &str, word: &str, shortcut: &str, enabled: bool) -> R
     m.enabled = enabled;
     validate_structure(&m)?;
     if m.id != id || all().iter().any(|other|
-        other.id != id && other.word.eq_ignore_ascii_case(&m.word)) {
+        other.id != id && !m.word.is_empty() && other.word.eq_ignore_ascii_case(&m.word)) {
         return Err("Mismatched id or trigger word already in use".into());
     }
     let raw = serde_json::to_string_pretty(&m).map_err(|e| format!("serialize: {e}"))?;
@@ -324,7 +325,7 @@ pub fn parse_manifest(path: &Path) -> Result<TriggerManifest, String> {
 }
 
 /// Structural checks that keep a bad manifest from wedging the app:
-/// id charset (must be a legal GTK action name), non-empty word, known
+/// id charset (must be a legal GTK action name), optional word, known
 /// action, no word collision with built-ins or other triggers.
 fn validate_id(id: &str) -> Result<(), String> {
     if crate::security::valid_id(id) { Ok(()) }
@@ -336,9 +337,9 @@ fn validate_structure(m: &TriggerManifest) -> Result<(), String> {
     if matches!(m.action, TriggerAction::Native) {
         return Err("Native manifests must be installed through Spotty Settings.".into());
     }
-    if m.word.is_empty() || m.word.len() > 128
+    if m.word.len() > 128
         || m.word.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err("Trigger word must be one nonempty word (at most 128 bytes)".into());
+        return Err("Trigger word must be empty or one word (at most 128 bytes)".into());
     }
     if crate::trigger_defaults::supports_native(&m.id) {
         return Err(gettext("id '{id}' is a built-in trigger").replace("{id}", &m.id));
@@ -389,9 +390,9 @@ pub fn validate(m: &TriggerManifest) -> Result<(), String> {
     if by_id(&m.id).is_some() {
         return Err(gettext("trigger '{id}' is already installed").replace("{id}", &m.id));
     }
-    if keyword_for_word(&m.word).is_some()
+    if !m.word.is_empty() && (keyword_for_word(&m.word).is_some()
         || crate::config::Config::load().command_keywords.iter()
-            .any(|kw| kw.word.eq_ignore_ascii_case(&m.word)) {
+            .any(|kw| kw.word.eq_ignore_ascii_case(&m.word))) {
         return Err(gettext("trigger word '{word}' is already in use").replace("{word}", &m.word));
     }
     match &m.action {

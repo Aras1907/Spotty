@@ -58,7 +58,6 @@ mod search;
 #[path = "../trigger-backends/src/defaults.rs"]
 mod trigger_defaults;
 mod keybindings;
-mod shell_extension;
 #[path = "../trigger-backends/src/features/ocr.rs"]
 mod ocr;
 #[path = "../trigger-backends/src/features/opprogress.rs"]
@@ -67,6 +66,12 @@ mod opprogress;
 mod thumbnails;
 mod ui;
 fn main() -> glib::ExitCode {
+    // Two malloc arenas instead of one per thread (glibc's default): the
+    // daemon's threads are mostly idle, and per-thread arenas kept ~18 MB of
+    // freed memory resident. Must run before any thread starts.
+    unsafe {
+        libc::mallopt(libc::M_ARENA_MAX, 2);
+    }
     if let Err(e) = security::protect_state_dirs() {
         eprintln!("Cannot secure Spotty's private state directories: {e}");
         return glib::ExitCode::FAILURE;

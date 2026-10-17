@@ -27,6 +27,7 @@ impl SettingsWindow {
             .build();
 
         build_general_page(&window, &config);
+        super::customization::build(&window, &config);
         let refresh_triggers = build_keywords_page(&window, &config);
 
         Self {
@@ -105,32 +106,88 @@ fn build_general_page(window: &adw::PreferencesWindow, config: &Rc<RefCell<Confi
         };
         row.set_subtitle(&gettext("Shows or hides the search window from anywhere"));
         lg.add(&row);
+        let startup = adw::SwitchRow::builder()
+            .title(gettext("Start at Login"))
+            .subtitle(gettext("Start Spotty in the background when you sign in"))
+            .active(config.borrow().behavior.start_at_login).use_markup(false).build();
+        {
+            let cfg = config.clone();
+            let win = window.downgrade();
+            let syncing = Rc::new(std::cell::Cell::new(false));
+            startup.connect_active_notify(move |row| {
+                if syncing.get() { return; }
+                let enabled = row.is_active();
+                row.set_sensitive(false);
+                let row = row.clone();
+                let cfg = cfg.clone();
+                let win = win.clone();
+                let guard = syncing.clone();
+                let (tx, rx) = futures::channel::oneshot::channel();
+                std::thread::spawn(move || {
+                    let _ = tx.send(crate::app::set_autostart_enabled(enabled));
+                });
+                glib::MainContext::default().spawn_local(async move {
+                    if rx.await.unwrap_or(false) {
+                        save_and_refresh(&cfg, |c| c.behavior.start_at_login = enabled);
+                    } else {
+                        guard.set(true);
+                        row.set_active(cfg.borrow().behavior.start_at_login);
+                        guard.set(false);
+                        if let Some(win) = win.upgrade() {
+                            win.add_toast(adw::Toast::new(&gettext("Couldn't change the login startup setting")));
+                        }
+                    }
+                    row.set_sensitive(true);
+                });
+            });
+        }
+        lg.add(&startup);
         general.add(&lg);
     }
 
-    {
-        let group = adw::PreferencesGroup::builder().title(gettext("Privacy")).build();
-        let history = adw::SwitchRow::builder()
-            .title(gettext("Keep search history"))
-            .subtitle(gettext("Save queries and selected results locally to improve ranking. Existing history is kept when turned off."))
-            .active(config.borrow().save_search_history).build();
+    let behavior = adw::PreferencesGroup::builder().title(gettext("Launcher Behavior"))
+        .description(gettext("Control how the search window responds while you use it."))
+        .build();
+    general.add(&behavior);
+    for (title, subtitle, active, setter) in [
+        ("Hide When Focus Moves Away", "Hide Spotty when you switch to another window. Escape and the launcher shortcut always dismiss it.",
+            config.borrow().behavior.hide_on_focus_loss,
+            (|c: &mut Config, on| c.behavior.hide_on_focus_loss = on) as fn(&mut Config, bool)),
+        ("Inline Completions", "Suggest a completion in the search field as you type. Tab can still complete a selected result when disabled.",
+            config.borrow().behavior.inline_completions,
+            (|c: &mut Config, on| c.behavior.inline_completions = on) as fn(&mut Config, bool)),
+        ("Browse Folder Paths", "Browse folders by typing / or ~/ in regular search",
+            config.borrow().enable_root_browsing,
+            (|c: &mut Config, on| c.enable_root_browsing = on) as fn(&mut Config, bool)),
+    ] {
+        let row = adw::SwitchRow::builder().title(gettext(title)).subtitle(gettext(subtitle))
+            .use_markup(false).active(active).build();
         let cfg = config.clone();
-        history.connect_active_notify(move |row| {
-            save_and_refresh(&cfg, |c| c.save_search_history = row.is_active());
-        });
-        group.add(&history);
-        let icons = adw::SwitchRow::builder()
-            .title(gettext("Download missing icons"))
-            .subtitle(gettext("Contact search websites and Flathub for icons. Cached and local icons work offline."))
-            .active(config.borrow().allow_network_icons).build();
-        let cfg = config.clone();
-        icons.connect_active_notify(move |row| {
-            save_and_refresh(&cfg, |c| c.allow_network_icons = row.is_active());
-        });
-        group.add(&icons);
-        general.add(&group);
+        row.connect_active_notify(move |row| save_and_refresh(&cfg, |c| setter(c, row.is_active())));
+        behavior.add(&row);
     }
 
+    // About — single row opening the native AboutDialog
+    let ag = adw::PreferencesGroup::new();
+    general.add(&ag);
+    let about_row = adw::ActionRow::builder()
+        .title(gettext("About Spotty"))
+        .subtitle(gettext("Version {v}").replace("{v}", env!("CARGO_PKG_VERSION")))
+        .activatable(true)
+        .use_markup(false)
+        .build();
+    about_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+    {
+        let win = window.clone();
+        about_row.connect_activated(move |_| present_about_dialog(&win));
+    }
+    ag.add(&about_row);
+}
+
+/// Visibility controls shared by every launcher mode.
+pub(super) fn build_footer_customization(
+    page: &adw::PreferencesPage, config: &Rc<RefCell<Config>>,
+) {
     // Footer bar: the two buttons at the bottom of the search window. The
     // switches only hide their key indicators — the buttons stay clickable and
     // the shortcuts keep working, so this is purely about the space they take.
@@ -190,24 +247,9 @@ fn build_general_page(window: &adw::PreferencesWindow, config: &Rc<RefCell<Confi
             }
             fg.add(&sw);
         }
-        general.add(&fg);
+        page.add(&fg);
     }
 
-    // About — single row opening the native AboutDialog
-    let ag = adw::PreferencesGroup::new();
-    general.add(&ag);
-    let about_row = adw::ActionRow::builder()
-        .title(gettext("About Spotty"))
-        .subtitle(gettext("Version {v}").replace("{v}", env!("CARGO_PKG_VERSION")))
-        .activatable(true)
-        .use_markup(false)
-        .build();
-    about_row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
-    {
-        let win = window.clone();
-        about_row.connect_activated(move |_| present_about_dialog(&win));
-    }
-    ag.add(&about_row);
 }
 
 thread_local! {
@@ -233,7 +275,9 @@ fn result_subtitle(blurb: &str, word: &str, shortcut: &str) -> String {
     if !blurb.is_empty() {
         parts.push(blurb.to_string());
     }
-    if !word.is_empty() {
+    if word.is_empty() {
+        parts.push(gettext("Regular search only"));
+    } else {
         parts.push(gettext("Word: {word}").replace("{word}", word));
     }
     if !shortcut.is_empty() {
@@ -254,9 +298,8 @@ fn builtin_title(id: &str) -> String {
 /// The "Show in Regular Search" switch for a result type or a trigger, and a
 /// closure that re-syncs it after the word changed.
 ///
-/// A result type with no trigger word has no other way to be found, so its
-/// switch is on and locked until it gets one. A trigger always has a word, so
-/// its switch is always the user's call (off unless they opted in).
+/// Without a trigger word, regular search stays on and locked. Once a word
+/// is assigned, the user can choose whether regular search also includes it.
 fn regular_search_row(config: &Rc<RefCell<Config>>, id: &str) -> (adw::SwitchRow, Rc<dyn Fn()>) {
     let is_result = crate::config::RESULT_IDS.contains(&id);
     let row = adw::SwitchRow::builder()
@@ -272,11 +315,10 @@ fn regular_search_row(config: &Rc<RefCell<Config>>, id: &str) -> (adw::SwitchRow
         Rc::new(move || {
             let (has_word, on) = {
                 let c = cfg.borrow();
-                let wordless = is_result
-                    && c.command_keywords
-                        .iter()
-                        .find(|k| k.id == id)
-                        .map_or(true, |k| k.word.is_empty());
+                let wordless = c.command_keywords.iter().find(|k| k.id == id)
+                    .map(|k| k.word.trim().is_empty())
+                    .or_else(|| crate::triggers::by_id(&id).map(|t| t.word.trim().is_empty()))
+                    .unwrap_or(is_result);
                 (!wordless, c.in_regular_search(&id))
             };
             syncing.set(true);
@@ -336,7 +378,6 @@ fn add_trigger_sections(
     let word_row = adw::EntryRow::builder()
         .title(gettext("Word"))
         .text(&word)
-        .show_apply_button(true)
         .use_markup(false)
         .build();
     // The result types' default is no word at all, so Reset clears it.
@@ -352,35 +393,56 @@ fn add_trigger_sections(
         let word_row = word_row.clone();
         let reset = reset_word.clone();
         reset_word.connect_clicked(move |_| {
-            // Clearing the text and applying it goes through the same save.
+            // Clearing the text goes through the same auto-save.
             word_row.set_text("");
-            word_row.emit_by_name::<()>("apply", &[]);
             reset.set_visible(false);
         });
     }
     {
+        // Saved as typed, like a trigger's word: deleting the word is enough
+        // to move the type into the regular search — no apply button to miss.
         let cfg = config.clone();
         let dlg = dlg.clone();
         let id = id.to_string();
         let reset_word = reset_word.clone();
         let sync_regular = sync_regular.clone();
-        word_row.connect_apply(move |r| {
-            let w = r.text().trim().to_lowercase();
-            if w.contains(char::is_whitespace) {
-                dlg.add_toast(adw::Toast::new(&gettext("A trigger word is a single word")));
-                return;
+        let last_saved = Rc::new(RefCell::new(word.clone()));
+        let debounce: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
+        word_row.connect_changed(move |r| {
+            if let Some(sid) = debounce.borrow_mut().take() {
+                sid.remove();
             }
-            if !w.is_empty() && word_taken(&id, &w, &cfg) {
-                dlg.add_toast(adw::Toast::new(
-                    &gettext("\"{word}\" is already a trigger word").replace("{word}", &w),
-                ));
-                return;
-            }
-            r.set_text(&w);
-            reset_word.set_visible(!w.is_empty());
-            save_and_refresh(&cfg, |c| c.set_result_word(&id, &w));
-            sync_regular();
-            refresh_trigger_list();
+            let r = r.clone();
+            let cfg = cfg.clone();
+            let dlg = dlg.clone();
+            let id = id.clone();
+            let reset_word = reset_word.clone();
+            let sync_regular = sync_regular.clone();
+            let last_saved = last_saved.clone();
+            let debounce_d = debounce.clone();
+            let sid = glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || {
+                *debounce_d.borrow_mut() = None;
+                let w = r.text().trim().to_lowercase();
+                if w == *last_saved.borrow() {
+                    return;
+                }
+                if w.contains(char::is_whitespace) {
+                    dlg.add_toast(adw::Toast::new(&gettext("A trigger word is a single word")));
+                    return;
+                }
+                if !w.is_empty() && word_taken(&id, &w, &cfg) {
+                    dlg.add_toast(adw::Toast::new(
+                        &gettext("\"{word}\" is already a trigger word").replace("{word}", &w),
+                    ));
+                    return;
+                }
+                *last_saved.borrow_mut() = w.clone();
+                reset_word.set_visible(!w.is_empty());
+                save_and_refresh(&cfg, |c| c.set_result_word(&id, &w));
+                sync_regular();
+                refresh_trigger_list();
+            });
+            *debounce.borrow_mut() = Some(sid);
         });
     }
     group.add(&word_row);
@@ -484,7 +546,15 @@ fn capitalized(name: &str) -> String {
 }
 
 fn trigger_subtitle(enabled: bool, word: &str, shortcut: &str) -> String {
-    let base = if shortcut.is_empty() {
+    let base = if word.is_empty() {
+        // No word: the regular search is the only way to reach it.
+        let only = gettext("Regular search only");
+        if shortcut.is_empty() {
+            only
+        } else {
+            format!("{only} · {shortcut}")
+        }
+    } else if shortcut.is_empty() {
         gettext("Word: {word} · No shortcut").replace("{word}", word)
     } else {
         gettext("Word: {word} · {shortcut}").replace("{word}", word).replace("{shortcut}", shortcut)
@@ -508,6 +578,21 @@ fn build_keywords_page(
         .icon_name("system-search-symbolic")
         .build();
     window.add(&page);
+
+    let regular = adw::PreferencesGroup::builder().title(gettext("Regular Search")).build();
+    let expand = adw::SwitchRow::builder()
+        .title(gettext("Expand Empty Search"))
+        .subtitle(gettext("When regular search is empty, show every enabled, installed trigger word and its description. Select a word to open that trigger."))
+        .active(config.borrow().behavior.expand_triggers_in_regular_search)
+        .use_markup(false).build();
+    {
+        let cfg = config.clone();
+        expand.connect_active_notify(move |row| {
+            save_and_refresh(&cfg, |c| c.behavior.expand_triggers_in_regular_search = row.is_active());
+        });
+    }
+    regular.add(&expand);
+    page.add(&regular);
 
     // Result types and triggers in one list, in the user's order: the higher a
     // row, the higher its results rank in the regular search.
@@ -588,9 +673,6 @@ fn build_keywords_page(
                 {
                     let mut c = cfg.borrow_mut();
                     for def in &d.command_keywords {
-                        if def.id == "cmd" {
-                            continue;
-                        }
                         if let Some(existing) = c.command_keywords.iter_mut().find(|k| k.id == def.id) {
                             existing.shortcut = def.shortcut.clone();
                             existing.word = def.word.clone();
@@ -889,7 +971,7 @@ fn rebuild_trigger_rows(
     }
 
     for kw in &keywords {
-        if kw.id == "cmd" || kw.is_result() || config.borrow().is_uninstalled(&kw.id) {
+        if kw.is_result() || config.borrow().is_uninstalled(&kw.id) {
             continue;
         }
         let row = adw::ActionRow::builder()
@@ -1439,8 +1521,8 @@ fn create_trigger_dialog(
             let name = name_row.text().trim().to_string();
             let word = word_row.text().trim().to_lowercase();
             let command = cmd_row.text().trim().to_string();
-            if name.is_empty() || word.is_empty() || command.is_empty() {
-                banner.set_title(&gettext("Name, keyword and command are required."));
+            if name.is_empty() || command.is_empty() {
+                banner.set_title(&gettext("Name and command are required. Leave the keyword empty to show results in regular search."));
                 banner.set_revealed(true);
                 return;
             }
@@ -1612,9 +1694,7 @@ fn server_trigger_row(
         let supported = crate::trigger_defaults::supports_native(&t.id);
         let installed = config.borrow().command_keywords.iter().any(|k| k.id == t.id)
             && !config.borrow().is_uninstalled(&t.id);
-        let label = if t.id == "cmd" {
-            gettext("Installed")
-        } else if !supported {
+        let label = if !supported {
             gettext("Unavailable")
         } else if !installed {
             gettext("Install")
@@ -1625,7 +1705,7 @@ fn server_trigger_row(
             .label(label)
             .css_classes([if !installed { "suggested-action" } else { "flat" }])
             .valign(gtk::Align::Center)
-            .sensitive(supported && t.id != "cmd")
+            .sensitive(supported)
             .build();
         let id = t.id.clone();
         let name = t.name.clone();
@@ -2076,6 +2156,8 @@ fn edit_trigger_dialog(
     let pending_delete_file: Rc<RefCell<String>> = Rc::new(RefCell::new(config.borrow().delete_file_shortcut.clone()));
     let pending_open_location: Rc<RefCell<String>> = Rc::new(RefCell::new(config.borrow().open_location_shortcut.clone()));
 
+    let (regular_row, sync_regular) = regular_search_row(config, &id);
+
     // Apply all pending values to config / manifest immediately.
     let apply: Rc<dyn Fn()> = {
         let win = window.clone();
@@ -2092,6 +2174,7 @@ fn edit_trigger_dialog(
         let pending_terminal_c = pending_terminal.clone();
         let pending_delete_file_c = pending_delete_file.clone();
         let pending_open_location_c = pending_open_location.clone();
+        let sync_regular = sync_regular.clone();
         Rc::new(move || {
             let new_word = entry_c.text().trim().to_lowercase();
             let new_shortcut = pending_shortcut_c.borrow().clone();
@@ -2127,7 +2210,9 @@ fn edit_trigger_dialog(
                 c.save();
                 std::thread::spawn(crate::keybindings::register_all);
             }
+            sync_regular();
             rebuild_trigger_rows(&g2, &win, &cfg, &rows2);
+            crate::app::refresh_search_window();
         })
     };
 
@@ -2158,10 +2243,7 @@ fn edit_trigger_dialog(
     );
     trigger_group.add(&short_row);
     // Reachable by its word — and, if the user wants, from the regular search.
-    if id != "cmd" {
-        let (regular_row, _) = regular_search_row(config, &id);
-        trigger_group.add(&regular_row);
-    }
+    trigger_group.add(&regular_row);
 
     if is_clipboard {
         let clip_group = adw::PreferencesGroup::builder().title(gettext("Clipboard")).build();
@@ -2389,8 +2471,8 @@ fn edit_trigger_dialog(
                     // SourceId so a later `changed` can't remove it again.
                     *debounce_d.borrow_mut() = None;
                     let new_word = entry_d.text().trim().to_lowercase();
-                    if new_word.is_empty() {
-                        win_d.add_toast(adw::Toast::new(&gettext("Trigger word cannot be empty")));
+                    if new_word.len() > 128 || new_word.chars().any(|c| c.is_whitespace() || c.is_control()) {
+                        win_d.add_toast(adw::Toast::new(&gettext("Trigger word must be empty or one word (at most 128 bytes)")));
                         entry_d.set_text(&last_d.borrow());
                         return;
                     }
@@ -2410,26 +2492,25 @@ fn edit_trigger_dialog(
 
     // Last: Uninstall. A repository trigger goes through its confirmation;
     // a built-in one leaves the list and waits in the Store.
-    if id != "cmd" {
-        let g_c = g.clone();
-        let cfg_c = config.clone();
-        let rows_c = rows.clone();
-        let id_c = id.clone();
-        content.add(&uninstall_group(&dialog, &name, move |win| {
-            let Some(win) = win else { return };
-            if is_installed {
-                confirm_uninstall(&win, &g_c, &cfg_c, &rows_c, &id_c);
-            } else {
-                uninstall_builtin_from_list(&win, &cfg_c, &id_c);
-            }
-        }));
-    }
+    let g_c = g.clone();
+    let cfg_c = config.clone();
+    let rows_c = rows.clone();
+    let id_c = id.clone();
+    content.add(&uninstall_group(&dialog, &name, move |win| {
+        let Some(win) = win else { return };
+        if is_installed {
+            confirm_uninstall(&win, &g_c, &cfg_c, &rows_c, &id_c);
+        } else {
+            uninstall_builtin_from_list(&win, &cfg_c, &id_c);
+        }
+    }));
 
     dialog.present(Some(window));
 }
 
 /// True when another trigger (built-in or trigger) already uses `word`.
 fn word_taken(id: &str, word: &str, config: &Rc<RefCell<Config>>) -> bool {
+    if word.is_empty() { return false; }
     let c = config.borrow();
     c.command_keywords
         .iter()
@@ -2683,7 +2764,6 @@ fn shortcut_capture_dialog(
     on_accept: Rc<dyn Fn(Option<String>)>,
 ) {
     let mut builder = adw::Window::builder()
-        .modal(true)
         .resizable(false)
         .default_width(404);
     if let Some(host) = parent_window(parent) {
