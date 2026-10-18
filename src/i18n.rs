@@ -49,13 +49,22 @@ pub fn bind_domain(dir: &Path) {
 }
 
 /// Locale directory resolution: env override → Flatpak's /app → the
-/// user-local install that `scripts/build_locales.sh --install` targets.
+/// `share/locale` next to the binary's `bin/` (distro packages, AppImage,
+/// snap) → the user-local install that `scripts/build_locales.sh --install`
+/// targets.
 pub fn default_locale_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("SPOTTY_LOCALEDIR") {
         return dir.into();
     }
     if Path::new("/app/share/locale").is_dir() {
         return "/app/share/locale".into();
+    }
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.parent()?.join("share/locale")))
+        .filter(|dir| dir.join("de/LC_MESSAGES/spotty.mo").is_file())
+    {
+        return dir;
     }
     let mut p = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
     p.push(".local/share/locale");

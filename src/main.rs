@@ -19,7 +19,11 @@
 //!
 //! Plain `spotty` (no args, not daemonized) spawns a detached child with
 //! `SPOTTY_DAEMON=1` and returns to the shell; the child itself runs the
-//! daemon below.
+//! daemon below. The app launcher entry runs `spotty --settings`.
+//!
+//! Inside a Flatpak or an AppImage the PID file can't identify the daemon,
+//! so the app is a unique GApplication there: a second launch forwards its
+//! command line to the daemon over D-Bus and exits.
 use adw::prelude::*;
 use gtk::{gio, glib};
 mod triggers;
@@ -137,7 +141,15 @@ fn main() -> glib::ExitCode {
     } else {
         None
     };
-    if args.len() == 1 || args.get(1).is_some_and(|arg| arg == "--daemon" || arg == "--quit") {
+    // Flatpak and AppImage launches can't use the PID file: each `flatpak run`
+    // gets its own PID namespace, and each AppImage run its own mount path.
+    // There GApplication's D-Bus uniqueness hands the command line to the
+    // running daemon instead.
+    let dbus_single = dbus_single_instance();
+    if dbus_single && args.get(1).is_some_and(|arg| arg == "--quit") && !dbus_instance_running() {
+        return glib::ExitCode::SUCCESS;
+    }
+    if !dbus_single && (args.len() == 1 || args.get(1).is_some_and(|arg| arg == "--daemon" || arg == "--quit")) {
         if let Some(pid) = read_instance_pid() {
             if unsafe { libc::kill(pid, 0) } == 0 {
                 if args.get(1).is_some_and(|arg| arg == "--quit") {
@@ -150,7 +162,7 @@ fn main() -> glib::ExitCode {
             return glib::ExitCode::SUCCESS;
         }
     }
-    if let Some(mode) = signal_mode {
+    if let Some(mode) = signal_mode.filter(|_| !dbus_single) {
         if let Some(pid) = read_instance_pid() {
             if unsafe { libc::kill(pid, 0) } == 0 {
                 if !mode.is_empty() {
@@ -178,7 +190,7 @@ fn main() -> glib::ExitCode {
         .init();
 
     // No args → daemon mode: spawn detached child, return terminal prompt
-    if signal_mode.is_none() && args.len() == 1 && std::env::var("SPOTTY_DAEMON").is_err() {
+    if !dbus_single && signal_mode.is_none() && args.len() == 1 && std::env::var("SPOTTY_DAEMON").is_err() {
         let self_exe = std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("spotty"));
         match std::process::Command::new(&self_exe)
             .env("SPOTTY_DAEMON", "1")
@@ -205,11 +217,14 @@ fn main() -> glib::ExitCode {
     // i18n: GTK init has set the locale; point the gettext domain at the
     // compiled translations (falls back to English when none are present).
     i18n::bind_domain(&i18n::default_locale_dir());
+    let flags = if dbus_single {
+        gio::ApplicationFlags::HANDLES_COMMAND_LINE
+    } else {
+        gio::ApplicationFlags::HANDLES_COMMAND_LINE | gio::ApplicationFlags::NON_UNIQUE
+    };
     let app = adw::Application::builder()
         .application_id("com.spotty.Spotty")
-        .flags(
-            gio::ApplicationFlags::HANDLES_COMMAND_LINE | gio::ApplicationFlags::NON_UNIQUE,
-        )
+        .flags(flags)
         .build();
     for (l, s, d) in [
         ("toggle", "t", "Toggle"),
@@ -268,7 +283,7 @@ fn main() -> glib::ExitCode {
     let daemon_live = read_instance_pid()
         .map(|pid| unsafe { libc::kill(pid, 0) } == 0)
         .unwrap_or(false);
-    if !daemon_live {
+    if !dbus_single && !daemon_live {
         if let Err(e) = write_instance_pid(std::process::id() as i32) {
             log::warn!("failed to write PID file: {e}");
         }
@@ -276,6 +291,33 @@ fn main() -> glib::ExitCode {
 
     let exit = app.run_with_args(&args);
     exit
+}
+
+/// True when the PID file can't identify the daemon (see `main`).
+fn dbus_single_instance() -> bool {
+    app::is_own_flatpak() || app::appimage_path().is_some()
+}
+
+/// Whether a Spotty daemon owns its D-Bus name on the session bus.
+fn dbus_instance_running() -> bool {
+    use glib::prelude::ToVariant;
+    let Ok(bus) = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE) else {
+        return false;
+    };
+    bus.call_sync(
+        Some("org.freedesktop.DBus"),
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+        "NameHasOwner",
+        Some(&("com.spotty.Spotty",).to_variant()),
+        Some(glib::VariantTy::new("(b)").unwrap()),
+        gio::DBusCallFlags::NONE,
+        1000,
+        gio::Cancellable::NONE,
+    )
+    .ok()
+    .and_then(|v| v.get::<(bool,)>())
+    .is_some_and(|(owned,)| owned)
 }
 
 fn config_pid_file() -> std::path::PathBuf {

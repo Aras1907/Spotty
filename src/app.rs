@@ -400,7 +400,7 @@ fn normalize_terminal_id(raw: &str) -> String {
     s
 }
 
-fn is_own_flatpak() -> bool {
+pub(crate) fn is_own_flatpak() -> bool {
     std::env::var("FLATPAK_ID").ok().as_deref() == Some(APP_ID)
 }
 
@@ -414,8 +414,9 @@ pub(crate) fn host_signal_command(keyword: &str) -> String {
     let arg = if keyword.is_empty() { "--toggle".to_string() } else { format!("--keyword={keyword}") };
     // Natively, the shortcut runs `spotty-toggle` (next to this binary): the
     // same checks, but it links only libc, so a keypress isn't spent loading
-    // GTK just to send a signal.
-    if !is_own_flatpak() {
+    // GTK just to send a signal. An AppImage's binaries live under a mount
+    // that is gone once it exits, so its shortcuts run the AppImage itself.
+    if !is_own_flatpak() && appimage_path().is_none() {
         if let Ok(exe) = std::env::current_exe() {
             let toggle = exe.with_file_name("spotty-toggle");
             if toggle.is_file() {
@@ -437,11 +438,18 @@ pub(crate) fn spotty_base_command() -> String {
     if is_own_flatpak() {
         // No `--user`: `flatpak run` finds a user or a system install.
         format!("/usr/bin/flatpak run {}", APP_ID)
+    } else if let Some(appimage) = appimage_path() {
+        crate::triggers::shell_escape(&appimage.to_string_lossy())
     } else {
         std::env::current_exe()
             .map(|p| crate::triggers::shell_escape(&p.to_string_lossy()))
             .unwrap_or_else(|_| "spotty".into())
     }
+}
+
+/// The AppImage file this process runs from (AppRun exports `$APPIMAGE`).
+pub(crate) fn appimage_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("APPIMAGE").map(Into::into).filter(|p: &std::path::PathBuf| p.is_file())
 }
 
 /// Build the raw launch command (binary + CLI args) for the host keybinding.

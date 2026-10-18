@@ -1,0 +1,146 @@
+# Builds every Spotty package for x86_64 and aarch64, smoke-tests each one
+# (open Settings, launch again, quit), and on a v* tag publishes them all as a
+# GitHub release. Pushing a release-* branch runs the same builds and tests
+# without publishing.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+    branches: ['release-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.kind }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+        kind: [flatpak, deb, rpm, arch, appimage-snap]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Version
+        run: echo "VER=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)" >> "$GITHUB_ENV"
+
+      - name: Test tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb xauth x11-utils dbus libfuse2t64
+
+      # ── Flatpak ──────────────────────────────────────────────────────────
+      - name: Build Flatpak
+        if: matrix.kind == 'flatpak'
+        run: |
+          sudo apt-get install -y -qq flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y --noninteractive flathub \
+            org.gnome.Platform//50 org.gnome.Sdk//50 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
+          flatpak-builder --user --force-clean --disable-rofiles-fuse \
+            --repo=build-dir/repo build-dir/app flatpak/com.spotty.Spotty.yaml
+          mkdir -p dist
+          flatpak build-bundle --arch=${{ matrix.arch }} \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            build-dir/repo dist/Spotty-$VER-${{ matrix.arch }}.flatpak com.spotty.Spotty
+      - name: Test Flatpak
+        if: matrix.kind == 'flatpak'
+        run: |
+          flatpak install --user -y --noninteractive dist/Spotty-$VER-${{ matrix.arch }}.flatpak
+          grep '^Exec=' ~/.local/share/flatpak/exports/share/applications/com.spotty.Spotty.desktop
+          sh packaging/smoke.sh flatpak run com.spotty.Spotty
+
+      # ── Debian / Ubuntu ──────────────────────────────────────────────────
+      - name: Build .deb
+        if: matrix.kind == 'deb'
+        run: docker run --rm -v "$PWD:/work" -w /work docker.io/library/rust:1-trixie sh packaging/build-deb.sh
+      - name: Test .deb
+        if: matrix.kind == 'deb'
+        run: docker run --rm -v "$PWD:/work" -w /work docker.io/library/debian:trixie sh packaging/smoke-in-container.sh deb
+
+      # ── Fedora ───────────────────────────────────────────────────────────
+      - name: Build .rpm
+        if: matrix.kind == 'rpm'
+        run: docker run --rm -v "$PWD:/work" -w /work registry.fedoraproject.org/fedora:44 sh packaging/build-rpm.sh
+      - name: Test .rpm
+        if: matrix.kind == 'rpm'
+        run: docker run --rm -v "$PWD:/work" -w /work registry.fedoraproject.org/fedora:44 sh packaging/smoke-in-container.sh rpm
+
+      # ── Arch Linux / Arch Linux ARM ──────────────────────────────────────
+      - name: Arch Linux image
+        if: matrix.kind == 'arch'
+        run: |
+          if [ "${{ matrix.arch }}" = aarch64 ]; then
+            # No official Arch Linux ARM container image: import the official
+            # root filesystem after checking it against the published sum.
+            mkdir -p /tmp/alarm && cd /tmp/alarm
+            curl -fsSLO http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
+            curl -fsSLO http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz.md5
+            md5sum -c ArchLinuxARM-aarch64-latest.tar.gz.md5
+            docker import ArchLinuxARM-aarch64-latest.tar.gz spotty-arch
+          else
+            docker pull docker.io/library/archlinux:base-devel
+            docker tag docker.io/library/archlinux:base-devel spotty-arch
+          fi
+      - name: Build Arch package
+        if: matrix.kind == 'arch'
+        run: docker run --rm -v "$PWD:/work" -w /work spotty-arch sh packaging/build-arch.sh
+      - name: Test Arch package
+        if: matrix.kind == 'arch'
+        run: docker run --rm -v "$PWD:/work" -w /work spotty-arch sh packaging/smoke-in-container.sh arch
+
+      # ── AppImage + snap ──────────────────────────────────────────────────
+      - name: Build AppImage and snap
+        if: matrix.kind == 'appimage-snap'
+        run: docker run --rm -v "$PWD:/work" -w /work docker.io/library/rust:1-trixie sh packaging/build-appimage-snap.sh
+      - name: Test AppImage
+        if: matrix.kind == 'appimage-snap'
+        run: |
+          cp dist/Spotty-$VER-${{ matrix.arch }}.AppImage /tmp/
+          chmod +x /tmp/Spotty-$VER-${{ matrix.arch }}.AppImage
+          HOME=/tmp/smoke-appimage sh packaging/smoke.sh /tmp/Spotty-$VER-${{ matrix.arch }}.AppImage
+      - name: Test snap
+        if: matrix.kind == 'appimage-snap'
+        run: |
+          sudo snap install --dangerous --classic dist/spotty_${VER}_*.snap
+          grep '^Exec=' /var/lib/snapd/desktop/applications/spotty_spotty.desktop
+          HOME=/tmp/smoke-snap sh packaging/smoke.sh /snap/bin/spotty
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.kind }}-${{ matrix.arch }}
+          path: dist/*
+          compression-level: 0
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pkg-*
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=${GITHUB_REF_NAME#v}
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+          sed "s/@VER@/$VER/g" ../packaging/release-notes.md > ../notes.md
+          gh release create "$GITHUB_REF_NAME" * --title "Spotty $VER" --notes-file ../notes.md --verify-tag
