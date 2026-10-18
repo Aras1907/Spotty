@@ -53,7 +53,8 @@ package() {
 }
 EOF
 chown -R builder /build
-su builder -c 'cd /build && makepkg --nodeps --noconfirm -f'
+# Arch Linux ARM's makepkg.conf picks another package extension.
+su builder -c 'cd /build && PKGDEST=/build/out PKGEXT=.pkg.tar.zst makepkg --nodeps --noconfirm -f'
 mkdir -p "$OUT"
-cp /build/spotty-$VER-1-*.pkg.tar.zst "$OUT/"
+cp /build/out/spotty-$VER-1-*.pkg.tar.zst "$OUT/"
 pacman -Qip "$OUT"/spotty-$VER-1-*.pkg.tar.zst | grep -E '^(Architecture|Depends On|Installed Size)'
