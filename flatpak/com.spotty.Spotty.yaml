@@ -17,19 +17,17 @@ runtime-version: '50'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-  - org.freedesktop.Sdk.Extension.golang
 command: spotty
 
 finish-args:
   - --socket=wayland
-  - --socket=fallback-x11
+  # X11 too, not only as a fallback: Mutter mirrors the clipboard to XWayland,
+  # the only place the clipboard history can watch it without focus.
+  - --socket=x11
   - --device=dri
   - --filesystem=home
-  # Proton Bridge authenticates with Proton's servers and hosts local IMAP/SMTP
-  # listeners for desktop mail clients.
+  # The trigger catalog, currency rates, translation and icon downloads.
   - --share=network
-  # The native Bridge backend stores its vault key in the desktop keyring.
-  - --talk-name=org.freedesktop.secrets
   - --filesystem=xdg-cache/thumbnails:create
   - --filesystem=/usr/share/applications:ro
   - --filesystem=/usr/local/share/applications:ro
@@ -50,7 +48,7 @@ finish-args:
   - --own-name=com.spotty.Spotty
 
 build-options:
-  append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/golang/bin
+  append-path: /usr/lib/sdk/rust-stable/bin
 
 modules:
   # ---- Bundled preview tools -------------------------------------------
@@ -86,22 +84,32 @@ modules:
     sources:
       - type: archive
         url: https://github.com/DanBloomberg/leptonica/releases/download/1.85.0/leptonica-1.85.0.tar.gz
-        sha256: a0aa2b1b6d4af6084b72c69559a9ab3eae6d72e4b3c66b207062c45b2b451d02
+        sha256: 3745ae3bf271a6801a2292eead83ac926e3a9bc1bf622e9cd4dd0f3786e17205
 
   - name: tesseract
-    buildsystem: autotools
+    buildsystem: cmake-ninja
+    builddir: true
     config-opts:
-      - --disable-doc
-      - --disable-graphics
-      - --disable-opencl
+      - -DBUILD_TRAINING_TOOLS=OFF
+      - -DGRAPHICS_DISABLED=ON
+      - -DOPENMP_BUILD=OFF
+      - -DDISABLE_CURL=ON
+      - -DDISABLE_ARCHIVE=ON
+      - -DENABLE_OPENCL=OFF
+      - -DBUILD_TESTS=OFF
     sources:
       - type: archive
         url: https://github.com/tesseract-ocr/tesseract/archive/5.5.0.tar.gz
-        sha256: 38c54ec6ddb2768d5b70eeb36fc637809471f487af153d59a1efec49409eaff7
+        sha256: f2fb34ca035b6d087a42875a35a7a5c4155fa9979c6132365b1e5a28ebc3fc11
+
+  - name: tessdata-eng
+    buildsystem: simple
+    build-commands:
+      - install -Dm644 eng.traineddata /app/share/tessdata/eng.traineddata
+    sources:
       - type: file
-        url: https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata
-        sha256: b8fe3e0a7a5e7b28c1798c6a6cdd0f817c96c5c40c1a37309c4b9c5ca109b7a3
-        dest: /app/share/tessdata
+        url: https://github.com/tesseract-ocr/tessdata_fast/raw/4.1.0/eng.traineddata
+        sha256: 7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2
 
   # ---- AV1 decoder for AVIF images -------------------------------------
   - name: dav1d
@@ -111,30 +119,7 @@ modules:
     sources:
       - type: archive
         url: https://code.videolan.org/videolan/dav1d/-/archive/1.5.0/dav1d-1.5.0.tar.gz
-        sha256: 14a1ab4cba1df8375fe2243c7b1e7e4c87b6e667216f87f4d546b8c35ffa2f9b
-
-  # ---- Headers for the in-process Go mail engine ------------------------
-  - name: libcbor
-    buildsystem: cmake-ninja
-    config-opts:
-      - -DBUILD_SHARED_LIBS=ON
-      - -DWITH_EXAMPLES=OFF
-      - -DWITH_TESTS=OFF
-    sources:
-      - type: archive
-        url: https://deb.debian.org/debian/pool/main/libc/libcbor/libcbor_0.10.2.orig.tar.gz
-        sha256: e75f712215d7b7e5c89ef322a09b701f7159f028b8b48978865725f00f79875b
-
-  - name: libfido2
-    buildsystem: cmake-ninja
-    config-opts:
-      - -DBUILD_EXAMPLES=OFF
-      - -DBUILD_TOOLS=OFF
-      - -DBUILD_MANPAGES=OFF
-    sources:
-      - type: archive
-        url: https://deb.debian.org/debian/pool/main/libf/libfido2/libfido2_1.15.0.orig.tar.gz
-        sha256: abaab1318d21d262ece416fb8a7132fa9374bda89f6fa52b86a98a2f5712b61e
+        sha256: 78b15d9954b513ea92d27f39362535ded2243e1b0924fde39f37a31ebed5f76b
 
   # ---- Spotty itself ----------------------------------------------------
   - name: spotty
@@ -143,7 +128,10 @@ modules:
       build-args:
         - --share=network
     build-commands:
-      - cargo build --release
+      # The SDK's AOM CMake config names a libaom.a it does not ship, which
+      # breaks the embedded libheif build; AVIF decoding goes through dav1d.
+      - printf 'set(CMAKE_DISABLE_FIND_PACKAGE_AOM ON)\n' > no-aom.cmake
+      - CMAKE_TOOLCHAIN_FILE="$PWD/no-aom.cmake" cargo build --release
       - install -Dm755 target/release/spotty /app/bin/spotty
       - install -Dm644 data/applications/com.spotty.Spotty.desktop /app/share/applications/com.spotty.Spotty.desktop
       - install -Dm644 data/metainfo/com.spotty.Spotty.metainfo.xml /app/share/metainfo/com.spotty.Spotty.metainfo.xml
@@ -158,3 +146,11 @@ modules:
     sources:
       - type: dir
         path: ..
+        skip:
+          - target
+          - build
+          - .flatpak-builder
+          - build-dir
+          - .git
+          - trigger-backends/build
+          - trigger-backends/.git

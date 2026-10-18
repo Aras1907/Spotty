@@ -8,7 +8,26 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use crate::i18n::gettext;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LauncherBehavior {
+    pub start_at_login: bool,
+    pub hide_on_focus_loss: bool,
+    pub inline_completions: bool,
+    /// Show all usable trigger words when regular search has no text.
+    pub expand_triggers_in_regular_search: bool,
+}
+
+impl Default for LauncherBehavior {
+    fn default() -> Self {
+        Self {
+            start_at_login: true, hide_on_focus_loss: true, inline_completions: true,
+            expand_triggers_in_regular_search: false,
+        }
+    }
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -212,6 +231,8 @@ use crate::trigger_defaults::command_keywords as default_command_keywords;
 /// Field order and defaults are managed by serde defaults — see module docs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default)]
+    pub behavior: LauncherBehavior,
     #[serde(default = "de")]
     pub search_engine: SearchEngine,
     #[serde(default = "default_custom_web_search_url")]
@@ -282,7 +303,8 @@ pub struct Config {
     pub calc_default_targets: std::collections::BTreeMap<String, String>,
     #[serde(default = "dt")]
     pub show_recent_file_searches: bool,
-    /// Maximum number of search results shown before the list scrolls.
+    /// Search results shown before the list scrolls (Settings → General →
+    /// Visible Results; 3–20, default 5).
     #[serde(default = "default_visible_result_limit")]
     pub visible_result_limit: usize,
     /// Allow browsing absolute paths (/ and ~/) in the main search box.
@@ -395,34 +417,6 @@ pub struct Config {
     /// Remappable command keywords for built-in search modes.
     #[serde(default = "default_command_keywords")]
     pub command_keywords: Vec<CommandKeyword>,
-    /// Proton Bridge is a local background mail server, configured outside search.
-    #[serde(default)]
-    pub proton_bridge_enabled: bool,
-    /// Whether Spotty's optional controls for an already-installed Proton VPN CLI are enabled.
-    #[serde(default)]
-    pub proton_vpn_enabled: bool,
-    /// Preferred Proton VPN country code for `vpn on` and quick connect;
-    /// empty connects to the fastest server.
-    #[serde(default)]
-    pub proton_vpn_country: String,
-    /// Proton Calendar web integration (`cal` trigger) installed from the Store.
-    #[serde(default)]
-    pub proton_calendar_enabled: bool,
-    /// Proton Calendar view opened by the trigger: day, week or month.
-    #[serde(default = "default_proton_calendar_view")]
-    pub proton_calendar_view: String,
-    /// Proton account slot (`/u/N`) the calendar opens.
-    #[serde(default)]
-    pub proton_calendar_account: u32,
-    /// Proton Drive web integration (`drive` trigger) installed from the Store.
-    #[serde(default)]
-    pub proton_drive_enabled: bool,
-    /// Proton account slot (`/u/N`) Drive opens.
-    #[serde(default)]
-    pub proton_drive_account: u32,
-    /// Optional local folder kept in sync with Proton Drive; searched by `drive`.
-    #[serde(default)]
-    pub proton_drive_folder: String,
     /// Legacy clipboard shortcut migrated into the clipboard keyword on load.
     #[serde(default, skip_serializing)]
     pub clipboard_shortcut: String,
@@ -460,14 +454,24 @@ pub struct Config {
     /// empty = follow the system language.
     #[serde(default)]
     pub translate_target: String,
-    /// LibreTranslate endpoint: local by default. A remote endpoint receives
-    /// the typed text and any API key over HTTPS.
+    /// LibreTranslate endpoint. Left at the default, the translate trigger
+    /// uses Google Translate's free endpoint; any other value (e.g.
+    /// `http://127.0.0.1:5000`) sends the typed text and any API key to that
+    /// server instead (HTTPS unless it is on this computer).
     #[serde(default = "default_translate_endpoint")]
     pub translate_endpoint: String,
     /// Optional API key for that endpoint (self-hosted instances normally
     /// don't need one).
     #[serde(default)]
     pub translate_api_key: String,
+    /// Translation service for the translate trigger (an id from
+    /// `translate_api::PROVIDERS`); empty = Google, or LibreTranslate when
+    /// `translate_endpoint` was changed. API keys live in the keyring.
+    #[serde(default)]
+    pub translate_provider: String,
+    /// Azure Translator resource region (empty = global).
+    #[serde(default)]
+    pub translate_region: String,
     /// Background update checking + the search "update" verb (updates are a
     /// General-section feature, not a trigger).
     #[serde(default = "dt")]
@@ -486,10 +490,6 @@ pub struct Config {
     /// stays hidden until a *different* (new) update shows up.
     #[serde(default)]
     pub update_dismissed_sig: String,
-}
-
-fn default_proton_calendar_view() -> String {
-    "week".into()
 }
 
 /// The default trigger repository: the official spotty-triggers repository
@@ -654,15 +654,7 @@ impl Default for Config {
             show_shortcut_hints: true,
             max_index_entries: dm(),
             command_keywords: default_command_keywords(),
-            proton_bridge_enabled: false,
-            proton_vpn_enabled: false,
-            proton_vpn_country: String::new(),
-            proton_calendar_enabled: false,
-            proton_calendar_view: default_proton_calendar_view(),
-            proton_calendar_account: 0,
-            proton_drive_enabled: false,
-            proton_drive_account: 0,
-            proton_drive_folder: String::new(),
+            behavior: LauncherBehavior::default(),
             clipboard_shortcut: String::new(),
             pm_flatpak: Some(true),
             pm_distro: Some(false),
@@ -676,6 +668,8 @@ impl Default for Config {
             translate_target: String::new(),
             translate_endpoint: default_translate_endpoint(),
             translate_api_key: String::new(),
+            translate_provider: String::new(),
+            translate_region: String::new(),
             enable_updates: true,
             update_notification: true,
             update_check_interval_hours: default_update_check_hours(),
@@ -711,23 +705,29 @@ impl Config {
 
     fn load_from_path(path: &std::path::Path) -> Self {
         // Pre-filter: drop pinned_results entries referencing the removed
-        // `PlayMusic` action so old configs don't fail to deserialize.
+        // `PlayMusic` and Proton actions so old configs don't fail to deserialize.
         let raw = fs::read_to_string(path).ok();
         let mut cfg: Config = raw.as_deref().and_then(|s| {
             let mut v: serde_json::Value = serde_json::from_str(s).ok()?;
             if let Some(arr) = v.get_mut("pinned_results").and_then(|x| x.as_array_mut()) {
                 arr.retain(|r| {
-                    r.get("action")
-                        .and_then(|a| a.get("PlayMusic"))
-                        .is_none()
+                    let action = r.get("action");
+                    // Proton actions were removed with the Proton triggers.
+                    let proton = match action {
+                        Some(serde_json::Value::String(name)) => name == "OpenProtonVpn",
+                        Some(serde_json::Value::Object(map)) => {
+                            map.keys().any(|key| key.starts_with("Proton"))
+                        }
+                        _ => false,
+                    };
+                    !proton && action.and_then(|a| a.get("PlayMusic")).is_none()
                 });
             }
             serde_json::from_value(v).ok()
         }).unwrap_or_default();
         let before = serde_json::to_string(&cfg).unwrap_or_default();
-        cfg.migrate_proton_bridge_service();
         cfg.migrate_keywords();
-        cfg.migrate_proton_vpn_trigger();
+        cfg.purge_proton();
         cfg.migrate_converter_switch();
         cfg.migrate_resource_defaults();
         cfg.migrate_app_sources();
@@ -775,8 +775,14 @@ impl Config {
     /// Older configs had many file-type triggers; those are intentionally pruned.
     fn migrate_keywords(&mut self) {
         let defaults = default_command_keywords();
+        // Unsupported rows go — including the removed "cmd" (App Management)
+        // and "run" (Command) triggers, which older configs still carry.
         self.command_keywords
             .retain(|kw| crate::trigger_defaults::supports_native(&kw.id));
+        for list in [&mut self.result_order, &mut self.uninstalled_builtins,
+                     &mut self.regular_search_on, &mut self.regular_search_off] {
+            list.retain(|id| id != "cmd" && id != "run");
+        }
         for def in &defaults {
             match self.command_keywords.iter_mut().find(|k| k.id == def.id) {
                 Some(existing) => {
@@ -799,19 +805,6 @@ impl Config {
                         )
                     {
                         existing.icon = def.icon.clone();
-                    }
-                    // The "cmd" trigger was originally framed as a terminal
-                    // command runner; older configs may still have its old
-                    // word/wording from before it became app-focused.
-                    if existing.id == "cmd" && existing.word == "cmd" {
-                        existing.word = def.word.clone();
-                    }
-                    // The "cmd"/App trigger used to own Super+Ctrl+T, which now
-                    // belongs to the new free-form "cmd" command runner ("run").
-                    // Move older configs off that shortcut so the two don't
-                    // register the same accelerator with GNOME.
-                    if existing.id == "cmd" && existing.shortcut == "Super+Ctrl+T" {
-                        existing.shortcut = def.shortcut.clone();
                     }
                     // The "files" trigger was originally "files"; rename its
                     // default word to "find" for older configs.
@@ -843,69 +836,15 @@ impl Config {
         }
     }
 
-    /// Move old Proton Bridge trigger installs into the service switch. The
-    /// account and Bridge data live outside Spotty and are left untouched.
-    fn migrate_proton_bridge_service(&mut self) {
-        if let Some(old) = self.command_keywords.iter().find(|k| k.id == "proton-bridge") {
-            self.proton_bridge_enabled |= old.enabled
-                && !self.uninstalled_builtins.iter().any(|id| id == "proton-bridge");
-        }
-        self.command_keywords.retain(|k| k.id != "proton-bridge");
-        self.uninstalled_builtins.retain(|id| id != "proton-bridge");
-        self.regular_search_on.retain(|id| id != "proton-bridge");
-        self.regular_search_off.retain(|id| id != "proton-bridge");
-        self.result_order.retain(|id| id != "proton-bridge");
-    }
-
-    /// Whether the Store installed the Proton integration `id`.
-    pub fn proton_service_enabled(&self, id: &str) -> bool {
-        match id {
-            "proton-bridge" => self.proton_bridge_enabled,
-            "proton-vpn" => self.proton_vpn_enabled,
-            "proton-calendar" => self.proton_calendar_enabled,
-            "proton-drive" => self.proton_drive_enabled,
-            _ => false,
-        }
-    }
-
-    /// Install or uninstall a Proton integration, together with its search
-    /// trigger when it has one.
-    pub fn set_proton_service(&mut self, id: &str, enabled: bool) {
-        match id {
-            "proton-bridge" => self.proton_bridge_enabled = enabled,
-            "proton-vpn" => self.proton_vpn_enabled = enabled,
-            "proton-calendar" => self.proton_calendar_enabled = enabled,
-            "proton-drive" => self.proton_drive_enabled = enabled,
-            _ => return,
-        }
-        if id == "proton-bridge" {
-            return;
-        }
-        if enabled {
-            self.install_builtin(id);
-        } else {
-            self.uninstall_builtin(id);
-        }
-    }
-
-    /// The Proton VPN, Calendar and Drive integrations are each both a
-    /// Settings service and an optional search trigger. Keep old
-    /// installations in sync while respecting an explicit trigger uninstall
-    /// made from Search settings.
-    fn migrate_proton_vpn_trigger(&mut self) {
-        for (id, ..) in crate::trigger_defaults::PROTON_TRIGGERS {
-            let has_keyword = self.command_keywords.iter().any(|keyword| keyword.id == id);
-            if self.proton_service_enabled(id) {
-                if crate::trigger_defaults::supports_native(id)
-                    && !self.is_uninstalled(id)
-                    && !has_keyword
-                {
-                    self.install_builtin(id);
-                }
-            } else if has_keyword {
-                self.uninstall_builtin(id);
-            }
-        }
+    /// Proton integrations were removed from Spotty: drop their triggers and
+    /// every list entry that names one, so none of them can come back active.
+    fn purge_proton(&mut self) {
+        let is_proton = |id: &String| id.starts_with("proton-");
+        self.command_keywords.retain(|k| !k.id.starts_with("proton-"));
+        self.uninstalled_builtins.retain(|id| !is_proton(id));
+        self.regular_search_on.retain(|id| !is_proton(id));
+        self.regular_search_off.retain(|id| !is_proton(id));
+        self.result_order.retain(|id| !is_proton(id));
     }
 
     /// The converter used to live under the calculator's switch: keep whatever
@@ -1042,13 +981,15 @@ impl Config {
 
     /// Whether `id` shows in the regular search.
     ///
-    /// A result type does by default, and always when it has no trigger word —
-    /// nothing else would reach it — unless the user turned it off while
-    /// giving it one. A trigger is the other way round: it is reached by its
-    /// word, and shows in the regular search only if it opted in.
+    /// Wordless entries always contribute to regular search. Result types
+    /// otherwise default to on; triggers with words require an opt-in.
     pub fn in_regular_search(&self, id: &str) -> bool {
         if !RESULT_IDS.contains(&id) {
-            return self.regular_search_on.iter().any(|u| u == id);
+            let wordless = self.command_keywords.iter().find(|k| k.id == id)
+                .map(|k| k.word.trim().is_empty())
+                .or_else(|| crate::triggers::by_id(id).map(|t| t.word.trim().is_empty()))
+                .unwrap_or(false);
+            return wordless || self.regular_search_on.iter().any(|u| u == id);
         }
         let wordless = self
             .command_keywords
@@ -1074,8 +1015,7 @@ impl Config {
 
     /// Every result type and trigger, highest priority first: the saved order,
     /// then whatever it doesn't mention yet in the default order, then any
-    /// installed trigger. "cmd" (the app launcher behind every app action) has
-    /// no results of its own and isn't listed.
+    /// installed trigger.
     pub fn ordered_ids(&self) -> Vec<String> {
         let installed: Vec<String> = crate::triggers::all().into_iter().map(|t| t.id).collect();
         self.ordered_ids_with(&installed)
@@ -1085,10 +1025,9 @@ impl Config {
     /// without a triggers directory.
     pub fn ordered_ids_with(&self, installed: &[String]) -> Vec<String> {
         let known = |id: &str| {
-            id != "cmd"
-                && (RESULT_IDS.contains(&id)
-                    || self.command_keywords.iter().any(|k| k.id == id)
-                    || installed.iter().any(|i| i == id))
+            RESULT_IDS.contains(&id)
+                || self.command_keywords.iter().any(|k| k.id == id)
+                || installed.iter().any(|i| i == id)
         };
         let mut out: Vec<String> = Vec::new();
         let candidates = self
@@ -1143,10 +1082,9 @@ impl Config {
     }
 
     /// Uninstall a built-in trigger or result type: off, out of the list, its
-    /// word and shortcut kept for a later reinstall. "cmd" (the app launcher
-    /// behind every app action) can't be removed.
+    /// word and shortcut kept for a later reinstall.
     pub fn uninstall_builtin(&mut self, id: &str) {
-        if id == "cmd" || self.is_uninstalled(id) {
+        if self.is_uninstalled(id) {
             return;
         }
         self.uninstalled_builtins.push(id.to_string());
@@ -1198,61 +1136,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn proton_bridge_trigger_migrates_to_service_flag_without_keyword() {
-        let mut config = Config::default();
-        let legacy = CommandKeyword {
-            id: "proton-bridge".into(), word: "proton".into(),
-            description: "Legacy Bridge trigger".into(), extensions: vec![],
-            icon: String::new(), all_files: false, shortcut: "<Super>p".into(), enabled: true,
-        };
-        config.command_keywords.push(legacy);
-        config.regular_search_on.push("proton-bridge".into());
-        config.regular_search_off.push("proton-bridge".into());
-        config.result_order.push("proton-bridge".into());
-        config.migrate_proton_bridge_service();
-        config.migrate_keywords();
-        assert!(config.proton_bridge_enabled);
-        assert!(config.keyword_for_id("proton-bridge").is_none());
-        assert!(!config.command_keywords.iter().any(|k| k.word == "proton"));
-        assert!(config.regular_search_on.iter().all(|id| id != "proton-bridge"));
-        assert!(config.regular_search_off.iter().all(|id| id != "proton-bridge"));
-        assert!(config.result_order.iter().all(|id| id != "proton-bridge"));
-        config.proton_bridge_enabled = false;
-        config.migrate_proton_bridge_service();
-        assert!(!config.proton_bridge_enabled, "Migration must not re-enable a disabled service");
-    }
-
-    #[test]
-    fn proton_bridge_migration_respects_uninstalled_state() {
-        let mut config = Config::default();
-        config.command_keywords.push(CommandKeyword {
-            id: "proton-bridge".into(), word: "proton".into(),
-            description: String::new(), extensions: vec![], icon: String::new(),
-            all_files: false, shortcut: String::new(), enabled: true,
-        });
-        config.uninstalled_builtins.push("proton-bridge".into());
-        config.migrate_proton_bridge_service();
-        assert!(!config.proton_bridge_enabled);
-        assert!(config.command_keywords.iter().all(|k| k.id != "proton-bridge"));
-    }
-
-    #[test]
-    fn proton_bridge_service_install_and_uninstall_preserve_keyword_absence() {
-        let mut config = Config::default();
-        config.proton_bridge_enabled = true;
-        let installed = serde_json::to_string(&config).unwrap();
-        let mut restored: Config = serde_json::from_str(&installed).unwrap();
-        assert!(restored.proton_bridge_enabled);
-        assert!(restored.keyword_for_id("proton-bridge").is_none());
-
-        restored.proton_bridge_enabled = false;
-        let uninstalled = serde_json::to_string(&restored).unwrap();
-        let restored: Config = serde_json::from_str(&uninstalled).unwrap();
-        assert!(!restored.proton_bridge_enabled);
-        assert!(restored.keyword_for_id("proton-bridge").is_none());
-    }
-
-    #[test]
     fn result_types_are_store_installs_and_begin_unavailable() {
         let mut c = Config::default();
         for id in RESULT_IDS {
@@ -1261,8 +1144,14 @@ mod tests {
             c.install_builtin(id);
             let kw = c.command_keywords.iter().find(|k| k.id == id).expect(id);
             assert!(kw.is_result(), "{id}");
-            assert!(kw.word.is_empty() && kw.shortcut.is_empty(), "{id} starts without a trigger word");
-            assert_eq!(kw.mode_key(), id);
+            if id == "updates" {
+                assert_eq!(kw.word, "update");
+                assert_eq!(kw.mode_key(), "update");
+            } else {
+                assert!(kw.word.is_empty() && kw.shortcut.is_empty(), "{id} starts without a trigger word");
+                assert_eq!(kw.mode_key(), id);
+            }
+            assert!(kw.shortcut.is_empty());
             assert!(!kw.chip_label().is_empty(), "{id} has a chip label");
         }
         assert!(c.keyword_for_word("").is_none(), "an empty word never matches");
@@ -1298,7 +1187,7 @@ mod tests {
     fn a_trigger_shows_in_the_regular_search_only_when_it_opts_in() {
         let mut c = Config::default();
         c.install_builtin("web");
-        for id in ["files", "clipboard", "run", "emoji", "bluetooth", "dictionary"] {
+        for id in ["files", "clipboard", "emoji", "bluetooth", "dictionary"] {
             assert!(!c.in_regular_search(id), "{id} is reached by its word");
             c.set_in_regular_search(id, true);
             assert!(c.in_regular_search(id), "{id} opted in");
@@ -1323,10 +1212,10 @@ mod tests {
         let installed = vec!["dictionary".to_string()];
         let ids = c.ordered_ids_with(&installed);
         // Every result type, built-in trigger and installed trigger — once.
-        for id in RESULT_IDS.iter().copied().chain(["files", "clipboard", "run", "emoji", "bluetooth", "dictionary"]) {
+        for id in RESULT_IDS.iter().copied().chain(["files", "clipboard", "emoji", "bluetooth", "dictionary"]) {
             assert_eq!(ids.iter().filter(|i| *i == id).count(), 1, "{id}: {ids:?}");
         }
-        assert!(!ids.iter().any(|i| i == "cmd"), "the app launcher isn't a result source");
+        assert!(!ids.iter().any(|i| i == "cmd"), "the App Management trigger is gone");
         // The default: specific answers first, the web fallback last of the
         // built-ins, installed triggers after.
         assert_eq!(ids[0], "calc");
@@ -1427,10 +1316,6 @@ mod tests {
         assert!(!c.enable_calculator);
         c.install_builtin("calc");
         assert!(c.enable_calculator);
-
-        // The app launcher behind every app action stays.
-        c.uninstall_builtin("cmd");
-        assert!(!c.is_uninstalled("cmd"));
     }
 
     #[test]
@@ -1548,7 +1433,7 @@ mod tests {
 
 #[cfg(test)]
 mod service_persistence_tests {
-    use super::Config;
+    use super::{CommandKeyword, Config};
     use std::path::PathBuf;
 
     fn isolated_config_path() -> (PathBuf, PathBuf) {
@@ -1564,71 +1449,28 @@ mod service_persistence_tests {
     }
 
     #[test]
-    fn installed_service_state_survives_a_config_reload() {
+    fn old_proton_triggers_are_purged_when_a_config_loads() {
         let (root, path) = isolated_config_path();
         let mut config = Config::default();
-        config.proton_bridge_enabled = true;
-        config.proton_vpn_enabled = true;
-        config.install_builtin("proton-vpn");
-        config.save_to_path(&path).expect("save installed services");
+        for (id, word) in [("proton-vpn", "vpn"), ("proton-pass", "pass"), ("proton-bridge", "bridge")] {
+            config.command_keywords.push(CommandKeyword {
+                id: id.into(), word: word.into(), description: String::new(),
+                extensions: vec![], icon: String::new(), all_files: false,
+                shortcut: String::new(), enabled: true,
+            });
+            config.regular_search_on.push(id.into());
+            config.regular_search_off.push(id.into());
+            config.result_order.push(id.into());
+            config.uninstalled_builtins.push(id.into());
+        }
+        config.save_to_path(&path).expect("save old config");
 
         let loaded = Config::load_from_path(&path);
-        assert!(loaded.proton_bridge_enabled);
-        assert!(loaded.proton_vpn_enabled);
-        assert_eq!(loaded.keyword_for_word("vpn").unwrap().id, "proton-vpn");
-
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn vpn_service_migration_adds_a_missing_trigger_without_resetting_preferences() {
-        let mut config = Config::default();
-        config.proton_vpn_enabled = true;
-        config.migrate_proton_vpn_trigger();
-        let keyword = config.keyword_for_id("proton-vpn").expect("VPN trigger");
-        assert_eq!(keyword.word, "vpn");
-
-        // An existing row may have been disabled independently of its
-        // service. Migration must preserve that choice and custom settings.
-        if let Some(keyword) = config.command_keywords.iter_mut().find(|item| item.id == "proton-vpn") {
-            keyword.enabled = false;
-            keyword.word = "myvpn".into();
-            keyword.shortcut = "<Control><Alt>v".into();
+        assert!(loaded.command_keywords.iter().all(|k| !k.id.starts_with("proton-")));
+        for list in [&loaded.regular_search_on, &loaded.regular_search_off, &loaded.result_order, &loaded.uninstalled_builtins] {
+            assert!(list.iter().all(|id| !id.starts_with("proton-")), "{list:?}");
         }
-        config.migrate_proton_vpn_trigger();
-        let keyword = config.command_keywords.iter().find(|item| item.id == "proton-vpn").unwrap();
-        assert!(!keyword.enabled);
-        assert_eq!(keyword.word, "myvpn");
-        assert_eq!(keyword.shortcut, "<Control><Alt>v");
-
-        config.uninstall_builtin("proton-vpn");
-        config.migrate_proton_vpn_trigger();
-        assert!(config.is_uninstalled("proton-vpn"));
-        assert!(config.keyword_for_id("proton-vpn").is_none());
-    }
-
-    #[test]
-    fn calendar_and_drive_services_install_their_triggers_and_survive_reload() {
-        let (root, path) = isolated_config_path();
-        let mut config = Config::default();
-        config.set_proton_service("proton-calendar", true);
-        config.set_proton_service("proton-drive", true);
-        config.proton_calendar_view = "month".into();
-        config.proton_drive_folder = "~/ProtonDrive".into();
-        config.save_to_path(&path).expect("save installed services");
-
-        let mut loaded = Config::load_from_path(&path);
-        assert!(loaded.proton_calendar_enabled && loaded.proton_drive_enabled);
-        assert_eq!(loaded.keyword_for_word("cal").unwrap().id, "proton-calendar");
-        assert_eq!(loaded.keyword_for_word("drive").unwrap().id, "proton-drive");
-        assert_eq!(loaded.proton_calendar_view, "month");
-        assert_eq!(loaded.proton_drive_folder, "~/ProtonDrive");
-
-        loaded.set_proton_service("proton-drive", false);
-        assert!(!loaded.proton_drive_enabled);
-        assert!(loaded.keyword_for_id("proton-drive").is_none());
-        assert!(loaded.keyword_for_id("proton-calendar").is_some());
-
+        assert!(loaded.keyword_for_word("vpn").is_none());
         let _ = std::fs::remove_dir_all(root);
     }
 

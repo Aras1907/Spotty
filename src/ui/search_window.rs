@@ -12,12 +12,11 @@
 //!   only "close" we have — a minimized/hidden window is dead weight.
 //! - Every show goes through `present_and_focus` / `present_keyword_mode`.
 //! - The [`shown`](SearchWindow::shown) flag is the single source of truth
-//!   for visible-ness: GTK's `is_visible()` stays true during the fade-out,
-//!   which would make the global toggle a no-op mid-fade.
+//!   for visible-ness.
 //!
-//! The 120ms fade exists purely for polish. `dismiss()` checks `shown` on
-//! each timer tick so a re-show during the fade aborts the fade-out instead
-//! of fighting it.
+//! Showing and hiding animate the panel like a GNOME window opening and
+//! closing (grow/shrink plus fade, see `animate_open` and `dismiss`). The
+//! toplevel itself stays transparent so only the panel visibly scales.
 use crate::clipboard::ClipboardHistory;
 use crate::config::Config;
 use crate::index::Indexer;
@@ -178,11 +177,15 @@ pub struct SearchWindow {
     entry_changed_h: std::cell::Cell<Option<glib::SignalHandlerId>>,
     is_active_h: std::cell::Cell<Option<glib::SignalHandlerId>>,
     entry: gtk::Entry,
+    typed_len: Rc<Cell<usize>>,
+    prev_text_len: Rc<Cell<usize>>,
+    ghost_active: Rc<Cell<bool>>,
     mode_chip: gtk::Box,
     mode_icon: gtk::Image,
     mode_label: gtk::Label,
     active_mode: Rc<RefCell<Option<crate::config::CommandKeyword>>>,
     list: gtk::ListBox,
+    results_scroll: gtk::ScrolledWindow,
     revealer: gtk::Revealer,
     preview_box: gtk::Box,
     preview: Rc<PreviewPane>,
@@ -233,6 +236,7 @@ pub struct SearchWindow {
     ops_pill_revealer: gtk::Revealer,
     ops_pill_label: gtk::Label,
     ops_pill_open: Rc<Cell<bool>>,
+    update_orb_message: Rc<RefCell<Option<String>>>,
     toast_gen: Rc<Cell<u64>>,
     /// Update badge in the orb slot. Nothing expands on its own — the
     /// options appear once the user types "update".
@@ -482,9 +486,15 @@ impl SearchWindow {
         let window = gtk::Window::builder()
             .application(app)
             .title(gettext("Spotty"))
-            .default_width(750)
+            .default_width(WINDOW_WIDTH)
             .decorated(false)
             .resizable(false)
+            // Modal: GTK sends xdg-dialog `set_modal` before the first commit,
+            // Mutter types the window MODAL_DIALOG, and GNOME Shell then opens
+            // and closes it with its dialog animation — a vertical unfold
+            // around the window's centre, where the bar sits (`center_bar`) —
+            // instead of growing a normal window up from its bottom edge.
+            .modal(true)
             .css_classes(["spotty-window"])
             .build();
         window.set_startup_id("");
@@ -492,8 +502,24 @@ impl SearchWindow {
         let outer = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .css_classes(["spotty-outer"])
+            .valign(gtk::Align::Start)
+            // Clip the preview pane's background to the rounded corners.
+            .overflow(gtk::Overflow::Hidden)
             .build();
-        window.set_child(Some(&outer));
+        // The toplevel is mapped at its full height from the start, so it never
+        // resizes and GNOME never re-centres it. The search bar sits at the
+        // middle of that height: a transparent spacer above it (click-through,
+        // see `track_input_region`) puts the bar at the screen's centre, and
+        // the results grow downward from there.
+        let spacer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let frame = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .height_request(reserved_height(visible_limit(&config.borrow())))
+            .build();
+        frame.append(&spacer);
+        frame.append(&outer);
+        window.set_child(Some(&frame));
+        track_input_region(&window, &outer);
 
         // ── Search bar ──
         let entry = gtk::Entry::builder()
@@ -609,6 +635,7 @@ impl SearchWindow {
         bar.append(&busy_revealer);
 
         let ops_pill_open = Rc::new(Cell::new(false));
+        let update_orb_message = Rc::new(RefCell::new(None));
         {
             let mc = gtk::EventControllerMotion::new();
             {
@@ -695,7 +722,19 @@ impl SearchWindow {
             .build();
         preview_box.append(&gtk::Separator::new(gtk::Orientation::Vertical));
         let preview = Rc::new(PreviewPane::new());
-        preview_box.append(preview.widget());
+        // The result rows alone decide how tall the panel is: the preview
+        // scrolls inside that height instead of stretching the panel (a
+        // folder's icon + metadata used to leave empty space under the list).
+        let preview_scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::Automatic)
+            .propagate_natural_width(true)
+            .propagate_natural_height(false)
+            .min_content_height(0)
+            .vexpand(true)
+            .child(preview.widget())
+            .build();
+        preview_box.append(&preview_scroll);
         body.append(&preview_box);
 
         results_inner.append(&body);
@@ -1557,9 +1596,8 @@ impl SearchWindow {
                                 // returning Break; forget its id so a later
                                 // cancel can't remove a recycled source id.
                                 holder_cb.borrow_mut().take();
-                                // Remember the command and log it in Operations
-                                // history; notify if the window is hidden.
-                                crate::search::run::record(&title_cb);
+                                // Log the command in Operations history;
+                                // notify if the window is hidden.
                                 crate::operations::record_command(&title_cb, ok);
                                 if crate::app::is_search_window_hidden() {
                                     let verb = if ok { "finished" } else { "failed" };
@@ -1624,10 +1662,22 @@ impl SearchWindow {
             .build();
         bar.append(&update_badge);
         {
-            let entry_c = entry.clone();
-            update_badge.connect_clicked(move |_| {
-                entry_c.set_text("update ");
-                entry_c.set_position(entry_c.text().chars().count() as i32);
+            let info = update_orb_message.clone();
+            let ring = ops_ring.clone();
+            let orb_stack = busy_stack.clone();
+            let orb_revealer = busy_revealer.clone();
+            let pill_open = ops_pill_open.clone();
+            let pill_revealer = ops_pill_revealer.clone();
+            update_badge.connect_clicked(move |button| {
+                let detail = button.tooltip_text().map(|s| s.to_string()).unwrap_or_default();
+                *info.borrow_mut() = Some(detail.clone());
+                pill_open.set(false);
+                set_revealed(&pill_revealer, false);
+                button.set_visible(false);
+                ring.set(Some(1.0), crate::ui::circular_progress::RingState::Attention);
+                ring.area().set_tooltip_text(Some(&detail));
+                orb_stack.set_visible_child_name("orb");
+                set_revealed(&orb_revealer, true);
             });
         }
         outer.append(&revealer);
@@ -1728,6 +1778,9 @@ impl SearchWindow {
         // ghost instead of re-arming it.
         let skip_ghost_anchor: Rc<Cell<Option<usize>>> = Rc::new(Cell::new(None));
         let ghost_active: Rc<Cell<bool>> = Rc::new(Cell::new(false));
+        // The whole text the current ghost shows ("fir" + "efox"), so typing
+        // its next letter can keep it on screen without waiting for a search.
+        let ghost_full: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
         // Text undo/redo stacks for Ctrl+Z / Ctrl+Shift+Z.
         let undo_stack: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
         let redo_stack: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
@@ -1847,6 +1900,7 @@ impl SearchWindow {
             let skip_ghost_typing = skip_ghost.clone();
             let skip_ghost_anchor_typing = skip_ghost_anchor.clone();
             let ghost_active_typing = ghost_active.clone();
+            let ghost_full_typing = ghost_full.clone();
             let clipboard_mode_cb = clipboard_mode.clone();
             let active_mode_cb = active_mode.clone();
             let undo_stack_cb = undo_stack.clone();
@@ -1857,6 +1911,7 @@ impl SearchWindow {
             let last_action_was_delete_cb = last_action_was_delete.clone();
             let undo_generation_cb = undo_generation.clone();
             let scroll_cb_results = scroll.clone();
+            let preview_fit = preview.clone();
             let search_dispatch_now_cb = search_dispatch_now.clone();
             let search_debounce_cb = search_debounce_id.clone();
             let rebuild_flag = rebuilding.clone();
@@ -1916,7 +1971,28 @@ impl SearchWindow {
                 // Keep the logical typed portion separate from any selected tail
                 // ghost text so backspace/search operate on what the user really typed.
                 typed_len.set(typed_now);
-                ghost_active_typing.set(false);
+                let had_ghost = ghost_active_typing.replace(false);
+
+                // ── Instant ghost ──
+                // Typing the next letter of the suggestion on screen keeps the
+                // rest of it right away; the search that follows confirms or
+                // replaces it. Only when the caret is at the end (plain typing).
+                if had_ghost
+                    && !skip_ghost_typing.get()
+                    && typed_now == char_count(&full)
+                    && config.borrow().behavior.inline_completions
+                {
+                    let shown = ghost_full_typing.borrow().clone();
+                    if let Some(rest) = ghost_tail(&shown, &full) {
+                        let total = typed_now + char_count(&rest);
+                        suppress.set(true);
+                        e.set_text(&format!("{full}{rest}"));
+                        e.select_region(typed_now as i32, total as i32);
+                        suppress.set(false);
+                        prev_text_len.set(total);
+                        ghost_active_typing.set(true);
+                    }
+                }
 
                 // ── Compute query + mode before debounce so we can check pending. ──
                 let active_kw = active_mode_cb.borrow().clone();
@@ -1929,13 +2005,23 @@ impl SearchWindow {
                 }
                 let q = q_owned.trim();
                 let clip_mode = clipboard_mode_cb.get();
-                let mode_word: Option<String> = active_kw.as_ref().map(|kw| kw.mode_key().to_string());
+                let mode_word: Option<String> = active_kw.as_ref().map(|kw| kw.id.clone());
                 let is_dict = active_kw.as_ref().is_some_and(|kw| kw.id == "dictionary");
-                let jkey = crate::search::jobs::key(mode_word.as_deref(), q);
+                let empty_regular_search = active_kw.is_none() && !clip_mode && q.is_empty();
+                // A preference change must not reuse a pending job computed
+                // with the previous trigger presentation.
+                let jkey = format!("{}\u{2}{}", crate::search::jobs::key(mode_word.as_deref(), q),
+                    u8::from(config.borrow().behavior.expand_triggers_in_regular_search));
 
-                // ── Debounce: trailing 120 ms. No search runs while typing. ──
+                // ── Debounce: trailing 40 ms. No search runs while typing. ──
                 let pending_ready = !clip_mode && crate::search::jobs::has_pending(&jkey);
-                if search_dispatch_now_cb.get() {
+                if empty_regular_search {
+                    // Blank search is a local keyword list; show it immediately.
+                    if let Some(id) = search_debounce_cb.take() {
+                        id.remove();
+                    }
+                    search_dispatch_now_cb.set(false);
+                } else if search_dispatch_now_cb.get() {
                     // Re-entry from the debounce timeout: run the search.
                     search_dispatch_now_cb.set(false);
                 } else if !pending_ready {
@@ -1946,7 +2032,7 @@ impl SearchWindow {
                     let entry_emit = entry_h.clone();
                     let db = search_debounce_cb.clone();
                     let fire = search_dispatch_now_cb.clone();
-                    let id = glib::timeout_add_local_once(Duration::from_millis(120), move || {
+                    let id = glib::timeout_add_local_once(Duration::from_millis(40), move || {
                         db.set(None);
                         fire.set(true);
                         entry_emit.emit_by_name::<()>("changed", &[]);
@@ -1957,7 +2043,9 @@ impl SearchWindow {
                 // pending_ready or dispatch_now → proceed to render/dispatch below.
 
                 // ── Compute results ──
-                let mut new = if clip_mode {
+                let mut new = if empty_regular_search {
+                    search::empty_search_triggers(&config.borrow())
+                } else if clip_mode {
                     let cfg = config.borrow();
                     search::clipboard::all_or_filtered(
                         q,
@@ -1973,7 +2061,7 @@ impl SearchWindow {
                     let cfg_snap = indexer.snapshot();
                     let _cfg_snap_guard = cfg_snap.read().unwrap();
                     let cfg_guard = config.borrow();
-                    crate::search::search_mode("dict", q, &cfg_guard, &cfg_snap)
+                    crate::search::search_mode_for_id("dictionary", q, &cfg_guard, &cfg_snap)
                 } else if !crate::search::jobs::job_inflight(&jkey) {
                     let cfg_clone = config.borrow().clone();
                     let snap_clone = indexer.snapshot();
@@ -1990,6 +2078,16 @@ impl SearchWindow {
                     return; // Job in flight, keep previous results.
                 };
 
+                // Enforce this in the final rendered list too: cached or
+                // merged results must never reintroduce Update all while the
+                // system is waiting for a restart.
+                if crate::search::cmd::reboot_pending() {
+                    new.retain(|r| {
+                        crate::search::cmd::query_for(&r.title)
+                            .map_or(true, |q| !q.eq_ignore_ascii_case("update all"))
+                    });
+                }
+
                 // Clipboard and Dictionary join the regular search here, on the
                 // main thread that owns their state (the worker adds the rest).
                 if !clip_mode && active_kw.is_none() && !q.is_empty() {
@@ -2004,6 +2102,33 @@ impl SearchWindow {
                     }
                 }
 
+                // This is the final list order, after sources, Settings
+                // panels and main-thread results have all been merged. Give
+                // a result whose name starts with the user's actual typed
+                // text first place, even when another row supplied ghost
+                // text or has a stronger source score.
+                if !q.is_empty() {
+                    let typed = q.to_lowercase();
+                    new.sort_by(|a, b| {
+                        let name_match = |r: &SearchResult| {
+                            let title = r.title.to_lowercase();
+                            if title == typed {
+                                0
+                            } else if title.starts_with(&typed) {
+                                1
+                            } else if candidate_for(r, q)
+                                .is_some_and(|candidate| candidate.to_lowercase().starts_with(&typed))
+                            {
+                                2
+                            } else {
+                                3
+                            }
+                        };
+                        name_match(a)
+                            .cmp(&name_match(b))
+                            .then_with(|| b.score.cmp(&a.score))
+                    });
+                }
                 // Skip widget rebuild when results haven't changed.
                 // Op rows carry a volatile fraction in the action sentinel
                 // that changes every tick — ignore it so progress-only
@@ -2015,7 +2140,10 @@ impl SearchWindow {
                     if new.len() == prev.len() {
                         results_changed = false;
                         for (a, b) in new.iter().zip(prev.iter()) {
-                            if a.title != b.title || !op_actions_equal(&a.action, &b.action) {
+                            if a.title != b.title || !op_actions_equal(&a.action, &b.action)
+                                || a.icon != b.icon
+                                || (a.subtitle != b.subtitle && a.icon.as_deref() != Some("op-progress"))
+                            {
                                 results_changed = true;
                                 break;
                             }
@@ -2040,7 +2168,7 @@ impl SearchWindow {
                         &list,
                         &scroll_cb_results,
                         new.len(),
-                        config.borrow().visible_result_limit,
+                        visible_limit(&config.borrow()),
                     );
                     return;
                 }
@@ -2086,7 +2214,7 @@ impl SearchWindow {
                 let user_text = q;
                 let in_path = user_text.starts_with('/') || user_text.starts_with('~');
                 let in_emoji_mode = active_kw.as_ref().is_some_and(|kw| kw.id == "emoji");
-                let allow_ghost = if in_emoji_mode {
+                let allow_ghost = if in_emoji_mode || q.is_empty() {
                     false
                 } else if in_path {
                     !user_text.ends_with('/')
@@ -2148,7 +2276,7 @@ impl SearchWindow {
 
                 // Apply ghost text NOW (before the row rebuild) so the
                 // user sees the completion immediately on the entry.
-                if should_apply {
+                if should_apply && config.borrow().behavior.inline_completions {
                     if let Some(idx) = best_idx {
                         apply_ghost(
                             &entry_h,
@@ -2159,7 +2287,21 @@ impl SearchWindow {
                             &prev_text_len,
                             &ghost_active_typing,
                         );
+                    } else if ghost_active_typing.get() {
+                        // A ghost kept instantly while typing that these
+                        // results no longer support: take it back.
+                        let typed: String =
+                            entry_h.text().chars().take(typed_len.get()).collect();
+                        suppress.set(true);
+                        entry_h.set_text(&typed);
+                        entry_h.set_position(-1);
+                        suppress.set(false);
+                        prev_text_len.set(char_count(&typed));
+                        ghost_active_typing.set(false);
                     }
+                }
+                if ghost_active_typing.get() {
+                    *ghost_full_typing.borrow_mut() = entry_h.text().to_string();
                 }
 
                 // ── Rebuild the row list ──
@@ -2196,13 +2338,9 @@ impl SearchWindow {
                     // button so the user can pin/unpin them from the manager.
                     // Everything else eligible (apps, files, web, etc.) gets a
                     // universal pin-toggle that works in any search mode.
-                    // The "App" trigger (manage/uninstall apps) shows system
-                    // actions like "Kill: ..." that aren't meaningful to pin —
-                    // no pin/unpin button there at all.
-                    let in_app_trigger = active_kw.as_ref().is_some_and(|kw| kw.id == "cmd");
                     let pin_mode = if is_clip && clip_mode {
                         pin_info_for(&r.action).map(|(k, key)| PinMode::Clipboard(k, key))
-                    } else if !in_app_trigger && universal_pin_eligible(r) {
+                    } else if universal_pin_eligible(r) {
                         Some(PinMode::Universal)
                     } else {
                         None
@@ -2314,15 +2452,23 @@ impl SearchWindow {
                     }
                     list.append(&row.container);
                 }
-                // Size the results list to the user's visible-row limit;
-                // with fewer results the list (and window) shrink
+                // Limit the list to the user's chosen number of rows. With
+                // fewer results the list (and window) shrink
                 // to fit exactly that many rows, with the rest scrollable.
-                size_results_to_limit(
-                    &list,
-                    &scroll_cb_results,
-                    new.len(),
-                    config.borrow().visible_result_limit,
-                );
+                {
+                    let visible_rows = new.len().min(visible_limit(&config.borrow())).max(1);
+                    if let Some(first) = list.row_at_index(0) {
+                        let (_, natural, _, _) = first.measure(gtk::Orientation::Vertical, -1);
+                        if natural > 0 {
+                            scroll_cb_results.set_max_content_height(natural * visible_rows as i32);
+                            // The overview on the right fits the list's height.
+                            preview_fit.fit_to(natural * visible_rows as i32);
+                        }
+                    }
+                    // Release the canonical min set before map so the window
+                    // can shrink to fit the actual content.
+                    scroll_cb_results.set_min_content_height(0);
+                }
                 // Restore selection across rebuilds (BT scan or same-query refresh).
                 rebuild_flag.set(false);
                 if let Some(sel_action) = &prev_selected_action {
@@ -2359,10 +2505,42 @@ impl SearchWindow {
             let bt_scan = start_bt_scan_ui.clone();
             let popover_open_click = popover_open.clone();
             let shown_click = shown.clone();
+            let cfg_click = config.clone();
+            let mode_click = active_mode.clone();
+            let ghost_click = ghost_active.clone();
+            let clip_mode_click = clipboard_mode.clone();
+            let from_keybinding_click = mode_from_keybinding.clone();
+            let chip_click = mode_chip.clone();
+            let chip_icon_click = mode_icon.clone();
+            let chip_label_click = mode_label.clone();
+            let skip_ghost_click = skip_ghost.clone();
             list.connect_row_activated(move |_, row| {
                 let rs = r.borrow();
                 if let Some(res) = rs.get(row.index() as usize) {
                     let query = real_typed_text(&e, &typed_len_c);
+                    if let Action::EnterMode(word) = &res.action {
+                        let kw = cfg_click.borrow().keyword_for_word(word);
+                        if let Some(kw) = kw.filter(|_| mode_click.borrow().is_none()) {
+                            drop(rs);
+                            clip_mode_click.set(kw.id == "clipboard");
+                            from_keybinding_click.set(false);
+                            chip_icon_click.set_icon_name(Some(if kw.icon.is_empty() {
+                                "folder-symbolic"
+                            } else {
+                                kw.icon.as_str()
+                            }));
+                            chip_label_click.set_text(&kw.chip_label());
+                            chip_click.set_visible(true);
+                            *mode_click.borrow_mut() = Some(kw);
+                            skip_ghost_click.set(true);
+                            ghost_click.set(false);
+                            typed_len_c.set(0);
+                            e.set_text("");
+                            e.grab_focus();
+                            crate::app::refresh_search_window();
+                            return;
+                        }
+                    }
                     if let Action::RunWithProgress { title, args } = &res.action {
                         sp_fn(title.clone(), args.clone());
                     } else if let Action::Bluetooth { op, mac } = &res.action {
@@ -3405,30 +3583,6 @@ impl SearchWindow {
                                     }
                                     return glib::Propagation::Stop;
                                 }
-                                // In "app" mode, the Kill/Install/Uninstall
-                                // templates aren't directly actionable — Enter
-                                // autofills their action word into the entry so
-                                // the user can type the app name next.
-                                if matches!(res.action, Action::EnterMode(ref m) if m == "cmd")
-                                    && matches!(
-                                        res.title.as_str(),
-                                        "Kill" | "Install" | "Uninstall"
-                                    )
-                                {
-                                    let word = format!("{} ", res.title.to_lowercase());
-                                    drop(rs);
-                                    skip_ghost_clone.set(true);
-                                    ghost_active_kc.set(false);
-                                    let end = char_count(&word) as i32;
-                                    suppress.set(true);
-                                    e.set_text(&word);
-                                    typed_len_c.set(char_count(&word));
-                                    e.select_region(end, end);
-                                    e.set_position(end);
-                                    suppress.set(false);
-                                    e.emit_by_name::<()>("changed", &[]);
-                                    return glib::Propagation::Stop;
-                                }
                                 if let Action::StartOperation {
                                     title,
                                     source,
@@ -3471,7 +3625,7 @@ impl SearchWindow {
                                     drop(rs);
                                     return glib::Propagation::Stop;
                                 }
-                                // Free-form "cmd" run: stream the command's
+                                // Shell trigger run: stream the command's
                                 // output in-window (same as clicking the row).
                                 if let Action::RunWithProgress { title, args } = &res.action {
                                     sp_fn_kc(title.clone(), args.clone());
@@ -3586,6 +3740,7 @@ impl SearchWindow {
         #[allow(unused_assignments)] // the block below always fills it
         let mut is_active_h: Option<glib::SignalHandlerId> = None;
         {
+            let cfg = config.clone();
             let w = window.clone();
             let popover_open = popover_open.clone();
             let popover_close_at = popover_close_at.clone();
@@ -3600,11 +3755,13 @@ impl SearchWindow {
                 let closed2 = popover_close_at.clone();
                 let progress2 = progress_active.clone();
                 let shown2 = shown.clone();
+                let cfg = cfg.clone();
                 glib::timeout_add_local_once(FOCUS_LOSS_GRACE, move || {
                     let closed_a_popover = closed2
                         .get()
                         .is_some_and(|at| at.elapsed() < FOCUS_LOSS_GRACE * 2);
-                    if should_hide_window(
+                    if cfg.borrow().behavior.hide_on_focus_loss
+                        && should_hide_window(
                         w2.is_active(),
                         shown2.get(),
                         flag2.get(),
@@ -3623,11 +3780,15 @@ impl SearchWindow {
             entry_changed_h: std::cell::Cell::new(entry_changed_h),
             is_active_h: std::cell::Cell::new(is_active_h),
             entry,
+            typed_len,
+            prev_text_len,
+            ghost_active,
             mode_chip,
             mode_icon,
             mode_label,
             active_mode,
             list,
+            results_scroll: scroll,
             revealer,
             preview_box,
             preview,
@@ -3658,6 +3819,7 @@ impl SearchWindow {
             ops_pill_revealer,
             ops_pill_label,
             ops_pill_open,
+            update_orb_message,
             toast_gen: Rc::new(Cell::new(0)),
             update_badge,
             pre_show_reset,
@@ -3683,7 +3845,8 @@ impl SearchWindow {
         // revealer with a fixed min-height so the compositor always places
         // the window at the same position.
         (self.pre_show_reset)();
-        self.window.set_startup_id("");
+        self.window.set_startup_id(&crate::app::take_activation_token());
+        animate_open(&self.window);
         self.window.set_visible(true);
         // Paint-first: move focus to the entry before the frame paints so the
         // window is focused the instant it appears.  Heavy work (search, ops
@@ -3769,13 +3932,14 @@ impl SearchWindow {
     pub fn present_keyword_mode(&self, keyword: crate::config::CommandKeyword) {
         self.shown.set(true);
         (self.pre_show_reset)();
-        self.window.set_startup_id("");
+        self.window.set_startup_id(&crate::app::take_activation_token());
+        animate_open(&self.window);
         self.window.set_visible(true);
         // Paint-first: focus + present first, then heavy work in after_paint.
         self.entry.grab_focus();
         self.window.present();
         self.window.set_opacity(1.0);
-        // Apply the same global appearance settings as regular search. This
+        // Apply the same footer and update notice as regular search. This
         // path also opens every built-in and installed trigger mode.
         self.sync_update_notification();
         self.sync_footer();
@@ -3858,6 +4022,25 @@ impl SearchWindow {
         (self.refresh_ops)();
     }
 
+    pub fn refresh_behavior(&self, config: &Config) {
+        // A changed "Visible Results" limit resizes the reserved window height.
+        let reserved = reserved_height(visible_limit(config));
+        if let Some(frame) = self.window.child() {
+            if frame.height_request() != reserved {
+                frame.set_height_request(reserved);
+                center_bar(&self.window);
+            }
+        }
+        let typed: String = self.entry.text().chars().take(self.typed_len.get()).collect();
+        if !config.behavior.inline_completions && self.ghost_active.replace(false) {
+            self.suppress_changed.set(true);
+            self.entry.set_text(&typed);
+            self.entry.set_position(-1);
+            self.prev_text_len.set(char_count(&typed));
+            self.suppress_changed.set(false);
+        }
+    }
+
     /// Let a preview showing a since-modified file re-render (live edit
     /// tracking — the pane also runs its own 1 s staleness check).
     pub fn refresh_preview_if_stale(&self) {
@@ -3925,14 +4108,33 @@ impl SearchWindow {
         let orb_busy = self.busy_revealer.reveals_child();
         self.update_badge
             .set_visible(!orb_busy && (notice.is_some() || reboot));
+        self.update_badge.set_icon_name(if reboot {
+            "system-reboot-symbolic"
+        } else {
+            "software-update-available-symbolic"
+        });
         if reboot {
-            let (title, _) = crate::search::cmd::reboot_notice();
-            self.update_badge.set_tooltip_text(Some(&title));
+            self.update_badge.add_css_class("spotty-update-restart");
+        } else {
+            self.update_badge.remove_css_class("spotty-update-restart");
+        }
+        if reboot {
+            let (title, subtitle) = if crate::search::cmd::offline_update_staged() {
+                (
+                    gettext("Update now"),
+                    gettext("Downloaded — schedule installation for the next restart"),
+                )
+            } else {
+                crate::search::cmd::reboot_notice()
+            };
+            self.update_badge
+                .set_tooltip_text(Some(&format!("{title}\n{subtitle}")));
         } else if let Some((n, _)) = &notice {
             let tip = if *n == 1 {
-                gettext("One update available")
+                gettext("One update available\nType update to see available actions")
             } else {
-                gettext("{n} updates available").replace("{n}", &n.to_string())
+                gettext("{n} updates available\nType update to see available actions")
+                    .replace("{n}", &n.to_string())
             };
             self.update_badge.set_tooltip_text(Some(&tip));
         } else {
@@ -3951,6 +4153,12 @@ impl SearchWindow {
         });
         // Priority: ops > finished-op flash > bt action > bt scan > find-mode > hidden.
         if apply_ops_ring(&self.ops_ring, &self.busy_stack, &self.busy_revealer) {
+            return;
+        }
+        if let Some(detail) = self.update_orb_message.borrow().clone() {
+            self.ops_ring.set(Some(1.0), crate::ui::circular_progress::RingState::Attention);
+            self.ops_ring.area().set_tooltip_text(Some(&detail));
+            self.reveal_orb();
             return;
         }
         if crate::search::bluetooth::is_busy() {
@@ -4127,46 +4335,212 @@ fn apply_ops_ring(
         },
     };
     ops_ring.set(fraction, state);
-    ops_ring.area().set_tooltip_text(Some(&title));
+    let tooltip = crate::operations::active_op_detail()
+        .map(|(title, detail)| {
+            if detail.is_empty() {
+                title
+            } else {
+                gettext("{title} — {detail}")
+                    .replace("{title}", &title)
+                    .replace("{detail}", &detail)
+            }
+        })
+        .unwrap_or(title);
+    ops_ring.area().set_tooltip_text(Some(&tooltip));
     busy_stack.set_visible_child_name("orb");
     set_revealed(busy_revealer, true);
     true
 }
 
-/// Shared dismiss path: fade out (~120ms) then unmap, or unmap instantly for
-/// action launches. The `shown` flag makes a spammed second dismiss a no-op
-/// and lets a concurrent show cancel the fade mid-way.
+/// Shared dismiss path. GNOME Shell plays its own close animation on the
+/// whole window (it shrinks toward the window's centre, which would drag the
+/// search bar down), and an app can't switch that off. So the panel goes first
+/// — it shrinks and fades itself, in place — and only then is the window
+/// unmapped: the Shell's animation then plays on an empty, transparent window
+/// and shows nothing. Action launches skip the shrink but still blank the
+/// panel for a frame first.
 fn dismiss(window: &gtk::Window, shown: &Rc<Cell<bool>>, animate: bool) {
     // Stop Bluetooth scan on hide (cancel = restore power if it was off).
     crate::search::bluetooth::stop_scan(crate::search::bluetooth::ScanStop::Cancelled);
     if !shown.get() {
         return;
     }
-    if !animate {
-        shown.set(false);
+    shown.set(false);
+    let Some(panel) = panel(window) else {
         window.set_visible(false);
         return;
+    };
+    let wait = if animate && super::animations_enabled() {
+        panel.remove_css_class("spotty-anim-in");
+        panel.add_css_class("spotty-anim-out");
+        CLOSE_MS
+    } else {
+        panel.set_opacity(0.0);
+        BLANK_MS
+    };
+    // Keep the keyboard until the key that closed us is let go. GNOME grabs
+    // the shortcut's press (Space in Super+Space) but hands its release to
+    // whichever window has focus then: unmapping first gave that release to
+    // the window below, and a video player there takes Space as play/pause
+    // (Escape's release likewise left a video's fullscreen). Keys pressed
+    // while the panel fades are swallowed, so nothing launches from a window
+    // that is already closing.
+    let released = Rc::new(Cell::new(false));
+    let keys = gtk::EventControllerKey::new();
+    keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+    keys.connect_key_pressed(|_, _, _, _| glib::Propagation::Stop);
+    {
+        let released = released.clone();
+        keys.connect_key_released(move |_, _, _, _| released.set(true));
     }
-    shown.set(false);
+    window.add_controller(keys.clone());
+    let started = std::time::Instant::now();
     let win = window.clone();
     let shown = shown.clone();
-    glib::timeout_add_local(
-        std::time::Duration::from_millis(16),
-        move || {
-            if shown.get() {
-                return glib::ControlFlow::Break;
+    glib::timeout_add_local(std::time::Duration::from_millis(10), move || {
+        let elapsed = started.elapsed().as_millis() as u64;
+        if shown.get() {
+            // A re-show replaced this window; it is no longer ours to unmap.
+            win.remove_controller(&keys);
+            return glib::ControlFlow::Break;
+        }
+        if elapsed < wait || !(released.get() || keys_up(&win) || elapsed >= KEY_RELEASE_MS) {
+            return glib::ControlFlow::Continue;
+        }
+        win.remove_controller(&keys);
+        win.set_visible(false);
+        // Hand the freed window/search memory back to the system while
+        // Spotty sits hidden.
+        glib::idle_add_local_once(|| unsafe {
+            libc::malloc_trim(0);
+        });
+        glib::ControlFlow::Break
+    });
+}
+
+/// No modifier is held any more, so the shortcut chord is over and its
+/// release has already come to us.
+fn keys_up(window: &gtk::Window) -> bool {
+    let held = gdk::ModifierType::SHIFT_MASK
+        | gdk::ModifierType::CONTROL_MASK
+        | gdk::ModifierType::ALT_MASK
+        | gdk::ModifierType::SUPER_MASK
+        | gdk::ModifierType::META_MASK;
+    WidgetExt::display(window)
+        .default_seat()
+        .and_then(|seat| seat.keyboard())
+        .is_some_and(|kb| !kb.modifier_state().intersects(held))
+}
+
+/// Longest the closed window keeps the keyboard waiting for a key release.
+const KEY_RELEASE_MS: u64 = 400;
+
+/// Time for the panel's blank frame to reach the compositor before unmapping.
+const BLANK_MS: u64 = 40;
+
+/// Start the open: the panel fades in where it is, right away. GNOME's own
+/// open animation for the (modal) window unfolds it around its centre line,
+/// which is where the bar sits, so nothing moves up or down.
+fn animate_open(window: &gtk::Window) {
+    // Already on screen: a repeated show must not restart the fade.
+    if window.is_mapped() {
+        return;
+    }
+    center_bar(window);
+    let Some(outer) = panel(window) else { return };
+    outer.remove_css_class("spotty-anim-out");
+    outer.remove_css_class("spotty-anim-in");
+    outer.set_opacity(1.0);
+    outer.add_css_class("spotty-anim-in");
+}
+
+/// Length of the close animation (`spotty-close` in style.css).
+const CLOSE_MS: u64 = 110;
+
+/// The panel inside the toplevel (see the frame in `SearchWindow::new`).
+fn panel(window: &gtk::Window) -> Option<gtk::Widget> {
+    window.child().and_then(|frame| frame.last_child())
+}
+
+/// Put the search bar at the middle of the toplevel: the transparent spacer
+/// above the panel is half the height minus half the bar.
+fn center_bar(window: &gtk::Window) {
+    let (Some(frame), Some(panel)) = (window.child(), panel(window)) else {
+        return;
+    };
+    let Some(bar) = panel.first_child() else { return };
+    let bar_h = bar.measure(gtk::Orientation::Vertical, -1).1;
+    let spacer = (frame.height_request() - bar_h) / 2;
+    if let Some(spacer_box) = frame.first_child() {
+        spacer_box.set_size_request(-1, spacer.max(0));
+    }
+}
+
+/// Width of the search window.
+const WINDOW_WIDTH: i32 = 750;
+/// Height of one result row, as the window's size is worked out.
+const ROW_HEIGHT: i32 = 54;
+/// Height of everything but the rows: search bar, footer, margins.
+const CHROME_HEIGHT: i32 = 260;
+
+/// Result rows shown before the list scrolls: the user's setting (3–20,
+/// default 5), held to what fits on the screen.
+fn visible_limit(config: &Config) -> usize {
+    let fits = ((primary_monitor_height() * 85 / 100 - CHROME_HEIGHT) / ROW_HEIGHT).max(3) as usize;
+    config.visible_result_limit.clamp(3, 20).min(fits)
+}
+
+/// Height the toplevel reserves up front: the search bar and the most result
+/// rows the user shows, or half the screen, whichever is taller. The extra is
+/// transparent and click-through. If the panel ever outgrows it, the window
+/// grows (and GNOME may move it).
+fn reserved_height(rows: usize) -> i32 {
+    let content = CHROME_HEIGHT + ROW_HEIGHT * rows as i32;
+    // GNOME centres a new window in the work area (`center-new-windows`), so
+    // a window half the screen tall sits centred on the screen; the search bar
+    // is centred inside it (see `center_bar`). It never resizes after that.
+    content.max(primary_monitor_height() / 2)
+}
+
+/// Height of the first monitor in logical pixels. Spotty can't place its own
+/// window on Wayland, so the height is what sets the spot (see above).
+fn primary_monitor_height() -> i32 {
+    gtk::gdk::Display::default()
+        .and_then(|d| d.monitors().item(0))
+        .and_downcast::<gtk::gdk::Monitor>()
+        .map_or(1080, |m| m.geometry().height())
+}
+
+/// Clicks only land on the panel: the transparent space below it passes
+/// through to the windows underneath (which, by taking focus, hides Spotty).
+fn track_input_region(window: &gtk::Window, panel: &gtk::Box) {
+    let panel = panel.clone();
+    window.connect_realize(move |win| {
+        let (Some(surface), Some(clock)) = (win.surface(), win.frame_clock()) else {
+            return;
+        };
+        let win = win.clone();
+        let panel = panel.clone();
+        clock.connect_after_paint(move |_| {
+            let Some(b) = panel.compute_bounds(&win) else {
+                return;
+            };
+            let reserved = win.child().map_or(0, |f| f.height_request());
+            if b.height().ceil() as i32 + b.y() as i32 > reserved {
+                log::warn!(
+                    "panel ({}px) outgrew the reserved window height ({reserved}px): the window will move",
+                    b.height().ceil() as i32 + b.y() as i32
+                );
             }
-            let next = win.opacity() - 0.125;
-            if next <= 0.0 {
-                win.set_opacity(0.0);
-                win.set_visible(false);
-                glib::ControlFlow::Break
-            } else {
-                win.set_opacity(next);
-                glib::ControlFlow::Continue
-            }
-        },
-    );
+            let rect = gtk::cairo::RectangleInt::new(
+                b.x() as i32,
+                b.y() as i32,
+                b.width().ceil() as i32,
+                b.height().ceil() as i32,
+            );
+            surface.set_input_region(&gtk::cairo::Region::create_rectangle(&rect));
+        });
+    });
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -4277,6 +4651,16 @@ enum PinMode {
     Universal,
 }
 
+/// The panel a small dialog draws inside its transparent toplevel — the same
+/// background, border, corners and shadow as the main window's panel. (The
+/// toplevel itself is transparent, so without this the dialog is invisible.)
+fn dialog_panel(content: &gtk::Box) -> gtk::Box {
+    let panel = gtk::Box::builder().css_classes(["spotty-outer"]).build();
+    content.set_width_request(200);
+    panel.append(content);
+    panel
+}
+
 // A small centered "<Title>?" confirmation dialog with Yes/No buttons,
 // styled to match the main Spotty window (rounded corners, libadwaita
 // theming). On "Yes", starts `plan` as a background operation; if `plan` is
@@ -4298,7 +4682,6 @@ fn show_confirm_dialog(
         .modal(true)
         .resizable(false)
         .decorated(false)
-        .default_width(260)
         .build();
     dialog.add_css_class("spotty-window");
 
@@ -4317,6 +4700,9 @@ fn show_confirm_dialog(
             .label(title)
             .css_classes(["title-3"])
             .halign(gtk::Align::Center)
+            .justify(gtk::Justification::Center)
+            .wrap(true)
+            .max_width_chars(28)
             .build(),
     );
     let btn_row = gtk::Box::builder()
@@ -4335,7 +4721,7 @@ fn show_confirm_dialog(
     btn_row.append(&yes_btn);
     btn_row.append(&no_btn);
     content.append(&btn_row);
-    dialog.set_child(Some(&content));
+    dialog.set_child(Some(&dialog_panel(&content)));
     dialog.set_default_widget(Some(&yes_btn));
 
     let popover_open2 = popover_open.clone();
@@ -4420,7 +4806,6 @@ fn confirm_delete_path(
         .modal(true)
         .resizable(false)
         .decorated(false)
-        .default_width(340)
         .build();
     dialog.add_css_class("spotty-window");
 
@@ -4439,6 +4824,9 @@ fn confirm_delete_path(
             .label(gettext("Do you want to delete \"{name}\"?").replace("{name}", &name))
             .css_classes(["title-3"])
             .halign(gtk::Align::Center)
+            .justify(gtk::Justification::Center)
+            .wrap(true)
+            .max_width_chars(28)
             .build(),
     );
     content.append(
@@ -4446,6 +4834,9 @@ fn confirm_delete_path(
             .label(gettext("It will be moved to the Trash."))
             .css_classes(["dim-label", "caption"])
             .halign(gtk::Align::Center)
+            .justify(gtk::Justification::Center)
+            .wrap(true)
+            .max_width_chars(28)
             .build(),
     );
     let btn_row = gtk::Box::builder()
@@ -4465,7 +4856,7 @@ fn confirm_delete_path(
     btn_row.append(&delete_btn);
     btn_row.append(&no_btn);
     content.append(&btn_row);
-    dialog.set_child(Some(&content));
+    dialog.set_child(Some(&dialog_panel(&content)));
     // Default answer is No: it owns the default widget and the initial focus.
     dialog.set_default_widget(Some(&no_btn));
 
@@ -4582,7 +4973,6 @@ fn universal_pin_eligible(r: &SearchResult) -> bool {
             | Action::RunWithProgress { .. }
             | Action::InsertCalculatorResult(_)
             | Action::Bluetooth { .. }
-            | Action::ProtonVpn { .. }
             | Action::ConfirmRunCommand(_)
             | Action::ToggleUpdates
             | Action::SnoozeUpdates
@@ -4758,6 +5148,21 @@ fn candidate_for(res: &SearchResult, user_text: &str) -> Option<String> {
     } else {
         Some(res.title.clone())
     }
+}
+
+/// The rest of a shown ghost once `typed` has been typed: "firefox" with
+/// "firef" typed leaves "ox". None when `typed` left the suggestion or used
+/// it all up. Compared letter by letter, ignoring case, like the ghost itself.
+fn ghost_tail(shown: &str, typed: &str) -> Option<String> {
+    let typed_n = char_count(typed);
+    if typed_n == 0 || char_count(shown) <= typed_n {
+        return None;
+    }
+    let same = shown
+        .chars()
+        .zip(typed.chars())
+        .all(|(a, b)| a.to_lowercase().eq(b.to_lowercase()));
+    same.then(|| shown.chars().skip(typed_n).collect())
 }
 
 fn apply_ghost(
@@ -6306,15 +6711,6 @@ fn activate(
             crate::app::run_in_terminal(cmd);
             dismiss(window, shown, false);
         }
-        Action::OpenProtonVpn => {
-            crate::ui::settings_window::show_proton_vpn_popup(window);
-            dismiss(window, shown, false);
-        }
-        Action::ProtonVpn { op, target } => {
-            // Runs in the background; the outcome arrives as a notification.
-            crate::proton_vpn::run_search_action(op, target);
-            dismiss(window, shown, false);
-        }
         Action::RunWithProgress { .. } => {
             // Handled in the row-activation path (run_fn closure), not here.
         }
@@ -6605,6 +7001,16 @@ fn op_actions_equal(a: &crate::search::Action, b: &crate::search::Action) -> boo
 
 #[cfg(test)]
 mod popover_dismiss_tests {
+    #[test]
+    fn ghost_tail_keeps_the_suggestion_while_its_letters_are_typed() {
+        use super::ghost_tail;
+        assert_eq!(ghost_tail("Firefox", "firef").as_deref(), Some("ox"));
+        assert_eq!(ghost_tail("Firefox", "fiz"), None);
+        assert_eq!(ghost_tail("Firefox", "firefox"), None);
+        assert_eq!(ghost_tail("Ünïcode", "ün").as_deref(), Some("ïcode"));
+        assert_eq!(ghost_tail("abc", ""), None);
+    }
+
     use super::{escape_intent, is_popover_interaction, EscapeIntent};
 
     #[test]

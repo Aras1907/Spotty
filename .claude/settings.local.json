@@ -6,7 +6,11 @@
       "Bash(flatpak list *)",
       "Bash(flatpak-spawn --host flatpak list)",
       "Bash(flatpak-spawn *)",
-      "Bash(PKG_CONFIG_PATH=/run/host/usr/lib64/pkgconfig:/run/host/usr/share/pkgconfig PKG_CONFIG_SYSROOT_DIR=/run/host cargo check)"
+      "Bash(PKG_CONFIG_PATH=/run/host/usr/lib64/pkgconfig:/run/host/usr/share/pkgconfig PKG_CONFIG_SYSROOT_DIR=/run/host cargo check)",
+      "Bash(python3 -c ' *)",
+      "Bash(cd /home/aras/development/spotty-v6-src; sed -n 20,45p src/index.rs; sed -n 811,830p src/index.rs; grep -n 'pub fn load\\\\b\\\\|pub fn load\\(' src/config.rs; ls -la ~/.cache/spotty 2>/dev/null | head)",
+      "Read(//home/aras/.cache/spotty/**)",
+      "Bash(python3 -)"
     ]
   }
 }

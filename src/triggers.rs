@@ -47,22 +47,49 @@ pub struct RepoTrigger {
     pub author: String,
     #[serde(default)]
     pub shortcut: String,
-    /// Background services have settings instead of a search keyword.
-    #[serde(default)]
-    pub category: String,
-    /// Enable this shipped backend on a fresh Spotty install. This is not a
-    /// Store category; services are never search defaults.
+    /// Enable this shipped backend on a fresh Spotty install.
     #[serde(default, alias = "builtin")]
     pub preinstalled: bool,
     /// This entry requires a Rust backend compiled into Spotty.
     #[serde(default)]
     pub native: bool,
+    /// The Store's detail page: a longer description. Empty hides the section.
+    #[serde(default, deserialize_with = "lenient_text")]
+    pub long_description: String,
+    /// Example queries, listed under Usage. Empty hides the section.
+    #[serde(default, deserialize_with = "lenient_list")]
+    pub examples: Vec<String>,
+    /// What the entry talks to, for "Talks to <network>". Empty means it runs
+    /// on this computer.
+    #[serde(default, deserialize_with = "lenient_text")]
+    pub network: String,
+    /// A page about the entry. Shown only when it is an http or https URL.
+    #[serde(default, deserialize_with = "lenient_text")]
+    pub homepage: String,
 }
 
-impl RepoTrigger {
-    pub fn is_service(&self) -> bool {
-        self.category == "service" || matches!(self.id.as_str(), "proton-bridge" | "proton-vpn" | "proton-calendar" | "proton-drive")
-    }
+/// A store detail that is not text is read as empty, so one malformed field
+/// hides its section instead of failing the whole catalog.
+fn lenient_text<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::String(text) => text,
+        _ => String::new(),
+    })
+}
+
+/// A list of example queries: entries that are not non-empty strings are
+/// skipped; a value that is not an array gives no examples.
+fn lenient_list<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
+    Ok(match serde_json::Value::deserialize(deserializer)? {
+        serde_json::Value::Array(items) => items
+            .into_iter()
+            .filter_map(|item| match item {
+                serde_json::Value::String(text) if !text.trim().is_empty() => Some(text),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    })
 }
 
 /// What a trigger does with the user's typed query.
@@ -189,13 +216,13 @@ pub fn load_all() {
             continue;
         }
         match parse_manifest(&path) {
-            // Preserve legacy files, but never register either Proton service
-            // as a keyword or shortcut.
-            Ok(m) if matches!(m.id.as_str(), "proton-bridge" | "proton-vpn" | "proton-calendar" | "proton-drive") => {},
+            // Proton integrations were removed from Spotty: leave any old
+            // manifest on disk, but never register it as a keyword or shortcut.
+            Ok(m) if m.id.starts_with("proton-") => {},
             Ok(m) if validate_structure(&m).is_ok()
                 && path.file_stem().and_then(|s| s.to_str()) == Some(m.id.as_str())
                 && !loaded.iter().any(|other: &TriggerManifest|
-                    other.id == m.id || other.word.eq_ignore_ascii_case(&m.word)) => loaded.push(m),
+                    other.id == m.id || (!m.word.is_empty() && other.word.eq_ignore_ascii_case(&m.word))) => loaded.push(m),
             Ok(_) => log::warn!("triggers: skipping invalid or duplicate manifest {}", path.display()),
             Err(e) => log::warn!("triggers: skipping {}: {}", path.display(), e),
         }
@@ -245,6 +272,7 @@ pub fn to_keyword(a: &TriggerManifest) -> CommandKeyword {
 }
 
 pub fn keyword_for_word(word: &str) -> Option<CommandKeyword> {
+    if word.is_empty() { return None; }
     all()
         .into_iter()
         .filter(|a| a.enabled)
@@ -308,7 +336,7 @@ pub fn update_manifest(id: &str, word: &str, shortcut: &str, enabled: bool) -> R
     m.enabled = enabled;
     validate_structure(&m)?;
     if m.id != id || all().iter().any(|other|
-        other.id != id && other.word.eq_ignore_ascii_case(&m.word)) {
+        other.id != id && !m.word.is_empty() && other.word.eq_ignore_ascii_case(&m.word)) {
         return Err("Mismatched id or trigger word already in use".into());
     }
     let raw = serde_json::to_string_pretty(&m).map_err(|e| format!("serialize: {e}"))?;
@@ -336,7 +364,7 @@ pub fn parse_manifest(path: &Path) -> Result<TriggerManifest, String> {
 }
 
 /// Structural checks that keep a bad manifest from wedging the app:
-/// id charset (must be a legal GTK action name), non-empty word, known
+/// id charset (must be a legal GTK action name), optional word, known
 /// action, no word collision with built-ins or other triggers.
 fn validate_id(id: &str) -> Result<(), String> {
     if crate::security::valid_id(id) { Ok(()) }
@@ -348,9 +376,9 @@ fn validate_structure(m: &TriggerManifest) -> Result<(), String> {
     if matches!(m.action, TriggerAction::Native) {
         return Err("Native manifests must be installed through Spotty Settings.".into());
     }
-    if m.word.is_empty() || m.word.len() > 128
+    if m.word.len() > 128
         || m.word.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        return Err("Trigger word must be one nonempty word (at most 128 bytes)".into());
+        return Err("Trigger word must be empty or one word (at most 128 bytes)".into());
     }
     if crate::trigger_defaults::supports_native(&m.id) {
         return Err(gettext("id '{id}' is a built-in trigger").replace("{id}", &m.id));
@@ -401,9 +429,9 @@ pub fn validate(m: &TriggerManifest) -> Result<(), String> {
     if by_id(&m.id).is_some() {
         return Err(gettext("trigger '{id}' is already installed").replace("{id}", &m.id));
     }
-    if keyword_for_word(&m.word).is_some()
+    if !m.word.is_empty() && (keyword_for_word(&m.word).is_some()
         || crate::config::Config::load().command_keywords.iter()
-            .any(|kw| kw.word.eq_ignore_ascii_case(&m.word)) {
+            .any(|kw| kw.word.eq_ignore_ascii_case(&m.word))) {
         return Err(gettext("trigger word '{word}' is already in use").replace("{word}", &m.word));
     }
     match &m.action {
@@ -504,6 +532,21 @@ mod tests {
             serde_json::from_str(r#"[{"id":"x","name":"X"}]"#).expect("minimal shape");
         assert!(minimal[0].word.is_empty());
         assert!(minimal[0].icon.is_empty());
+    }
+
+    #[test]
+    fn store_details_are_optional_and_malformed_ones_hide_instead_of_failing() {
+        let raw = r#"[
+            {"id":"a","name":"A","long_description":"Long.","examples":["a b", 3, "  "],"network":"Proton's API","homepage":"https://example.org"},
+            {"id":"b","name":"B","long_description":5,"examples":"nope","network":null,"homepage":["x"]}
+        ]"#;
+        let list: Vec<RepoTrigger> = serde_json::from_str(raw).expect("store details are read leniently");
+        assert_eq!(list[0].long_description, "Long.");
+        assert_eq!(list[0].examples, ["a b"]);
+        assert_eq!(list[0].network, "Proton's API");
+        assert_eq!(list[0].homepage, "https://example.org");
+        assert!(list[1].long_description.is_empty() && list[1].examples.is_empty());
+        assert!(list[1].network.is_empty() && list[1].homepage.is_empty());
     }
 
     #[test]

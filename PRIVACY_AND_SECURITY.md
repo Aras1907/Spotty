@@ -53,7 +53,7 @@ rejected rather than followed. XDG parent directories are not chmodded.
 
 | Data | Location/content | Retention and control |
 |---|---|---|
-| Configuration | `config.json`: preferences, shortcuts, pins, endpoint, optional translation API key, and whether Proton Bridge/VPN controls are enabled | Until changed/reset; plaintext, not encrypted; the Proton flag stores no account credentials |
+| Configuration | `config.json`: preferences, shortcuts, pins, endpoint, optional translation API key | Until changed/reset; plaintext, not encrypted |
 | Clipboard history | `clipboard_history.json`; images under `clipboard-images` in the cache | Captured while Clipboard is enabled and installed, including while the window is hidden. Default limit is 1,000 entries; default time retention is unlimited. Configure retention, remove entries, or disable/uninstall Clipboard to stop new capture |
 | Pinned clipboard items | Configuration, including pinned text or image paths | Pins have separate persistence; disabling capture does not erase them |
 | Search ranking history | `history.json`: selected queries, result titles and counts | **Off by default**; enable “Keep search history” in General → Privacy. Existing history is retained when switched off; new history is bounded to 1,000 query keys |
@@ -61,7 +61,7 @@ rejected rather than followed. XDG parent directories are not chmodded.
 | OCR | `ocr.tsv`: extracted document/image text and file paths | Persistent cache; can contain private text even after the original file is removed |
 | Previews and thumbnails | Cached document pages, media, images and thumbnails | Persistent caches; these can reveal document contents |
 | Commands, translation and operation results | Recent commands, translations and command output in process memory | Normally the daemon lifetime; explicitly enabling search history can also persist selected text/titles |
-| IPC | `spotty.pid`, `spotty_keyword.txt`, `spotty_bin` | Local daemon communication; private writes and validated PID identity |
+| IPC | `spotty.pid`, `spotty_keyword.txt` | Local daemon communication; private writes and validated PID identity |
 
 There is **no encryption at rest** in Spotty. File permissions protect against
 other ordinary users, but do not protect against root, malware running as your
@@ -84,14 +84,13 @@ review. This does **not** mean the application never uses the network.
 | Feature | Who receives data and when |
 |---|---|
 | Trigger Store and help images | Opening the Store requests its catalog; installing requests the manifest. Previewing a trigger can download its help image. The configured repository/image host sees the request, IP address and normal connection metadata |
-| Translation | Typed text, source/target languages and an optional API key are POSTed to `translate_endpoint` after the typing delay or explicit translation. The default is `http://localhost:5000`; configuring a remote endpoint sends this data to that service over HTTPS. There is no automatic cloud fallback |
+| Translation | Typed text and source/target languages are POSTed over HTTPS to Google Translate's free endpoint (`translate.googleapis.com`) shortly after typing pauses or on explicit translation. Setting `translate_endpoint` to anything other than the default `http://localhost:5000` sends the text (and an optional API key) to that LibreTranslate server instead, and nothing goes to Google |
 | Dictionary backend | If used, dictionary words and suggestion prefixes are sent to DictionaryAPI, Wiktionary and/or Datamuse; following a result may open Dictionary.com |
 | Web search and web triggers | Activating the result sends the query to the selected website through your browser. Private browsing does not hide the query or your IP from that website |
 | Missing icons | **Downloads are off by default**. Enabling “Download missing icons” contacts search sites or browser-configured icon hosts and Flathub for app icons, revealing domains/app identifiers. Third-party Google and DuckDuckGo favicon fallbacks were removed. Local and already cached icons still work |
 | Currency conversion | When used, exchange-rate and currency-name downloads contact jsDelivr or the currency API's Cloudflare Pages endpoint; the rate request does not contain the amount being converted |
 | Apps and updates | Configured package managers and repositories can receive install/search/update requests. Automatic update notifications require the Updates provider to be installed/enabled and notifications to be enabled |
 | Shell commands/triggers | Their network behavior is determined by the command and the programs it starts |
-| Proton VPN controls | When its popup opens or a control is clicked, Spotty invokes the official `protonvpn` CLI on the host. Proton receives the CLI's sign-in, status or connection requests and normal network metadata. Spotty passes only the username for sign-in; password and 2FA stay in Proton's interactive prompt, and VPN account data is not stored by Spotty |
 
 Shared HTTP downloads have time/redirect limits and a hard limit on bytes read.
 Remote downloads and translation require HTTPS; HTTP is allowed for the

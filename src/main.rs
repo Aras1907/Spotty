@@ -42,6 +42,8 @@ mod i18n;
 #[path = "../trigger-backends/src/features/imageinfo.rs"]
 mod imageinfo;
 mod index;
+#[path = "../trigger-backends/src/features/keyring.rs"]
+mod keyring;
 #[path = "../trigger-backends/src/features/keysynth.rs"]
 mod keysynth;
 mod md5;
@@ -51,9 +53,6 @@ mod operations;
 mod packagekit;
 #[path = "../trigger-backends/src/features/preview.rs"]
 mod preview;
-#[path = "../trigger-backends/src/features/proton_bridge.rs"]
-mod proton_bridge;
-mod proton_vpn;
 #[path = "../trigger-backends/src/features/recent_paths.rs"]
 mod recent_paths;
 #[path = "../trigger-backends/src/search/mod.rs"]
@@ -61,7 +60,6 @@ mod search;
 #[path = "../trigger-backends/src/defaults.rs"]
 mod trigger_defaults;
 mod keybindings;
-mod shell_extension;
 #[path = "../trigger-backends/src/features/ocr.rs"]
 mod ocr;
 #[path = "../trigger-backends/src/features/opprogress.rs"]
@@ -70,41 +68,17 @@ mod opprogress;
 mod thumbnails;
 mod ui;
 fn main() -> glib::ExitCode {
+    // Two malloc arenas instead of one per thread (glibc's default): the
+    // daemon's threads are mostly idle, and per-thread arenas kept ~18 MB of
+    // freed memory resident. Must run before any thread starts.
+    unsafe {
+        libc::mallopt(libc::M_ARENA_MAX, 2);
+    }
     if let Err(e) = security::protect_state_dirs() {
         eprintln!("Cannot secure Spotty's private state directories: {e}");
         return glib::ExitCode::FAILURE;
     }
-    let mut args: Vec<String> = std::env::args().collect();
-    // Explicit migration of a previously packaged, detached Bridge server.
-    // The helper verifies ownership and the old bundle before sending Quit.
-    if let Some(pid) = args.get(1).and_then(|arg| arg.strip_prefix("--bridge-stop-legacy=")) {
-        return match pid.parse::<u32>()
-            .map_err(|_| "Invalid legacy Bridge process ID.".to_owned())
-            .and_then(spotty_proton_bridge_gui::engine::stop_legacy_bundled)
-        {
-            Ok(()) => glib::ExitCode::SUCCESS,
-            Err(message) => {
-                eprintln!("{message}");
-                glib::ExitCode::FAILURE
-            }
-        };
-    }
-    // Migrate old Bridge startup entries to Spotty's normal daemon. The mail
-    // server now runs in this process and needs the application to stay alive.
-    if args.iter().any(|arg| arg == "--proton-bridge-gui")
-        && args.iter().any(|arg| arg == "--background")
-    {
-        // Old startup entries must not reactivate an uninstalled service.
-        if !config::Config::load().proton_bridge_enabled
-            || (spotty_proton_bridge_gui::background::is_flatpak()
-                && !spotty_proton_bridge_gui::background::autostart_enabled())
-        {
-            return glib::ExitCode::SUCCESS;
-        }
-        args.truncate(1);
-        args.push("--daemon".into());
-    }
-
+    let args: Vec<String> = std::env::args().collect();
     // ── CLI-only commands (no GTK init) ──
     if args.len() >= 2 && args[1] == "--ocr-scan" {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("spotty=info"))
@@ -184,6 +158,14 @@ fn main() -> glib::ExitCode {
                     if security::write_private(&kw_path, mode).is_err() {
                         return glib::ExitCode::FAILURE;
                     }
+                }
+                // Pass the launch's activation token on (see spotty-toggle).
+                if let Some(token) = ["XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID"]
+                    .iter()
+                    .filter_map(|name| std::env::var(name).ok())
+                    .find(|t| !t.is_empty() && t.len() <= 256 && t.bytes().all(|b| b.is_ascii_graphic()))
+                {
+                    let _ = security::write_private(config_pid_file().with_file_name("spotty_activation.txt"), token);
                 }
                 unsafe { libc::kill(pid, libc::SIGUSR1); }
                 return glib::ExitCode::SUCCESS;
@@ -293,11 +275,6 @@ fn main() -> glib::ExitCode {
     }
 
     let exit = app.run_with_args(&args);
-    // The UI loop has ended; wait for the owned mail engine to flush and close
-    // its listeners before allowing this process to exit.
-    if let Err(message) = spotty_proton_bridge_gui::engine::stop() {
-        log::warn!("bridge: shutdown failed: {message}");
-    }
     exit
 }
 

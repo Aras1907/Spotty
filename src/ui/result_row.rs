@@ -40,6 +40,15 @@ impl ResultRow {
         if r.icon.as_deref() == Some("dict-def") {
             return Self::build_definition(r);
         }
+        // Translation: source → target card with language chips.
+        if let Some(fields) = r
+            .icon
+            .as_deref()
+            .and_then(|i| i.strip_prefix(crate::search::translate::CARD_ICON))
+            .and_then(|rest| rest.strip_prefix('\u{1f}'))
+        {
+            return Self::build_translation(r, fields);
+        }
 
         let c = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
@@ -367,6 +376,129 @@ impl ResultRow {
                 });
             }
         }
+
+        Self {
+            container: c,
+            trash_button: None,
+            pin_button: None,
+        }
+    }
+
+    /// Translation card (Raycast-style): the typed text on the left, the
+    /// translation on the right, an arrow between them and the language of
+    /// each side as a chip underneath. `fields` = source text, source
+    /// language, target language, state, note (see `translate::CARD_ICON`).
+    fn build_translation(r: &SearchResult, fields: &str) -> Self {
+        let mut f = fields.split('\u{1f}');
+        let mut next = || f.next().unwrap_or("").to_string();
+        let (text, src_lang, tgt_lang, state, note) = (next(), next(), next(), next(), next());
+
+        let c = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(6)
+            .margin_start(6)
+            .margin_end(6)
+            .margin_top(6)
+            .margin_bottom(6)
+            .build();
+        c.append(
+            &gtk::Label::builder()
+                .label(gettext("Translate"))
+                .halign(gtk::Align::Start)
+                .margin_start(6)
+                .css_classes(["caption-heading", "dim-label"])
+                .build(),
+        );
+
+        let big = |label: &str, dim: bool| {
+            let l = gtk::Label::builder()
+                .label(label)
+                .wrap(true)
+                .wrap_mode(pango::WrapMode::WordChar)
+                .justify(gtk::Justification::Center)
+                .lines(4)
+                .ellipsize(pango::EllipsizeMode::End)
+                .max_width_chars(28)
+                .css_classes(["title-3"])
+                .build();
+            if dim {
+                l.add_css_class("dim-label");
+            }
+            l
+        };
+        let pane = |main: &gtk::Label, extra: Option<gtk::Label>, chip: &str| {
+            let b = gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
+                .spacing(6)
+                .hexpand(true)
+                .valign(gtk::Align::Fill)
+                .margin_start(18)
+                .margin_end(18)
+                .margin_top(22)
+                .margin_bottom(14)
+                .build();
+            let text_box = gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
+                .spacing(4)
+                .vexpand(true)
+                .valign(gtk::Align::Center)
+                .build();
+            text_box.append(main);
+            if let Some(e) = extra {
+                text_box.append(&e);
+            }
+            b.append(&text_box);
+            b.append(
+                &gtk::Label::builder()
+                    .label(chip)
+                    .halign(gtk::Align::Center)
+                    .css_classes(["caption", "spotty-lang-chip"])
+                    .build(),
+            );
+            b
+        };
+        let small = |label: &str| {
+            gtk::Label::builder()
+                .label(label)
+                .wrap(true)
+                .justify(gtk::Justification::Center)
+                .max_width_chars(36)
+                .css_classes(["caption", "dim-label"])
+                .build()
+        };
+
+        let left = pane(&big(&text, false), None, &src_lang);
+        let (right_main, right_extra) = match state.as_str() {
+            "ok" => (big(&r.title, false), (!note.is_empty()).then(|| small(&note))),
+            "same" => (big(&r.title, false), Some(small(&note))),
+            "error" => (
+                big(&gettext("Translation unavailable"), true),
+                Some(small(&format!("{note} · {}", gettext("Enter to retry")))),
+            ),
+            _ => (big(&gettext("Translating…"), true), None),
+        };
+        let right = pane(&right_main, right_extra, &tgt_lang);
+        right.add_css_class("spotty-translate-target");
+
+        let panes = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .homogeneous(true)
+            .build();
+        panes.append(&left);
+        panes.append(&right);
+
+        let overlay = gtk::Overlay::new();
+        overlay.set_child(Some(&panes));
+        overlay.add_css_class("spotty-translate-card");
+        let arrow = gtk::Image::builder()
+            .icon_name("go-next-symbolic")
+            .pixel_size(16)
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .css_classes(["spotty-translate-arrow"])
+            .build();
+        overlay.add_overlay(&arrow);
+        c.append(&overlay);
 
         Self {
             container: c,

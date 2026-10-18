@@ -23,6 +23,26 @@ does not fetch or execute Store code at runtime. Change trigger logic in
 the submodule, push it to `spotty-triggers`, and commit the new submodule
 revision here.
 
+**Settings → General** includes the launcher shortcut, Start at Login, hiding
+when focus moves away, inline completions, and folder path browsing in regular
+search. Turning off Start at Login stays disabled after restarting Spotty.
+Escape and the launcher shortcut still dismiss the launcher when automatic
+hiding is off. Turning off inline completions keeps Tab completion available.
+
+**Settings → Search → Regular Search → Expand Empty Search** expands the
+launcher when the regular search box is empty. It lists every enabled,
+installed trigger with a word and description, in your configured order.
+Select a row or press Enter to open that trigger. The list includes triggers
+that only show results in their dedicated mode; scroll to see every word.
+Disabled, uninstalled and wordless entries are omitted. This option starts
+disabled, and the search box stays empty while you browse the words.
+
+Trigger words are optional for every trigger. Clear **Word** in its settings
+(or leave it blank when creating a trigger) to include its results automatically
+in regular search. **Show in Regular Search** stays on while the word is empty.
+Multiple triggers can have empty words. Disabled triggers still contribute no
+results, and shell actions run only when selected.
+
 ## Privacy and security
 
 Spotty runs with your user's desktop and file permissions. Shell triggers run
@@ -40,51 +60,3 @@ using [SECURITY.md](SECURITY.md).
 
 The manifests and backend source are documented in
 [spotty-triggers](https://github.com/Aras1907/spotty-triggers).
-
-### Optional Proton Mail Bridge
-
-Linux x86_64 builds include the verified Proton Bridge runtime and its login
-controls in Spotty. In **Settings → Search → Store**, open the **Proton**
-section and click **Install** for Proton Mail Bridge. Its installed service
-row then appears under
-**Services and integrations**. Click **Settings** to sign in, manage accounts,
-and copy the generated Bridge password and local IMAP/SMTP settings into your
-mail client in a modal Bridge popup attached to Spotty's Settings window.
-Passwords start hidden and can be revealed or copied. Copied passwords carry
-a sensitive-content marker and are excluded from Spotty's clipboard history.
-
-Bridge is an optional service compiled as a Go library and loaded inside
-Spotty's process when installed. It has no separate mail-server process, search
-trigger, or application installation. Uninstall removes its Settings row and
-account page and stops its mail listeners; saved accounts remain available for
-reinstallation. Closing Settings keeps mail connected in the Spotty daemon.
-Quitting Spotty also stops Bridge. A paid Proton Mail plan and an unlocked
-Linux keyring are required.
-
-Build with current submodules (`git submodule update --init --recursive`) and
-`cargo install --path . --locked`. Restart a running Spotty after installing a
-new binary so its cached settings use the updated interface. The build requires
-Python 3, Go 1.26.7 or newer, a C compiler, and libfido2 development headers.
-Network access prepares the pinned source and Go modules on the first build.
-It installs no system packages. The Flatpak manifest supplies the Go SDK and
-native headers, uses the same in-process engine, and enables network and Secret
-Service access for the mail service.
-See [package details](trigger-backends/proton-bridge-gui/README.md).
-
-### Optional Proton VPN controls
-
-Install **Proton VPN** from the **Proton** section in **Settings → Search → Store**
-to add a connection
-popup under **Services and integrations**. Spotty uses the official Proton VPN
-Linux CLI on the host for status, connect, disconnect, sign-in and sign-out.
-The popup asks only for the account username; Proton's own CLI handles the
-password, two-factor authentication and security-key prompts in a terminal.
-Spotty never reads or stores those credentials and does not implement or
-install a VPN tunnel.
-
-Install the official Proton VPN CLI separately from
-[Proton's Linux guide](https://protonvpn.com/support/download-and-installation/linux).
-Proton's CLI and GUI apps cannot run at the same time. Flatpak builds call the
-host CLI through Spotty's existing host-command bridge. Uninstalling this
-integration removes only Spotty's controls; it leaves the Proton package,
-account and current VPN connection alone.

@@ -2,6 +2,7 @@ use crate::config::{CommandKeyword, Config, SearchEngine};
 use crate::i18n::gettext;
 use adw::prelude::*;
 use gtk::glib;
+use gtk::pango;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -27,7 +28,7 @@ impl SettingsWindow {
             .build();
 
         build_general_page(&window, &config);
-        let refresh_triggers = build_keywords_page(&window, app, &config);
+        let refresh_triggers = build_keywords_page(&window, &config);
 
         Self {
             window,
@@ -71,867 +72,6 @@ fn save_and_refresh(cfg: &Rc<RefCell<Config>>, f: impl FnOnce(&mut Config)) {
     save_then(cfg, f, crate::app::refresh_search_window);
 }
 
-/// Commit a Proton service setting before mutating the live config. This
-/// keeps Install/Uninstall truthful if the private config file cannot be
-/// written, and lets Bridge lifecycle refreshes run only after persistence.
-fn save_service_state(
-    cfg: &Rc<RefCell<Config>>,
-    update: impl FnOnce(&mut Config),
-) -> Result<(), String> {
-    {
-        let mut config = cfg.borrow_mut();
-        let previous = config.clone();
-        update(&mut config);
-        if let Err(error) = config.save_checked() {
-            *config = previous;
-            return Err(error);
-        }
-    }
-    crate::app::refresh_search_window();
-    Ok(())
-}
-
-fn show_service_save_error(window: &adw::PreferencesWindow, message: &str) {
-    let dialog = adw::MessageDialog::builder()
-        .transient_for(window)
-        .heading(gettext("Couldn't save Proton service settings"))
-        .body(message)
-        .build();
-    dialog.add_response("ok", &gettext("OK"));
-    dialog.set_default_response(Some("ok"));
-    dialog.present();
-}
-
-/// Run `task` on a worker thread and hand its result to `done` on the GTK
-/// main thread.
-fn spawn_vpn_task<T: Send + 'static>(
-    task: impl FnOnce() -> T + Send + 'static,
-    done: impl FnOnce(T) + 'static,
-) {
-    let (tx, rx) = futures::channel::oneshot::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(task());
-    });
-    glib::MainContext::default().spawn_local(async move {
-        if let Ok(result) = rx.await {
-            done(result);
-        }
-    });
-}
-
-fn suffix_button(label: &str, class: Option<&str>) -> gtk::Button {
-    let button = gtk::Button::with_label(label);
-    button.set_valign(gtk::Align::Center);
-    if let Some(class) = class {
-        button.add_css_class(class);
-    }
-    button
-}
-
-/// Open the Proton VPN window over whichever Spotty window is around (used
-/// when a `vpn` search action needs sign-in first).
-pub(crate) fn open_proton_vpn_popup() {
-    let Some(app) = gtk::gio::Application::default().and_then(|app| app.downcast::<adw::Application>().ok()) else {
-        return;
-    };
-    if let Some(window) = app.active_window().or_else(|| app.windows().into_iter().next()) {
-        show_proton_vpn_popup(&window);
-    }
-}
-
-/// The Proton VPN window: Spotty's in-app client (Proton's official library).
-/// Signed out it shows Proton sign-in (with two-factor); signed in, the
-/// connection, Proton's settings and the account.
-struct VpnWindow {
-    popup: adw::ApplicationWindow,
-    stack: gtk::Stack,
-    banner: adw::Banner,
-    config: Rc<RefCell<Config>>,
-    // Sign-in page
-    username: adw::EntryRow,
-    password: adw::PasswordEntryRow,
-    sign_in: gtk::Button,
-    code_group: adw::PreferencesGroup,
-    code: adw::EntryRow,
-    // Main page
-    status_row: adw::ActionRow,
-    status_icon: gtk::Image,
-    status_spinner: gtk::Spinner,
-    toggle: gtk::Button,
-    country_row: adw::ComboRow,
-    country_codes: RefCell<Vec<String>>,
-    place_row: adw::EntryRow,
-    protocol_row: adw::ComboRow,
-    protocol_ids: RefCell<Vec<String>>,
-    netshield_row: adw::ComboRow,
-    killswitch_row: adw::ComboRow,
-    switches: Vec<(&'static str, adw::SwitchRow)>,
-    account_row: adw::ActionRow,
-    /// True while values are being filled in from Proton, so the change
-    /// handlers don't write them straight back.
-    loading: std::cell::Cell<bool>,
-    busy: std::cell::Cell<bool>,
-}
-
-impl VpnWindow {
-    fn error(&self, message: &str) {
-        self.banner.set_title(message);
-        self.banner.set_revealed(true);
-    }
-
-    fn clear_error(&self) {
-        self.banner.set_revealed(false);
-    }
-
-    fn show_status(&self, status: &crate::proton_vpn::Status) {
-        let place = crate::search::proton::country_name(&status.country).unwrap_or(&status.country);
-        let (title, subtitle, icon) = match status.state.as_str() {
-            "Connected" => (
-                format!("{} {}", gettext("Connected to"), if place.is_empty() { status.server.as_str() } else { place }),
-                status.server.clone(),
-                "network-vpn-symbolic",
-            ),
-            "Connecting" => (gettext("Connecting…"), status.server.clone(), "network-vpn-acquiring-symbolic"),
-            "Disconnecting" => (gettext("Disconnecting…"), String::new(), "network-vpn-acquiring-symbolic"),
-            "Error" => (gettext("Connection failed"), status.error.clone(), "dialog-warning-symbolic"),
-            _ => (gettext("Not connected"), gettext("Your traffic isn't protected by Proton VPN"), "network-vpn-disabled-symbolic"),
-        };
-        self.status_row.set_title(&title);
-        self.status_row.set_subtitle(&subtitle);
-        self.status_icon.set_icon_name(Some(icon));
-        let busy = status.busy() || self.busy.get();
-        self.status_spinner.set_visible(busy);
-        self.status_spinner.set_spinning(busy);
-        self.toggle.set_sensitive(!busy);
-        if status.connected() {
-            self.toggle.set_label(&gettext("Disconnect"));
-            self.toggle.remove_css_class("suggested-action");
-            self.toggle.add_css_class("destructive-action");
-        } else {
-            self.toggle.set_label(&gettext("Quick connect"));
-            self.toggle.remove_css_class("destructive-action");
-            self.toggle.add_css_class("suggested-action");
-        }
-        let account = if status.plan.is_empty() {
-            status.account.clone()
-        } else {
-            format!("{} · {}", status.account, status.plan)
-        };
-        self.account_row.set_subtitle(&account);
-    }
-
-    /// Re-read the status and show the page it calls for.
-    fn reload(self: &Rc<Self>) {
-        self.stack.set_visible_child_name("loading");
-        let this = self.clone();
-        spawn_vpn_task(crate::proton_vpn::status, move |result| match result {
-            Ok(status) if status.logged_in => {
-                this.show_status(&status);
-                this.stack.set_visible_child_name("main");
-                this.load_details();
-            }
-            Ok(_) => {
-                this.code_group.set_visible(false);
-                this.password.set_text("");
-                this.stack.set_visible_child_name("signin");
-                this.username.grab_focus();
-            }
-            Err(error) => {
-                this.error(&error);
-                this.stack.set_visible_child_name("signin");
-            }
-        });
-    }
-
-    fn load_details(self: &Rc<Self>) {
-        let this = self.clone();
-        spawn_vpn_task(
-            || (crate::proton_vpn::countries(), crate::proton_vpn::settings()),
-            move |(countries, settings)| {
-                this.loading.set(true);
-                match countries {
-                    Ok(countries) => {
-                        let mut names = vec![gettext("Fastest server")];
-                        let mut codes = vec![String::new()];
-                        for country in &countries {
-                            let mut name = format!("{} {}", crate::search::proton::country_flag(&country.code), country.name);
-                            if !country.available {
-                                name.push_str(&format!(" ({})", gettext("paid plan")));
-                            }
-                            names.push(name);
-                            codes.push(country.code.clone());
-                        }
-                        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-                        this.country_row.set_model(Some(&gtk::StringList::new(&refs)));
-                        let preferred = this.config.borrow().proton_vpn_country.clone();
-                        let index = codes.iter().position(|c| !c.is_empty() && c.eq_ignore_ascii_case(&preferred)).unwrap_or(0);
-                        this.country_row.set_selected(index as u32);
-                        *this.country_codes.borrow_mut() = codes;
-                    }
-                    Err(error) => this.error(&error),
-                }
-                match settings {
-                    Ok(settings) => this.show_settings(&settings),
-                    Err(error) => this.error(&error),
-                }
-                this.loading.set(false);
-            },
-        );
-    }
-
-    fn show_settings(&self, settings: &crate::proton_vpn::Settings) {
-        let was_loading = self.loading.replace(true);
-        let labels: Vec<&str> = settings.protocols.iter().map(|(_, label)| label.as_str()).collect();
-        self.protocol_row.set_model(Some(&gtk::StringList::new(&labels)));
-        let ids: Vec<String> = settings.protocols.iter().map(|(id, _)| id.clone()).collect();
-        self.protocol_row
-            .set_selected(ids.iter().position(|id| *id == settings.protocol).unwrap_or(0) as u32);
-        self.protocol_row.set_sensitive(ids.len() > 1);
-        *self.protocol_ids.borrow_mut() = ids;
-        self.netshield_row.set_selected(settings.netshield.clamp(0, 2) as u32);
-        self.killswitch_row.set_selected(settings.killswitch.clamp(0, 2) as u32);
-        for (key, row) in &self.switches {
-            row.set_active(match *key {
-                "vpn_accelerator" => settings.vpn_accelerator,
-                "moderate_nat" => settings.moderate_nat,
-                "port_forwarding" => settings.port_forwarding,
-                _ => settings.ipv6,
-            });
-        }
-        self.loading.set(was_loading);
-    }
-
-    fn save_setting(self: &Rc<Self>, key: &'static str, value: serde_json::Value) {
-        if self.loading.get() {
-            return;
-        }
-        let this = self.clone();
-        spawn_vpn_task(
-            move || crate::proton_vpn::set_setting(key, value),
-            move |result| match result {
-                Ok(settings) => {
-                    this.clear_error();
-                    this.show_settings(&settings);
-                }
-                Err(error) => {
-                    this.error(&error);
-                    this.load_details();
-                }
-            },
-        );
-    }
-
-    fn connect(self: &Rc<Self>, target: crate::proton_vpn::VpnTarget) {
-        if self.busy.replace(true) {
-            return;
-        }
-        self.clear_error();
-        let mut pending = crate::proton_vpn::cached_status().unwrap_or_default();
-        pending.state = "Connecting".into();
-        self.show_status(&pending);
-        let this = self.clone();
-        spawn_vpn_task(
-            move || crate::proton_vpn::connect(&target),
-            move |result| {
-                this.busy.set(false);
-                if let Err(error) = &result {
-                    this.error(error);
-                }
-                this.show_status(&crate::proton_vpn::cached_status().unwrap_or_default());
-            },
-        );
-    }
-
-    fn disconnect(self: &Rc<Self>) {
-        if self.busy.replace(true) {
-            return;
-        }
-        self.clear_error();
-        let this = self.clone();
-        spawn_vpn_task(crate::proton_vpn::disconnect, move |result| {
-            this.busy.set(false);
-            if let Err(error) = &result {
-                this.error(error);
-            }
-            this.show_status(&crate::proton_vpn::cached_status().unwrap_or_default());
-        });
-    }
-
-    fn sign_in(self: &Rc<Self>) {
-        let user = self.username.text().to_string();
-        let password = self.password.text().to_string();
-        self.sign_in.set_sensitive(false);
-        self.clear_error();
-        let this = self.clone();
-        spawn_vpn_task(
-            move || crate::proton_vpn::login(&user, &password),
-            move |result| this.after_login(result),
-        );
-    }
-
-    fn submit_code(self: &Rc<Self>) {
-        let code = self.code.text().to_string();
-        self.code.set_sensitive(false);
-        self.clear_error();
-        let this = self.clone();
-        spawn_vpn_task(
-            move || crate::proton_vpn::submit_2fa(&code),
-            move |result| this.after_login(result),
-        );
-    }
-
-    fn after_login(self: &Rc<Self>, result: Result<crate::proton_vpn::LoginStep, String>) {
-        use crate::proton_vpn::LoginStep;
-        self.sign_in.set_sensitive(true);
-        self.code.set_sensitive(true);
-        match result {
-            Ok(LoginStep::Done) => {
-                // The password is gone from Spotty once Proton has it.
-                self.password.set_text("");
-                self.code.set_text("");
-                self.reload();
-            }
-            Ok(LoginStep::TwoFactor) => {
-                self.code_group.set_visible(true);
-                self.code.set_text("");
-                self.code.grab_focus();
-            }
-            Ok(LoginStep::Failed(message)) | Err(message) => {
-                self.error(&message);
-                self.password.set_text("");
-            }
-        }
-    }
-}
-
-pub(crate) fn show_proton_vpn_popup<P: IsA<gtk::Window>>(parent: &P) {
-    use crate::search::proton::{VpnTarget, VPN_COUNTRIES};
-    let parent_window: &gtk::Window = parent.as_ref();
-    let Some(config) = crate::app::shared_config() else { return };
-    let Some(app) = parent
-        .application()
-        .and_then(|app| app.downcast::<adw::Application>().ok())
-    else {
-        return;
-    };
-    // An application window keeps the popup alive after the search window
-    // that opened it hides.
-    let popup = adw::ApplicationWindow::builder()
-        .application(&app)
-        .title(gettext("Proton VPN"))
-        .default_width(560)
-        .default_height(720)
-        .modal(true)
-        .transient_for(parent_window)
-        .build();
-    let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
-    refresh.set_tooltip_text(Some(&gettext("Refresh")));
-    let header = adw::HeaderBar::builder()
-        .title_widget(&adw::WindowTitle::new(&gettext("Proton VPN"), &gettext("Built into Spotty")))
-        .build();
-    header.pack_start(&refresh);
-    let banner = adw::Banner::builder().revealed(false).build();
-    let stack = gtk::Stack::builder()
-        .transition_type(gtk::StackTransitionType::Crossfade)
-        .vexpand(true)
-        .build();
-
-    // Not built in
-    stack.add_named(
-        &adw::StatusPage::builder()
-            .icon_name("network-vpn-disabled-symbolic")
-            .title(gettext("Proton VPN isn't built into this Spotty"))
-            .description(gettext("Rebuild Spotty with the proton-vpn feature to include Proton's official VPN client."))
-            .build(),
-        Some("unavailable"),
-    );
-
-    // Loading
-    let loading_spinner = gtk::Spinner::builder().spinning(true).width_request(32).height_request(32).build();
-    stack.add_named(
-        &adw::StatusPage::builder()
-            .title(gettext("Starting Proton VPN…"))
-            .child(&loading_spinner)
-            .build(),
-        Some("loading"),
-    );
-
-    // Sign in
-    let signin_page = adw::PreferencesPage::new();
-    let intro = adw::PreferencesGroup::builder()
-        .description(gettext("Sign in with your Proton account. Spotty hands your password to Proton's official client and never stores it; Proton keeps the session in your keyring."))
-        .build();
-    intro.set_header_suffix(Some(&gtk::Image::builder().icon_name("network-vpn-symbolic").pixel_size(32).build()));
-    let credentials = adw::PreferencesGroup::builder().title(gettext("Sign in to Proton VPN")).build();
-    let username = adw::EntryRow::builder().title(gettext("Username or email")).build();
-    let password = adw::PasswordEntryRow::builder().title(gettext("Password")).activates_default(false).build();
-    credentials.add(&username);
-    credentials.add(&password);
-    let sign_in = gtk::Button::builder()
-        .label(gettext("Sign in"))
-        .css_classes(["suggested-action", "pill"])
-        .halign(gtk::Align::Center)
-        .margin_top(12)
-        .build();
-    let sign_in_group = adw::PreferencesGroup::new();
-    sign_in_group.add(&sign_in);
-    let code_group = adw::PreferencesGroup::builder()
-        .title(gettext("Two-factor authentication"))
-        .description(gettext("Enter the 6-digit code from your authenticator app, or a recovery code."))
-        .visible(false)
-        .build();
-    let code = adw::EntryRow::builder()
-        .title(gettext("Code"))
-        .show_apply_button(true)
-        .input_purpose(gtk::InputPurpose::Digits)
-        .build();
-    code_group.add(&code);
-    let signup = adw::PreferencesGroup::new();
-    signup.add(&gtk::LinkButton::with_label(
-        "https://account.protonvpn.com/signup",
-        &gettext("Create a free Proton account"),
-    ));
-    signin_page.add(&intro);
-    signin_page.add(&credentials);
-    signin_page.add(&sign_in_group);
-    signin_page.add(&code_group);
-    signin_page.add(&signup);
-    stack.add_named(&signin_page, Some("signin"));
-
-    // Main
-    let main_page = adw::PreferencesPage::new();
-    let status_group = adw::PreferencesGroup::new();
-    let status_icon = gtk::Image::from_icon_name("network-vpn-disabled-symbolic");
-    status_icon.set_pixel_size(32);
-    let status_spinner = gtk::Spinner::new();
-    let toggle = suffix_button(&gettext("Quick connect"), Some("suggested-action"));
-    let status_row = adw::ActionRow::builder().title(gettext("Not connected")).use_markup(false).build();
-    status_row.add_prefix(&status_icon);
-    status_row.add_suffix(&status_spinner);
-    status_row.add_suffix(&toggle);
-    status_group.add(&status_row);
-    main_page.add(&status_group);
-
-    let connection = adw::PreferencesGroup::builder()
-        .title(gettext("Connect"))
-        .description(gettext("Or type vpn followed by a country in Spotty: vpn germany, vpn zurich, vpn off."))
-        .build();
-    let country_row = adw::ComboRow::builder()
-        .title(gettext("Country"))
-        .enable_search(true)
-        .model(&gtk::StringList::new(&[&gettext("Fastest server")]))
-        .build();
-    let country_connect = suffix_button(&gettext("Connect"), None);
-    country_row.add_suffix(&country_connect);
-    let place_row = adw::EntryRow::builder()
-        .title(gettext("City or server (e.g. Zurich, CH#242)"))
-        .show_apply_button(true)
-        .build();
-    let preferred_row = adw::ComboRow::builder()
-        .title(gettext("Preferred country"))
-        .subtitle(gettext("Used by Quick connect and vpn on"))
-        .enable_search(true)
-        .build();
-    let mut preferred_names = vec![gettext("Fastest server")];
-    preferred_names.extend(VPN_COUNTRIES.iter().map(|(code, name)| {
-        format!("{} {name}", crate::search::proton::country_flag(code))
-    }));
-    let preferred_refs: Vec<&str> = preferred_names.iter().map(String::as_str).collect();
-    preferred_row.set_model(Some(&gtk::StringList::new(&preferred_refs)));
-    let current = config.borrow().proton_vpn_country.clone();
-    preferred_row.set_selected(
-        VPN_COUNTRIES
-            .iter()
-            .position(|(code, _)| code.eq_ignore_ascii_case(&current))
-            .map_or(0, |index| index + 1) as u32,
-    );
-    connection.add(&country_row);
-    connection.add(&place_row);
-    connection.add(&preferred_row);
-    main_page.add(&connection);
-
-    let settings_group = adw::PreferencesGroup::builder().title(gettext("Settings")).build();
-    let protocol_row = adw::ComboRow::builder().title(gettext("Protocol")).build();
-    let netshield_row = adw::ComboRow::builder()
-        .title(gettext("NetShield"))
-        .subtitle(gettext("Block malware, ads and trackers"))
-        .model(&gtk::StringList::new(&[
-            &gettext("Off"),
-            &gettext("Block malware"),
-            &gettext("Block malware, ads and trackers"),
-        ]))
-        .build();
-    let killswitch_row = adw::ComboRow::builder()
-        .title(gettext("Kill switch"))
-        .subtitle(gettext("Block the internet if the VPN drops"))
-        .model(&gtk::StringList::new(&[&gettext("Off"), &gettext("On"), &gettext("Permanent")]))
-        .build();
-    let switch = |key: &'static str, title: String, subtitle: String| {
-        (key, adw::SwitchRow::builder().title(title).subtitle(subtitle).build())
-    };
-    let switches = vec![
-        switch("vpn_accelerator", gettext("VPN Accelerator"), gettext("Faster connections over long distances")),
-        switch("moderate_nat", gettext("Moderate NAT"), gettext("Better for gaming and peer-to-peer calls")),
-        switch("port_forwarding", gettext("Port forwarding"), gettext("For torrenting on P2P servers")),
-        switch("ipv6", gettext("IPv6"), gettext("Use IPv6 through the VPN")),
-    ];
-    settings_group.add(&protocol_row);
-    settings_group.add(&netshield_row);
-    settings_group.add(&killswitch_row);
-    for (_, row) in &switches {
-        settings_group.add(row);
-    }
-    main_page.add(&settings_group);
-
-    let account_group = adw::PreferencesGroup::builder().title(gettext("Account")).build();
-    let account_row = adw::ActionRow::builder().title(gettext("Proton account")).use_markup(false).build();
-    let sign_out = suffix_button(&gettext("Sign out"), Some("destructive-action"));
-    account_row.add_suffix(&sign_out);
-    account_group.add(&account_row);
-    main_page.add(&account_group);
-    stack.add_named(&main_page, Some("main"));
-
-    let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    content.append(&banner);
-    content.append(&stack);
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&header);
-    toolbar.set_content(Some(&content));
-    popup.set_content(Some(&toolbar));
-
-    let window = Rc::new(VpnWindow {
-        popup: popup.clone(),
-        stack,
-        banner,
-        config: config.clone(),
-        username,
-        password,
-        sign_in,
-        code_group,
-        code,
-        status_row,
-        status_icon,
-        status_spinner,
-        toggle,
-        country_row,
-        country_codes: RefCell::new(vec![String::new()]),
-        place_row,
-        protocol_row,
-        protocol_ids: RefCell::new(Vec::new()),
-        netshield_row,
-        killswitch_row,
-        switches,
-        account_row,
-        loading: std::cell::Cell::new(false),
-        busy: std::cell::Cell::new(false),
-    });
-
-    {
-        let w = window.clone();
-        refresh.connect_clicked(move |_| {
-            if crate::proton_vpn::available() {
-                w.clear_error();
-                w.reload();
-            }
-        });
-    }
-    {
-        let w = window.clone();
-        window.sign_in.connect_clicked(move |_| w.sign_in());
-        let w = window.clone();
-        window.password.connect_entry_activated(move |_| w.sign_in());
-        let w = window.clone();
-        window.username.connect_entry_activated(move |_| {
-            w.password.grab_focus();
-        });
-        let w = window.clone();
-        window.code.connect_apply(move |_| w.submit_code());
-        let w = window.clone();
-        window.code.connect_entry_activated(move |_| w.submit_code());
-    }
-    {
-        let w = window.clone();
-        window.toggle.connect_clicked(move |_| {
-            let connected = crate::proton_vpn::cached_status().is_some_and(|s| s.connected());
-            if connected {
-                w.disconnect();
-            } else {
-                let target = crate::search::proton::preferred_vpn_target(&w.config.borrow());
-                w.connect(target);
-            }
-        });
-    }
-    {
-        let w = window.clone();
-        country_connect.connect_clicked(move |_| {
-            let code = w.country_codes.borrow().get(w.country_row.selected() as usize).cloned().unwrap_or_default();
-            w.connect(if code.is_empty() { VpnTarget::Fastest } else { VpnTarget::Country(code) });
-        });
-    }
-    {
-        let w = window.clone();
-        window.place_row.connect_apply(move |row| match crate::search::proton::parse_vpn_target(&row.text()) {
-            Some(target) => w.connect(target),
-            None => w.error(&gettext("Enter a city or a server name such as CH#242.")),
-        });
-    }
-    {
-        let config = config.clone();
-        preferred_row.connect_selected_notify(move |row| {
-            let code = match row.selected() {
-                0 => String::new(),
-                n => VPN_COUNTRIES.get(n as usize - 1).map(|(c, _)| (*c).to_owned()).unwrap_or_default(),
-            };
-            save_and_refresh(&config, |c| c.proton_vpn_country = code);
-        });
-    }
-    {
-        let w = window.clone();
-        window.protocol_row.connect_selected_notify(move |row| {
-            let id = w.protocol_ids.borrow().get(row.selected() as usize).cloned();
-            if let Some(id) = id {
-                w.save_setting("protocol", serde_json::Value::from(id));
-            }
-        });
-        let w = window.clone();
-        window.netshield_row.connect_selected_notify(move |row| {
-            w.save_setting("netshield", serde_json::Value::from(row.selected()));
-        });
-        let w = window.clone();
-        window.killswitch_row.connect_selected_notify(move |row| {
-            w.save_setting("killswitch", serde_json::Value::from(row.selected()));
-        });
-        for (key, row) in &window.switches {
-            let w = window.clone();
-            let key: &'static str = key;
-            row.connect_active_notify(move |row| w.save_setting(key, serde_json::Value::from(row.is_active())));
-        }
-    }
-    {
-        let w = window.clone();
-        sign_out.connect_clicked(move |_| {
-            let dialog = adw::AlertDialog::builder()
-                .heading(gettext("Sign out of Proton VPN?"))
-                .body(gettext("This disconnects the VPN and removes Proton's saved sign-in from this computer."))
-                .build();
-            dialog.add_response("cancel", &gettext("Cancel"));
-            dialog.add_response("signout", &gettext("Sign out"));
-            dialog.set_response_appearance("signout", adw::ResponseAppearance::Destructive);
-            dialog.set_default_response(Some("cancel"));
-            dialog.set_close_response("cancel");
-            let w2 = w.clone();
-            dialog.connect_response(Some("signout"), move |_, _| {
-                let w3 = w2.clone();
-                w2.stack.set_visible_child_name("loading");
-                spawn_vpn_task(crate::proton_vpn::logout, move |result| {
-                    if let Err(error) = result {
-                        w3.error(&error);
-                    }
-                    w3.reload();
-                });
-            });
-            dialog.present(Some(&w.popup));
-        });
-    }
-    // Live connection state while the window is open (cheap: no process call).
-    {
-        let w = Rc::downgrade(&window);
-        glib::timeout_add_local(std::time::Duration::from_secs(1), move || {
-            let Some(w) = w.upgrade() else { return glib::ControlFlow::Break };
-            if w.stack.visible_child_name().as_deref() == Some("main") {
-                if let Some(status) = crate::proton_vpn::cached_status() {
-                    if status.logged_in {
-                        w.show_status(&status);
-                    } else {
-                        w.reload();
-                    }
-                }
-            }
-            glib::ControlFlow::Continue
-        });
-    }
-    if crate::proton_vpn::available() {
-        window.reload();
-    } else {
-        window.stack.set_visible_child_name("unavailable");
-    }
-    popup.present();
-}
-
-fn is_proton_service(id: &str) -> bool {
-    id == "proton-bridge"
-        || crate::trigger_defaults::PROTON_TRIGGERS.iter().any(|entry| entry.0 == id)
-}
-
-fn any_proton_service(config: &Config) -> bool {
-    ["proton-bridge", "proton-vpn", "proton-calendar", "proton-drive"]
-        .iter()
-        .any(|id| config.proton_service_enabled(id))
-}
-
-/// Open the settings for an installed Proton integration.
-fn show_proton_service_settings<P: IsA<gtk::Window>>(parent: &P, config: &Rc<RefCell<Config>>, id: &str) {
-    match id {
-        "proton-bridge" => show_bridge_settings(),
-        "proton-vpn" => show_proton_vpn_popup(parent),
-        "proton-calendar" | "proton-drive" => show_proton_web_settings(parent, config, id),
-        _ => {}
-    }
-}
-
-/// Settings for the Proton Calendar and Proton Drive web integrations. Each
-/// change is saved immediately, like the rest of Spotty's preferences.
-fn show_proton_web_settings<P: IsA<gtk::Window>>(parent: &P, config: &Rc<RefCell<Config>>, id: &str) {
-    let parent_window: &gtk::Window = parent.as_ref();
-    let calendar = id == "proton-calendar";
-    let title = if calendar { gettext("Proton Calendar") } else { gettext("Proton Drive") };
-    let popup = adw::Window::builder()
-        .title(&title)
-        .default_width(520)
-        .default_height(if calendar { 420 } else { 480 })
-        .modal(true)
-        .transient_for(parent_window)
-        .build();
-    let header = adw::HeaderBar::builder()
-        .title_widget(&adw::WindowTitle::new(&title, &gettext("Spotty")))
-        .build();
-    let page = adw::PreferencesPage::new();
-    let intro = adw::PreferencesGroup::builder()
-        .description(if calendar {
-            gettext("Type cal to open Proton Calendar on today, or cal 2026-10-24, cal tomorrow or cal yesterday to jump to a day. Proton has no Linux calendar app, so it opens in your browser; sign-in stays on Proton's website.")
-        } else {
-            gettext("Type drive to open Proton Drive in your browser. With a synced folder set, drive <name> also searches file names in it. Spotty does not sync files and never sees your Proton password.")
-        })
-        .build();
-    page.add(&intro);
-    let group = adw::PreferencesGroup::builder().title(gettext("Options")).build();
-    page.add(&group);
-
-    let account = adw::SpinRow::with_range(0.0, 9.0, 1.0);
-    account.set_title(&gettext("Proton account"));
-    account.set_subtitle(&gettext("0 is the first signed-in account in Proton's account switcher"));
-    account.set_value(f64::from(if calendar {
-        config.borrow().proton_calendar_account
-    } else {
-        config.borrow().proton_drive_account
-    }));
-    {
-        let cfg = config.clone();
-        account.connect_value_notify(move |row| {
-            let slot = row.value() as u32;
-            save_and_refresh(&cfg, |c| {
-                if calendar { c.proton_calendar_account = slot } else { c.proton_drive_account = slot }
-            });
-        });
-    }
-
-    if calendar {
-        let labels = [gettext("Day"), gettext("Week"), gettext("Month")];
-        let names: Vec<&str> = labels.iter().map(String::as_str).collect();
-        let view = adw::ComboRow::builder()
-            .title(gettext("Default view"))
-            .model(&gtk::StringList::new(&names))
-            .build();
-        let current = crate::search::proton::calendar_view(&config.borrow());
-        let index = crate::search::proton::CALENDAR_VIEWS.iter().position(|v| *v == current).unwrap_or(1);
-        view.set_selected(index as u32);
-        {
-            let cfg = config.clone();
-            view.connect_selected_notify(move |row| {
-                if let Some(name) = crate::search::proton::CALENDAR_VIEWS.get(row.selected() as usize) {
-                    save_and_refresh(&cfg, |c| c.proton_calendar_view = (*name).into());
-                }
-            });
-        }
-        group.add(&view);
-    }
-    group.add(&account);
-
-    let open_row = adw::ActionRow::builder()
-        .title(if calendar { gettext("Open Proton Calendar") } else { gettext("Open Proton Drive") })
-        .activatable(true)
-        .build();
-    open_row.add_suffix(&gtk::Image::from_icon_name("adw-external-link-symbolic"));
-    {
-        let cfg = config.clone();
-        open_row.connect_activated(move |_| {
-            let c = cfg.borrow();
-            let url = if calendar {
-                crate::search::proton::calendar_url(
-                    c.proton_calendar_account,
-                    crate::search::proton::calendar_view(&c),
-                    None,
-                )
-            } else {
-                crate::search::proton::drive_url(c.proton_drive_account)
-            };
-            let _ = gtk::gio::AppInfo::launch_default_for_uri(&url, gtk::gio::AppLaunchContext::NONE);
-        });
-    }
-
-    if !calendar {
-        let folder_group = adw::PreferencesGroup::builder()
-            .title(gettext("Synced folder"))
-            .description(gettext("Optional. A local folder you keep in sync with Proton Drive, for example with rclone."))
-            .build();
-        let folder = adw::ActionRow::builder()
-            .title(gettext("Folder"))
-            .use_markup(false)
-            .build();
-        let show_folder = {
-            let folder = folder.clone();
-            move |path: &str| {
-                folder.set_subtitle(&if path.is_empty() { gettext("Not set") } else { path.to_owned() });
-            }
-        };
-        show_folder(&config.borrow().proton_drive_folder);
-        let choose = gtk::Button::with_label(&gettext("Choose…"));
-        choose.set_valign(gtk::Align::Center);
-        let clear = gtk::Button::from_icon_name("edit-clear-symbolic");
-        clear.set_valign(gtk::Align::Center);
-        clear.add_css_class("flat");
-        clear.set_tooltip_text(Some(&gettext("Clear")));
-        {
-            let cfg = config.clone();
-            let popup_weak = popup.downgrade();
-            let show_folder = show_folder.clone();
-            choose.connect_clicked(move |_| {
-                let Some(popup) = popup_weak.upgrade() else { return };
-                let dialog = gtk::FileDialog::builder()
-                    .title(gettext("Choose the synced Proton Drive folder"))
-                    .modal(true)
-                    .build();
-                let cfg = cfg.clone();
-                let show_folder = show_folder.clone();
-                dialog.select_folder(Some(&popup), gtk::gio::Cancellable::NONE, move |result| {
-                    let Some(path) = result.ok().and_then(|file| file.path()) else { return };
-                    let path = path.display().to_string();
-                    save_and_refresh(&cfg, |c| c.proton_drive_folder = path.clone());
-                    show_folder(&path);
-                });
-            });
-        }
-        {
-            let cfg = config.clone();
-            clear.connect_clicked(move |_| {
-                save_and_refresh(&cfg, |c| c.proton_drive_folder.clear());
-                show_folder("");
-            });
-        }
-        folder.add_suffix(&choose);
-        folder.add_suffix(&clear);
-        folder_group.add(&folder);
-        page.add(&folder_group);
-    }
-    group.add(&open_row);
-
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&header);
-    toolbar.set_content(Some(&page));
-    popup.set_content(Some(&toolbar));
-    popup.present();
-}
-
 // ──────────────────────────────────────────────────────────────────────
 // General page
 // ──────────────────────────────────────────────────────────────────────
@@ -967,120 +107,86 @@ fn build_general_page(window: &adw::PreferencesWindow, config: &Rc<RefCell<Confi
         };
         row.set_subtitle(&gettext("Shows or hides the search window from anywhere"));
         lg.add(&row);
+        let startup = adw::SwitchRow::builder()
+            .title(gettext("Start at Login"))
+            .subtitle(gettext("Start Spotty in the background when you sign in"))
+            .active(config.borrow().behavior.start_at_login).use_markup(false).build();
+        {
+            let cfg = config.clone();
+            let win = window.downgrade();
+            let syncing = Rc::new(std::cell::Cell::new(false));
+            startup.connect_active_notify(move |row| {
+                if syncing.get() { return; }
+                let enabled = row.is_active();
+                row.set_sensitive(false);
+                let row = row.clone();
+                let cfg = cfg.clone();
+                let win = win.clone();
+                let guard = syncing.clone();
+                let (tx, rx) = futures::channel::oneshot::channel();
+                std::thread::spawn(move || {
+                    let _ = tx.send(crate::app::set_autostart_enabled(enabled));
+                });
+                glib::MainContext::default().spawn_local(async move {
+                    if rx.await.unwrap_or(false) {
+                        save_and_refresh(&cfg, |c| c.behavior.start_at_login = enabled);
+                    } else {
+                        guard.set(true);
+                        row.set_active(cfg.borrow().behavior.start_at_login);
+                        guard.set(false);
+                        if let Some(win) = win.upgrade() {
+                            win.add_toast(adw::Toast::new(&gettext("Couldn't change the login startup setting")));
+                        }
+                    }
+                    row.set_sensitive(true);
+                });
+            });
+        }
+        lg.add(&startup);
         general.add(&lg);
     }
 
-    {
-        let group = adw::PreferencesGroup::builder().title(gettext("Privacy")).build();
-        let history = adw::SwitchRow::builder()
-            .title(gettext("Keep search history"))
-            .subtitle(gettext("Save queries and selected results locally to improve ranking. Existing history is kept when turned off."))
-            .active(config.borrow().save_search_history).build();
+    let behavior = adw::PreferencesGroup::builder().title(gettext("Launcher Behavior"))
+        .description(gettext("Control how the search window responds while you use it."))
+        .build();
+    general.add(&behavior);
+    for (title, subtitle, active, setter) in [
+        ("Hide When Focus Moves Away", "Hide Spotty when you switch to another window. Escape and the launcher shortcut always dismiss it.",
+            config.borrow().behavior.hide_on_focus_loss,
+            (|c: &mut Config, on| c.behavior.hide_on_focus_loss = on) as fn(&mut Config, bool)),
+        ("Inline Completions", "Suggest a completion in the search field as you type. Tab can still complete a selected result when disabled.",
+            config.borrow().behavior.inline_completions,
+            (|c: &mut Config, on| c.behavior.inline_completions = on) as fn(&mut Config, bool)),
+        ("Browse Folder Paths", "Browse folders by typing / or ~/ in regular search",
+            config.borrow().enable_root_browsing,
+            (|c: &mut Config, on| c.enable_root_browsing = on) as fn(&mut Config, bool)),
+    ] {
+        let row = adw::SwitchRow::builder().title(gettext(title)).subtitle(gettext(subtitle))
+            .use_markup(false).active(active).build();
         let cfg = config.clone();
-        history.connect_active_notify(move |row| {
-            save_and_refresh(&cfg, |c| c.save_search_history = row.is_active());
-        });
-        group.add(&history);
-        let icons = adw::SwitchRow::builder()
-            .title(gettext("Download missing icons"))
-            .subtitle(gettext("Contact search websites and Flathub for icons. Cached and local icons work offline."))
-            .active(config.borrow().allow_network_icons).build();
-        let cfg = config.clone();
-        icons.connect_active_notify(move |row| {
-            save_and_refresh(&cfg, |c| c.allow_network_icons = row.is_active());
-        });
-        group.add(&icons);
-        general.add(&group);
+        row.connect_active_notify(move |row| save_and_refresh(&cfg, |c| setter(c, row.is_active())));
+        behavior.add(&row);
     }
 
-    // Footer bar: the two buttons at the bottom of the search window. The
-    // switches only hide their key indicators — the buttons stay clickable and
-    // the shortcuts keep working, so this is purely about the space they take.
+    // How many results the list shows before it scrolls.
     {
-        let fg = adw::PreferencesGroup::builder()
-            .title(gettext("Search Window"))
-            .description(gettext("Results and footer controls"))
-            .build();
-        // One switch for both icons; the two below are per-button, because a
-        // button is only worth keeping if it has something left to show.
-        {
-            let sw = adw::SwitchRow::builder()
-                .title(gettext("Button Icons"))
-                .active(config.borrow().show_footer_icons)
-                .use_markup(false)
-                .build();
-            {
-                let cfg = config.clone();
-                sw.connect_active_notify(move |r| {
-                    let active = r.is_active();
-                    save_and_refresh(&cfg, |c| c.show_footer_icons = active);
-                });
-            }
-            fg.add(&sw);
-        }
-        for (label, subtitle, field) in [
-            (
-                gettext("Operations Shortcut"),
-                gettext("Show the key that opens Operations"),
-                0usize,
-            ),
-            (
-                gettext("Hints Shortcut"),
-                gettext("Show the key that opens Hints"),
-                1,
-            ),
-        ] {
-            let on = match field {
-                0 => config.borrow().show_operations_shortcut_label,
-                _ => config.borrow().show_hints_shortcut_label,
-            };
-            let sw = adw::SwitchRow::builder()
-                .title(label)
-                .subtitle(subtitle)
-                .active(on)
-                .use_markup(false)
-                .build();
-            {
-                let cfg = config.clone();
-                sw.connect_active_notify(move |r| {
-                    let active = r.is_active();
-                    save_and_refresh(&cfg, |c| match field {
-                        0 => c.show_operations_shortcut_label = active,
-                        _ => c.show_hints_shortcut_label = active,
-                    });
-                });
-            }
-            fg.add(&sw);
-        }
-        let adjustment = gtk::Adjustment::new(
-            config.borrow().visible_result_limit.clamp(1, 20) as f64,
-            1.0,
-            20.0,
-            1.0,
-            5.0,
-            0.0,
-        );
-        let spin = gtk::SpinButton::builder()
-            .adjustment(&adjustment)
-            .numeric(true)
-            .valign(gtk::Align::Center)
-            .width_chars(3)
-            .build();
-        let row = adw::ActionRow::builder()
+        let limit = adw::SpinRow::builder()
             .title(gettext("Visible Results"))
-            .subtitle(gettext("Maximum search results shown before the list scrolls"))
+            .subtitle(gettext("How many results the list shows before it scrolls. More rows show more at once; a short screen caps it."))
+            .adjustment(&gtk::Adjustment::new(
+                config.borrow().visible_result_limit.clamp(3, 20) as f64,
+                3.0, 20.0, 1.0, 5.0, 0.0,
+            ))
+            .numeric(true)
+            .digits(0)
             .use_markup(false)
             .build();
-        row.add_suffix(&spin);
-        {
-            let cfg = config.clone();
-            spin.connect_value_changed(move |spin| {
-                let limit = spin.value_as_int().clamp(1, 20) as usize;
-                save_and_refresh(&cfg, |c| c.visible_result_limit = limit);
-            });
-        }
-        fg.add(&row);
-        general.add(&fg);
+        let cfg = config.clone();
+        limit.connect_value_notify(move |row| {
+            let n = row.value().round() as usize;
+            save_and_refresh(&cfg, |c| c.visible_result_limit = n);
+        });
+        behavior.add(&limit);
     }
 
     // About — single row opening the native AboutDialog
@@ -1106,82 +212,13 @@ thread_local! {
     /// Rebuilds the trigger list. Set by the Triggers page; the result-type
     /// popups call it after a word or shortcut changes.
     static TRIGGER_LIST_REFRESH: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
-    static SERVICE_ROW_REFRESH: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
+    /// Redraws the Store list while it is open (after a trigger is installed or removed).
     static STORE_SERVICE_REFRESH: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
-    static BRIDGE_SETTINGS_OPEN: RefCell<Option<Rc<dyn Fn()>>> = RefCell::new(None);
 }
 
-struct BridgePopup {
-    window: adw::ApplicationWindow,
-    close_bridge: Option<Box<dyn FnOnce()>>,
-}
-
-impl BridgePopup {
-    fn close(mut self) {
-        self.drain_inner();
-        self.window.close();
-    }
-
-    fn drain(mut self) {
-        self.drain_inner();
-    }
-
-    fn drain_inner(&mut self) {
-        if let Some(close_bridge) = self.close_bridge.take() {
-            close_bridge();
-        }
-    }
-}
-
-fn present_existing_bridge_popup(
-    popup: &Rc<RefCell<Option<BridgePopup>>>,
-) -> bool {
-    let window = popup.borrow().as_ref().map(|popup| popup.window.clone());
-    if let Some(window) = window {
-        window.present();
-        true
-    } else {
-        false
-    }
-}
-
-fn connect_bridge_popup_close(
-    window: &adw::ApplicationWindow,
-    popup: &Rc<RefCell<Option<BridgePopup>>>,
-) {
-    let weak_popup = Rc::downgrade(popup);
-    window.connect_close_request(move |_| {
-        if let Some(popup) = weak_popup.upgrade() {
-            drain_bridge_popup(&popup);
-        }
-        glib::Propagation::Proceed
-    });
-}
-
-fn drain_bridge_popup(popup: &Rc<RefCell<Option<BridgePopup>>>) {
-    let closed = popup.borrow_mut().take();
-    if let Some(popup) = closed {
-        popup.drain();
-    }
-}
-
-fn close_bridge_popup(popup: &Rc<RefCell<Option<BridgePopup>>>) {
-    let closed = popup.borrow_mut().take();
-    if let Some(popup) = closed {
-        popup.close();
-    }
-}
-
-fn show_bridge_settings() {
-    let open = BRIDGE_SETTINGS_OPEN.with(|callback| callback.borrow().clone());
-    if let Some(open) = open {
-        open();
-    }
-}
-
+/// Redraw the Triggers page and, while it is open, the Store.
 fn refresh_service_row() {
-    let settings = SERVICE_ROW_REFRESH.with(|refresh| refresh.borrow().clone());
-    if let Some(refresh) = settings { refresh(); }
+    refresh_trigger_list();
     let store = STORE_SERVICE_REFRESH.with(|refresh| refresh.borrow().clone());
     if let Some(refresh) = store { refresh(); }
 }
@@ -1222,9 +259,8 @@ fn builtin_title(id: &str) -> String {
 /// The "Show in Regular Search" switch for a result type or a trigger, and a
 /// closure that re-syncs it after the word changed.
 ///
-/// A result type with no trigger word has no other way to be found, so its
-/// switch is on and locked until it gets one. A trigger always has a word, so
-/// its switch is always the user's call (off unless they opted in).
+/// Without a trigger word, regular search stays on and locked. Once a word
+/// is assigned, the user can choose whether regular search also includes it.
 fn regular_search_row(config: &Rc<RefCell<Config>>, id: &str) -> (adw::SwitchRow, Rc<dyn Fn()>) {
     let is_result = crate::config::RESULT_IDS.contains(&id);
     let row = adw::SwitchRow::builder()
@@ -1240,11 +276,10 @@ fn regular_search_row(config: &Rc<RefCell<Config>>, id: &str) -> (adw::SwitchRow
         Rc::new(move || {
             let (has_word, on) = {
                 let c = cfg.borrow();
-                let wordless = is_result
-                    && c.command_keywords
-                        .iter()
-                        .find(|k| k.id == id)
-                        .map_or(true, |k| k.word.is_empty());
+                let wordless = c.command_keywords.iter().find(|k| k.id == id)
+                    .map(|k| k.word.trim().is_empty())
+                    .or_else(|| crate::triggers::by_id(&id).map(|t| t.word.trim().is_empty()))
+                    .unwrap_or(is_result);
                 (!wordless, c.in_regular_search(&id))
             };
             syncing.set(true);
@@ -1469,7 +504,6 @@ fn trigger_subtitle(enabled: bool, word: &str, shortcut: &str) -> String {
 /// triggers installed meanwhile show up).
 fn build_keywords_page(
     window: &adw::PreferencesWindow,
-    app: &adw::Application,
     config: &Rc<RefCell<Config>>,
 ) -> Rc<dyn Fn()> {
     let page = adw::PreferencesPage::builder()
@@ -1478,87 +512,20 @@ fn build_keywords_page(
         .build();
     window.add(&page);
 
-    // Keep one modal popup while it is open. Wait for its RPC stream to drain
-    // before allowing a queued Settings click to create a fresh controller.
-    let bridge_popup: Rc<RefCell<Option<BridgePopup>>> = Rc::new(RefCell::new(None));
-    let bridge_closing = Rc::new(std::cell::Cell::new(false));
-    let bridge_reopen_pending = Rc::new(std::cell::Cell::new(false));
-    let weak_window = window.downgrade();
-    let app = app.clone();
-    BRIDGE_SETTINGS_OPEN.with(|callback| {
-        let bridge_popup = bridge_popup.clone();
-        let bridge_closing = bridge_closing.clone();
-        let bridge_reopen_pending = bridge_reopen_pending.clone();
-        let app = app.clone();
-        let config = config.clone();
-        *callback.borrow_mut() = Some(Rc::new(move || {
-            if !config.borrow().proton_bridge_enabled {
-                return;
-            }
-            if bridge_closing.get() {
-                bridge_reopen_pending.set(true);
-                return;
-            }
-            let Some(window) = weak_window.upgrade() else {
-                return;
-            };
-            if present_existing_bridge_popup(&bridge_popup) {
-                return;
-            }
-
-            let bridge_window = adw::ApplicationWindow::builder()
-                .application(&app)
-                .title(gettext("Proton Mail Bridge"))
-                .default_width(640)
-                .default_height(720)
-                .modal(true)
-                .transient_for(&window)
-                .build();
-            let header = adw::HeaderBar::builder()
-                .title_widget(&adw::WindowTitle::new(
-                    &gettext("Proton Mail Bridge"),
-                    &gettext("Spotty"),
-                ))
-                .build();
-            let bridge_popup_for_back = Rc::downgrade(&bridge_popup);
-            let handle = spotty_proton_bridge_gui::gui::EmbeddedBridge::new(&bridge_window, move || {
-                if let Some(bridge_popup) = bridge_popup_for_back.upgrade() {
-                    close_bridge_popup(&bridge_popup);
-                }
-            });
-            let scroll = gtk::ScrolledWindow::builder()
-                .hscrollbar_policy(gtk::PolicyType::Never)
-                .vscrollbar_policy(gtk::PolicyType::Automatic)
-                .hexpand(true)
-                .vexpand(true)
-                .child(&handle.widget())
-                .build();
-            let toolbar = adw::ToolbarView::new();
-            toolbar.add_top_bar(&header);
-            toolbar.set_content(Some(&scroll));
-            bridge_window.set_content(Some(&toolbar));
-
-            connect_bridge_popup_close(&bridge_window, &bridge_popup);
-            let bridge_closing = bridge_closing.clone();
-            let bridge_reopen_pending = bridge_reopen_pending.clone();
-            let close_bridge = Box::new(move || {
-                bridge_closing.set(true);
-                handle.close_with_completion(move || {
-                    glib::idle_add_local_once(move || {
-                        bridge_closing.set(false);
-                        if bridge_reopen_pending.replace(false) {
-                            show_bridge_settings();
-                        }
-                    });
-                });
-            });
-            *bridge_popup.borrow_mut() = Some(BridgePopup {
-                window: bridge_window.clone(),
-                close_bridge: Some(close_bridge),
-            });
-            bridge_window.present();
-        }));
-    });
+    let regular = adw::PreferencesGroup::builder().title(gettext("Regular Search")).build();
+    let expand = adw::SwitchRow::builder()
+        .title(gettext("Expand Empty Search"))
+        .subtitle(gettext("When regular search is empty, show every enabled, installed trigger word and its description. Select a word to open that trigger."))
+        .active(config.borrow().behavior.expand_triggers_in_regular_search)
+        .use_markup(false).build();
+    {
+        let cfg = config.clone();
+        expand.connect_active_notify(move |row| {
+            save_and_refresh(&cfg, |c| c.behavior.expand_triggers_in_regular_search = row.is_active());
+        });
+    }
+    regular.add(&expand);
+    page.add(&regular);
 
     // Result types and triggers in one list, in the user's order: the higher a
     // row, the higher its results rank in the regular search.
@@ -1579,160 +546,11 @@ fn build_keywords_page(
     page.add(&other_group);
     OTHER_GROUP.with(|o| *o.borrow_mut() = Some(other_group));
 
-    let services = adw::PreferencesGroup::builder()
-        .title(gettext("Services and integrations"))
-        .description(gettext("Optional local services configured outside search."))
-        .build();
-    let installed = config.borrow().proton_bridge_enabled;
-    services.set_visible(any_proton_service(&config.borrow()));
-    let bridge = adw::ActionRow::builder()
-        .title(gettext("Proton Mail Bridge"))
-        .subtitle(gettext("Local mail server for Proton Mail clients"))
-        .use_markup(false)
-        .build();
-    bridge.set_visible(installed);
-    let uninstall = gtk::Button::with_label(&gettext("Uninstall"));
-    uninstall.add_css_class("flat");
-    uninstall.set_valign(gtk::Align::Center);
-    let bridge_settings = gtk::Button::with_label(&gettext("Settings"));
-    bridge_settings.add_css_class("flat");
-    bridge_settings.set_valign(gtk::Align::Center);
-    uninstall.set_visible(installed);
-    bridge_settings.set_visible(installed);
-    bridge_settings.set_sensitive(installed && crate::proton_bridge::supported());
-    {
-        let cfg = config.clone();
-        let win = window.clone();
-        uninstall.connect_clicked(move |_| {
-            if let Err(error) = save_service_state(&cfg, |c| c.proton_bridge_enabled = false) {
-                show_service_save_error(&win, &error);
-                return;
-            }
-            refresh_service_row();
-        });
-    }
-    bridge_settings.connect_clicked(move |_| {
-        show_bridge_settings();
-    });
-    bridge.add_suffix(&bridge_settings);
-    bridge.add_suffix(&uninstall);
-    let trigger_service_rows: Rc<RefCell<Vec<(&'static str, adw::ActionRow)>>> =
-        Rc::new(RefCell::new(Vec::new()));
-    {
-        let uninstall = uninstall.clone();
-        let settings = bridge_settings.clone();
-        let bridge_row = bridge.clone();
-        let cfg = config.clone();
-        let bridge_popup = bridge_popup.clone();
-        let bridge_reopen_pending = bridge_reopen_pending.clone();
-        let services_row = services.clone();
-        let trigger_rows_for_refresh = trigger_service_rows.clone();
-        let bridge_was_enabled = Rc::new(std::cell::Cell::new(installed));
-        page.add(&services);
-        SERVICE_ROW_REFRESH.with(|refresh| {
-            *refresh.borrow_mut() = Some(Rc::new(move || {
-                let enabled = cfg.borrow().proton_bridge_enabled;
-                services_row.set_visible(any_proton_service(&cfg.borrow()));
-                bridge_row.set_visible(enabled);
-                uninstall.set_visible(enabled);
-                settings.set_visible(enabled);
-                settings.set_sensitive(enabled && crate::proton_bridge::supported());
-                for (id, row) in trigger_rows_for_refresh.borrow().iter() {
-                    row.set_visible(cfg.borrow().proton_service_enabled(id));
-                }
-
-                // Uninstalling Bridge also closes its popup and drains the
-                // embedded controller before a stale row can reopen it.
-                if !enabled {
-                    bridge_reopen_pending.set(false);
-                    close_bridge_popup(&bridge_popup);
-                }
-                if bridge_was_enabled.replace(enabled) != enabled {
-                    let startup = enabled.then(spotty_proton_bridge_gui::engine::start_service_async);
-                    std::thread::spawn(move || {
-                        let result = if let Some(worker) = startup {
-                            worker
-                                .join()
-                                .unwrap_or_else(|_| Err("Bridge startup worker failed.".into()))
-                        } else {
-                            spotty_proton_bridge_gui::engine::stop()
-                        };
-                        if let Err(message) = result {
-                            log::warn!("bridge: service change failed: {message}");
-                        }
-                    });
-                }
-            }));
-        });
-    }
-    services.add(&bridge);
-
-    // The Trigger Store owns installation of the Proton VPN, Calendar and
-    // Drive integrations. Each row appears only after it has been enabled
-    // there; refresh_service_row() keeps visibility in sync.
-    for (id, title, subtitle) in [
-        ("proton-vpn", gettext("Proton VPN"), gettext("vpn trigger · Proton's VPN client, built into Spotty")),
-        ("proton-calendar", gettext("Proton Calendar"), gettext("cal trigger · Opens calendar.proton.me")),
-        ("proton-drive", gettext("Proton Drive"), gettext("drive trigger · Opens drive.proton.me or a synced folder")),
-    ] {
-        let row = adw::ActionRow::builder()
-            .title(title)
-            .subtitle(subtitle)
-            .use_markup(false)
-            .build();
-        row.set_visible(config.borrow().proton_service_enabled(id));
-        let settings = gtk::Button::with_label(&gettext("Settings"));
-        settings.add_css_class("flat");
-        settings.set_valign(gtk::Align::Center);
-        let uninstall = gtk::Button::with_label(&gettext("Uninstall"));
-        uninstall.add_css_class("flat");
-        uninstall.set_valign(gtk::Align::Center);
-        {
-            let cfg = config.clone();
-            let win = window.clone();
-            uninstall.connect_clicked(move |_| {
-                if let Err(error) = save_service_state(&cfg, |c| c.set_proton_service(id, false)) {
-                    show_service_save_error(&win, &error);
-                    return;
-                }
-                refresh_service_row();
-            });
-        }
-        {
-            let parent = window.clone();
-            let cfg = config.clone();
-            settings.connect_clicked(move |_| show_proton_service_settings(&parent, &cfg, id));
-        }
-        row.add_suffix(&settings);
-        row.add_suffix(&uninstall);
-        trigger_service_rows.borrow_mut().push((id, row.clone()));
-        services.add(&row);
-    }
-
     let rows: Rc<RefCell<Vec<TriggerRow>>> = Rc::new(RefCell::new(Vec::new()));
 
-    // The Store sits in the group header: browse, install and reinstall.
-    let store_btn = gtk::Button::builder()
-        .child(
-            &adw::ButtonContent::builder()
-                .icon_name(store_icon())
-                .label(gettext("Store"))
-                .build(),
-        )
-        .css_classes(["flat"])
-        .valign(gtk::Align::Center)
-        .tooltip_text(gettext("Browse, install and reinstall triggers"))
-        .build();
-    {
-        let win = window.clone();
-        let g2 = g.clone();
-        let cfg = config.clone();
-        let rows2 = rows.clone();
-        store_btn.connect_clicked(move |_| {
-            store_dialog(&win, &g2, &cfg, &rows2);
-        });
-    }
-    g.set_header_suffix(Some(&store_btn));
+    // The Store is its own tab in the window's top bar, next to General and
+    // Search: browse, install and reinstall.
+    window.add(&build_store_page(window, &g, config, &rows));
 
     // Reset: last on the page, behind a confirmation — it rewrites every
     // built-in word and shortcut.
@@ -1769,9 +587,6 @@ fn build_keywords_page(
                 {
                     let mut c = cfg.borrow_mut();
                     for def in &d.command_keywords {
-                        if def.id == "cmd" {
-                            continue;
-                        }
                         if let Some(existing) = c.command_keywords.iter_mut().find(|k| k.id == def.id) {
                             existing.shortcut = def.shortcut.clone();
                             existing.word = def.word.clone();
@@ -2070,11 +885,12 @@ fn rebuild_trigger_rows(
     }
 
     for kw in &keywords {
-        if kw.id == "cmd" || kw.is_result() || config.borrow().is_uninstalled(&kw.id) {
+        if kw.is_result() || config.borrow().is_uninstalled(&kw.id) {
             continue;
         }
+        let title = capitalized(&kw.id);
         let row = adw::ActionRow::builder()
-            .title(capitalized(&kw.id))
+            .title(title)
             .subtitle(&trigger_subtitle(kw.enabled, &kw.word, &kw.shortcut))
             .activatable(true)
             .use_markup(false)
@@ -2399,22 +1215,6 @@ fn finish_trigger_install(
     // shortcuts and ordering. They are never copied into the custom registry.
     let installed = manifest.and_then(|m| {
         if matches!(m.action, crate::triggers::TriggerAction::Native) {
-            if m.id == "proton-bridge" {
-                if !crate::proton_bridge::supported() {
-                    return Err(gettext("Proton Mail Bridge is not supported on this system."));
-                }
-                save_service_state(config, |c| c.proton_bridge_enabled = true)?;
-                refresh_service_row();
-                return Ok(m);
-            }
-            if is_proton_service(&m.id) {
-                if !crate::trigger_defaults::supports_native(&m.id) {
-                    return Err(gettext("Proton VPN is supported only on Linux."));
-                }
-                save_service_state(config, |c| c.set_proton_service(&m.id, true))?;
-                refresh_service_row();
-                return Ok(m);
-            }
             if !crate::trigger_defaults::supports_native(&m.id) {
                 return Err(format!("This version of Spotty does not support '{}'", m.id));
             }
@@ -2636,8 +1436,8 @@ fn create_trigger_dialog(
             let name = name_row.text().trim().to_string();
             let word = word_row.text().trim().to_lowercase();
             let command = cmd_row.text().trim().to_string();
-            if name.is_empty() || word.is_empty() || command.is_empty() {
-                banner.set_title(&gettext("Name, keyword and command are required."));
+            if name.is_empty() || command.is_empty() {
+                banner.set_title(&gettext("Name and command are required. Leave the keyword empty to show results in regular search."));
                 banner.set_revealed(true);
                 return;
             }
@@ -2712,27 +1512,126 @@ fn show_browse_error(window: &adw::PreferencesWindow, msg: &str) {
     dialog.present();
 }
 
-/// (Re)build the store list for the current search text. Rows get a
-/// `refresh` closure that calls this again after install/uninstall, so
-/// their state flips without reopening the dialog.
-fn render_store_list(
-    list_box: &gtk::Box,
-    items: &Rc<RefCell<Vec<crate::triggers::RepoTrigger>>>,
-    search: &gtk::SearchEntry,
-    empty_page: &adw::StatusPage,
-    stack: &gtk::Stack,
-    base: &str,
-    window: &adw::PreferencesWindow,
-    g: &adw::PreferencesGroup,
-    config: &Rc<RefCell<Config>>,
-    rows: &Rc<RefCell<Vec<TriggerRow>>>,
-) {
-    while let Some(c) = list_box.first_child() {
-        list_box.remove(&c);
+/// The Store's shared state: the list it shows, its search and filter, and
+/// the Triggers page it installs into. Detail pages open as subpages of the
+/// settings window.
+#[derive(Clone)]
+struct StoreView {
+    list: gtk::ListBox,
+    items: Rc<RefCell<Vec<crate::triggers::RepoTrigger>>>,
+    search: gtk::SearchEntry,
+    filter: gtk::DropDown,
+    empty_page: adw::StatusPage,
+    stack: gtk::Stack,
+    base: String,
+    window: adw::PreferencesWindow,
+    group: adw::PreferencesGroup,
+    config: Rc<RefCell<Config>>,
+    rows: Rc<RefCell<Vec<TriggerRow>>>,
+}
+
+/// Where a Store entry stands in this Spotty.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StoreState {
+    Installed,
+    NotInstalled,
+    /// Not installed, and this Spotty has no backend for it.
+    Unavailable,
+}
+
+fn store_entry_state(t: &crate::triggers::RepoTrigger, config: &Config) -> StoreState {
+    let installed = if t.native {
+        config.command_keywords.iter().any(|k| k.id == t.id) && !config.is_uninstalled(&t.id)
+    } else {
+        crate::triggers::by_id(&t.id).is_some()
+    };
+    if installed {
+        StoreState::Installed
+    } else if t.native && !crate::trigger_defaults::supports_native(&t.id) {
+        StoreState::Unavailable
+    } else {
+        StoreState::NotInstalled
     }
-    let q = search.text().to_string();
+}
+
+/// Install a Store entry through the path its kind already uses: a native
+/// trigger's Config entry, or a manifest downloaded from the repository. `done` runs once the attempt is
+/// over; `busy` shows the download while it runs.
+fn store_install(view: &StoreView, t: &crate::triggers::RepoTrigger, done: Rc<dyn Fn()>, busy: Rc<dyn Fn(bool)>) {
+    let win = view.window.clone();
+    let cfg = view.config.clone();
+    if t.native {
+        save_and_refresh(&cfg, |c| c.install_builtin(&t.id));
+        rebuild_trigger_rows(&view.group, &win, &cfg, &view.rows);
+        std::thread::spawn(crate::keybindings::register_all);
+        win.add_toast(adw::Toast::new(&gettext("Installed \"{name}\"").replace("{name}", &t.name)));
+        done();
+        return;
+    }
+    let url = format!("{}/triggers/{}.json", view.base, t.id);
+    let group = view.group.clone();
+    let rows = view.rows.clone();
+    // Fetch on a worker; the continuation hops back via oneshot + spawn_local
+    // (it captures GTK widgets, which aren't Send — same pattern as
+    // resolve_host_app_icon_async).
+    let (tx, rx) = futures::channel::oneshot::channel();
+    busy(true);
+    std::thread::spawn(move || {
+        let body = crate::triggers::fetch_json_text(&url);
+        let _ = tx.send(body);
+    });
+    glib::MainContext::default().spawn_local(async move {
+        let body = rx.await.unwrap_or_else(|_| Err("download aborted".to_string()));
+        busy(false);
+        match body {
+            Ok(raw) => {
+                // Generated file → cleanup=true; a shell/web confirmation (if any)
+                // defers removal until the install attempt finishes, and `done`
+                // runs after it, so the page flips to Uninstall reliably.
+                match write_generated_manifest("repo_trigger", &raw) {
+                    Ok(tmp) => install_manifest_file(&win, &group, &cfg, &rows, &tmp, true, Some(done)),
+                    Err(e) => show_browse_error(&win, &gettext("Cannot save the manifest: {e}").replace("{e}", &e)),
+                }
+            }
+            Err(e) => show_browse_error(&win, &gettext("Download failed: {e}").replace("{e}", &e)),
+        }
+    });
+}
+
+/// Uninstall a Store entry through the path its kind already uses. `done`
+/// runs after it.
+fn store_uninstall(view: &StoreView, t: &crate::triggers::RepoTrigger, done: Rc<dyn Fn()>) {
+    let win = view.window.clone();
+    let cfg = view.config.clone();
+    if t.native {
+        save_and_refresh(&cfg, |c| c.uninstall_builtin(&t.id));
+        rebuild_trigger_rows(&view.group, &win, &cfg, &view.rows);
+        // Drop the removed trigger's keybinding slot immediately.
+        std::thread::spawn(crate::keybindings::register_all);
+        win.add_toast(adw::Toast::new(&gettext("Removed \"{name}\"").replace("{name}", &t.name)));
+        done();
+        return;
+    }
+    match crate::triggers::uninstall(&t.id) {
+        Ok(()) => {
+            rebuild_trigger_rows(&view.group, &win, &cfg, &view.rows);
+            std::thread::spawn(crate::keybindings::register_all);
+            win.add_toast(adw::Toast::new(&gettext("Removed \"{name}\"").replace("{name}", &t.name)));
+            done();
+        }
+        Err(e) => show_browse_error(&win, &gettext("Couldn't uninstall: {e}").replace("{e}", &e)),
+    }
+}
+
+/// (Re)build the store list for the current search text and filter. Rows
+/// open the entry's detail page; the state of an entry shows in its button.
+fn render_store_list(view: &StoreView) {
+    view.list.remove_all();
+    let q = view.search.text().to_string();
     let ql = q.trim().to_lowercase();
-    let mut shown: Vec<_> = items
+    let filter = view.filter.selected();
+    let shown: Vec<_> = view
+        .items
         .borrow()
         .iter()
         .filter(|t| {
@@ -2740,356 +1639,340 @@ fn render_store_list(
                 || t.name.to_lowercase().contains(&ql)
                 || t.word.to_lowercase().contains(&ql)
                 || t.description.to_lowercase().contains(&ql)
+                || t.author.to_lowercase().contains(&ql)
                 || t.id.to_lowercase().contains(&ql)
+        })
+        .filter(|t| match filter {
+            1 => store_entry_state(t, &view.config.borrow()) == StoreState::Installed,
+            2 => store_entry_state(t, &view.config.borrow()) != StoreState::Installed,
+            _ => true,
         })
         .cloned()
         .collect();
-    shown.sort_by_key(|t| t.is_service());
     if shown.is_empty() {
-        let desc = if ql.is_empty() {
+        let desc = if view.items.borrow().is_empty() {
             gettext("The repository has no triggers yet.")
+        } else if ql.is_empty() {
+            gettext("No triggers in this view.")
         } else {
             gettext("No triggers match \"{q}\".").replace("{q}", &q)
         };
-        empty_page.set_description(Some(&desc));
-        stack.set_visible_child_name("empty");
+        view.empty_page.set_description(Some(&desc));
+        view.stack.set_visible_child_name("empty");
         return;
     }
-    let refresh: Rc<dyn Fn()> = {
-        let list_box = list_box.clone();
-        let items = items.clone();
-        let search = search.clone();
-        let empty_page = empty_page.clone();
-        let stack = stack.clone();
-        let base = base.to_string();
-        let win = window.clone();
-        let g2 = g.clone();
-        let cfg = config.clone();
-        let rows2 = rows.clone();
-        Rc::new(move || {
-            render_store_list(
-                &list_box, &items, &search, &empty_page, &stack, &base, &win, &g2, &cfg, &rows2,
-            );
-        })
-    };
-    let triggers = adw::PreferencesGroup::builder().title(gettext("Triggers")).build();
-    let proton = adw::PreferencesGroup::builder()
-        .title(gettext("Proton"))
-        .description(gettext("Optional Proton services and integrations."))
-        .build();
-    let services = adw::PreferencesGroup::builder()
-        .title(gettext("Services and integrations"))
-        .description(gettext("Optional local services and integrations configured through Settings."))
-        .build();
-    let mut has_triggers = false;
-    let mut has_proton = false;
-    let mut has_services = false;
     for t in &shown {
-        let row = server_trigger_row(t, base, window, g, config, rows, &refresh);
-        if is_proton_service(&t.id) {
-            proton.add(&row);
-            has_proton = true;
-        } else if t.is_service() {
-            services.add(&row);
-            has_services = true;
-        } else {
-            triggers.add(&row);
-            has_triggers = true;
-        }
+        view.list.append(&store_list_row(t, view));
     }
-    if has_triggers { list_box.append(&triggers); }
-    if has_proton { list_box.append(&proton); }
-    if has_services { list_box.append(&services); }
-    stack.set_visible_child_name("list");
+    view.stack.set_visible_child_name("list");
 }
 
-/// One row in the store: icon, name, word + description, and an Install or
-/// Uninstall button — whichever matches the current installed state.
-fn server_trigger_row(
-    t: &crate::triggers::RepoTrigger,
-    base: &str,
-    window: &adw::PreferencesWindow,
-    g: &adw::PreferencesGroup,
-    config: &Rc<RefCell<Config>>,
-    rows: &Rc<RefCell<Vec<TriggerRow>>>,
-    refresh: &Rc<dyn Fn()>,
-) -> gtk::ListBoxRow {
-    let subtitle = if t.id == "proton-bridge" {
-        gettext("Local mail server · Login and mail-client credentials in Settings")
-    } else if t.id == "proton-vpn" {
-        gettext("Proton's VPN client built into Spotty · Adds the vpn trigger")
-    } else if t.id == "proton-calendar" {
-        gettext("Adds the cal trigger · Default view and account in Settings")
-    } else if t.id == "proton-drive" {
-        gettext("Adds the drive trigger · Account and synced folder in Settings")
-    } else if t.description.is_empty() {
-        t.word.clone()
-    } else if t.word.is_empty() {
-        t.description.clone()
-    } else {
-        gettext("{word} — {description}").replace("{word}", &t.word).replace("{description}", &t.description)
-    };
-    let action = adw::ActionRow::builder()
-        .title(&t.name)
-        .subtitle(&subtitle)
-        .use_markup(false)
-        .build();
-    if !t.icon.is_empty() && has_icon(&t.icon) {
-        let img = gtk::Image::from_icon_name(&t.icon);
-        img.set_pixel_size(24);
-        action.add_prefix(&img);
-    }
-    if t.native || (t.is_service() && is_proton_service(&t.id)) {
-        let bridge_service = t.is_service() && t.id == "proton-bridge";
-        let service = t.is_service() && is_proton_service(&t.id);
-        let supported = if bridge_service {
-            crate::proton_bridge::supported()
-        } else {
-            crate::trigger_defaults::supports_native(&t.id)
-        };
-        let installed = if service {
-            config.borrow().proton_service_enabled(&t.id)
-        } else {
-            config.borrow().command_keywords.iter().any(|k| k.id == t.id)
-                && !config.borrow().is_uninstalled(&t.id)
-        };
-        let label = if service && installed {
-            gettext("Settings")
-        } else if t.id == "cmd" {
-            gettext("Installed")
-        } else if !supported {
-            gettext("Unavailable")
-        } else if !installed {
-            gettext("Install")
-        } else {
-            gettext("Uninstall")
-        };
-        let btn = gtk::Button::builder()
-            .label(label)
-            .css_classes([if !installed { "suggested-action" } else { "flat" }])
-            .valign(gtk::Align::Center)
-            .sensitive(supported && t.id != "cmd")
-            .build();
-        if service {
-            let win = window.clone();
-            let cfg = config.clone();
-            let refresh = refresh.clone();
-            let name = t.name.clone();
-            let service_id = t.id.clone();
-            btn.set_label(&gettext(if installed { "Settings" } else { "Install" }));
-            btn.set_visible(!installed);
-            let settings = gtk::Button::with_label(&gettext("Settings"));
-            settings.add_css_class("flat");
-            settings.set_valign(gtk::Align::Center);
-            settings.set_visible(installed);
-            settings.set_sensitive(supported && installed);
-            let uninstall = gtk::Button::with_label(&gettext("Uninstall"));
-            uninstall.add_css_class("flat");
-            uninstall.set_valign(gtk::Align::Center);
-            uninstall.set_visible(installed);
-            {
-                let parent = window.clone();
-                let service_id = service_id.clone();
-                let cfg = cfg.clone();
-                settings.connect_clicked(move |button| {
-                    if let Some(store) = button.root().and_then(|root| root.downcast::<adw::Window>().ok()) {
-                        store.close();
-                    }
-                    show_proton_service_settings(&parent, &cfg, &service_id);
-                });
-            }
-            {
-                let cfg = cfg.clone();
-                let refresh = refresh.clone();
-                let win = win.clone();
-                let service_id = service_id.clone();
-                uninstall.connect_clicked(move |_| {
-                    let result = save_service_state(&cfg, |c| c.set_proton_service(&service_id, false));
-                    if let Err(error) = result {
-                        show_service_save_error(&win, &error);
-                        return;
-                    }
-                    refresh_service_row();
-                    refresh();
-                });
-            }
-            action.add_suffix(&btn);
-            action.add_suffix(&settings);
-            action.add_suffix(&uninstall);
-            {
-                let win = win.clone();
-                let cfg = cfg.clone();
-                let refresh = refresh.clone();
-                btn.connect_clicked(move |_| {
-                    let result = save_service_state(&cfg, |c| c.set_proton_service(&service_id, true));
-                    if let Err(error) = result {
-                        show_service_save_error(&win, &error);
-                        return;
-                    }
-                    refresh_service_row();
-                    refresh();
-                    win.add_toast(adw::Toast::new(&gettext("Installed \"{name}\"").replace("{name}", &name)));
-                });
-            }
-            return action.upcast();
-        }
-        let id = t.id.clone();
-        let name = t.name.clone();
-        let win = window.clone();
-        let g2 = g.clone();
-        let cfg = config.clone();
-        let rows2 = rows.clone();
-        let refresh = refresh.clone();
-        btn.connect_clicked(move |_| {
-            save_and_refresh(&cfg, |c| {
-                if !installed { c.install_builtin(&id); }
-                else { c.uninstall_builtin(&id); }
-            });
-            rebuild_trigger_rows(&g2, &win, &cfg, &rows2);
-            std::thread::spawn(crate::keybindings::register_all);
-            let text = if !installed { gettext("Installed \"{name}\"") }
-                else { gettext("Removed \"{name}\"") };
-            win.add_toast(adw::Toast::new(&text.replace("{name}", &name)));
-            refresh();
-        });
-        action.add_suffix(&btn);
-    } else if crate::triggers::by_id(&t.id).is_some() {
-        let uninstall = gtk::Button::builder()
-            .label(gettext("Uninstall"))
-            .css_classes(["flat"])
-            .valign(gtk::Align::Center)
-            .build();
-        {
-            let id = t.id.clone();
-            let name = t.name.clone();
-            let win = window.clone();
-            let g2 = g.clone();
-            let cfg = config.clone();
-            let rows2 = rows.clone();
-            let refresh = refresh.clone();
-            uninstall.connect_clicked(move |_| match crate::triggers::uninstall(&id) {
-                Ok(()) => {
-                    rebuild_trigger_rows(&g2, &win, &cfg, &rows2);
-                    // Drop the removed trigger's keybinding slot immediately.
-                    std::thread::spawn(crate::keybindings::register_all);
-                    win.add_toast(adw::Toast::new(&gettext("Removed \"{name}\"").replace("{name}", &name)));
-                    // Flip this row back to Install without reopening.
-                    refresh();
-                }
-                Err(e) => show_browse_error(&win, &gettext("Couldn't uninstall: {e}").replace("{e}", &e)),
-            });
-        }
-        action.add_suffix(&uninstall);
-    } else {
-        let install = gtk::Button::builder()
-            .label(gettext("Install"))
-            .css_classes(["suggested-action"])
-            .valign(gtk::Align::Center)
-            .build();
-        {
-            let url = format!("{base}/triggers/{}.json", t.id);
-            let win = window.clone();
-            let g2 = g.clone();
-            let cfg = config.clone();
-            let rows2 = rows.clone();
-            let btn = install.clone();
-            let refresh = refresh.clone();
-            install.connect_clicked(move |_| {
-                btn.set_sensitive(false);
-                // Fetch on a worker; the continuation hops back via oneshot +
-                // spawn_local (it captures GTK widgets, which aren't Send —
-                // same pattern as resolve_host_app_icon_async).
-                let (tx, rx) = futures::channel::oneshot::channel();
-                let url = url.clone();
-                std::thread::spawn(move || {
-                    let body = crate::triggers::fetch_json_text(&url);
-                    let _ = tx.send(body);
-                });
-                let btn2 = btn.clone();
-                let win2 = win.clone();
-                let g3 = g2.clone();
-                let cfg3 = cfg.clone();
-                let rows3 = rows2.clone();
-                let refresh_c = refresh.clone();
-                glib::MainContext::default().spawn_local(async move {
-                    let body = rx
-                        .await
-                        .unwrap_or_else(|_| Err("download aborted".to_string()));
-                    btn2.set_sensitive(true);
-                    match body {
-                        Ok(raw) => {
-                            // Generated file → cleanup=true; a shell/web
-                            // confirmation (if any) defers removal until
-                            // the install attempt finishes.
-                            match write_generated_manifest("repo_trigger", &raw) {
-                                Ok(tmp) => {
-                                    // Refresh AFTER the install attempt
-                                    // finishes — for shell triggers that is
-                                    // after the confirmation dialog, so the
-                                    // row flips to Uninstall reliably.
-                                    install_manifest_file(
-                                        &win2, &g3, &cfg3, &rows3, &tmp, true,
-                                        Some(refresh_c),
-                                    );
-                                }
-                                Err(e) => show_browse_error(
-                                    &win2,
-                                    &gettext("Cannot save the manifest: {e}").replace("{e}", &e),
-                                ),
-                            }
-                        }
-                        Err(e) => show_browse_error(&win2, &gettext("Download failed: {e}").replace("{e}", &e)),
-                    }
-                });
-            });
-        }
-        action.add_suffix(&install);
-    }
-    action.upcast()
-}
-
-/// The Trigger Store: fetch the repository index, search it, and install
-/// what you pick through the shared install path (validation, shell
-/// confirmation, rows + keybinding refresh). The repository URL is config-
-/// only — never shown. The header + opens the create/import dialog for
-/// local triggers.
-fn store_dialog(
-    window: &adw::PreferencesWindow,
-    g: &adw::PreferencesGroup,
-    config: &Rc<RefCell<Config>>,
-    rows: &Rc<RefCell<Vec<TriggerRow>>>,
-) {
-    let dialog = adw::Window::builder()
-        .transient_for(window)
-        .modal(false)
-        .title(gettext("Store"))
-        .default_width(640)
-        .default_height(640)
-        .build();
-
-    let toolbar = adw::ToolbarView::new();
-    let header = adw::HeaderBar::builder()
-        .title_widget(&adw::WindowTitle::new("Store", ""))
-        .build();
-    // Local installs: create your own trigger or import a downloaded
-    // manifest — both live in the create dialog behind this +.
-    let add_btn = gtk::Button::builder()
-        .icon_name("list-add-symbolic")
-        .tooltip_text(gettext("Add a local trigger"))
-        .build();
-    header.pack_end(&add_btn);
-    toolbar.add_top_bar(&header);
-
-    let content = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(8)
-        .margin_top(8)
+/// One row in the Store list, laid out like GNOME Extension Manager's: icon,
+/// name, author and a wrapped description on the left; the entry's button
+/// (Install, or a greyed Installed) and a chevron on the right. Activating the
+/// row opens the detail page.
+fn store_list_row(t: &crate::triggers::RepoTrigger, view: &StoreView) -> adw::PreferencesRow {
+    let line = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(12)
+        .margin_top(12)
         .margin_bottom(12)
         .margin_start(12)
         .margin_end(12)
         .build();
-    toolbar.set_content(Some(&content));
-    dialog.set_content(Some(&toolbar));
+    if !t.icon.is_empty() && has_icon(&t.icon) {
+        let img = gtk::Image::from_icon_name(&t.icon);
+        img.set_pixel_size(24);
+        img.set_valign(gtk::Align::Start);
+        line.append(&img);
+    }
+    let text = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(2)
+        .hexpand(true)
+        .valign(gtk::Align::Center)
+        .build();
+    text.append(&gtk::Label::builder().label(&t.name).xalign(0.0).wrap(true).build());
+    if !t.author.is_empty() {
+        text.append(
+            &gtk::Label::builder()
+                .label(crate::search::capitalize(&t.author))
+                .xalign(0.0)
+                .css_classes(["caption", "dim-label"])
+                .build(),
+        );
+    }
+    if !t.description.is_empty() {
+        text.append(
+            &gtk::Label::builder()
+                .label(&t.description)
+                .xalign(0.0)
+                .wrap(true)
+                .lines(2)
+                .ellipsize(pango::EllipsizeMode::End)
+                .margin_top(4)
+                .css_classes(["dim-label"])
+                .build(),
+        );
+    }
+    line.append(&text);
+
+    let state = store_entry_state(t, &view.config.borrow());
+    let button = match state {
+        StoreState::Installed => gtk::Button::builder()
+            .label(gettext("Installed"))
+            .sensitive(false)
+            .build(),
+        StoreState::NotInstalled => gtk::Button::builder()
+            .label(gettext("Install"))
+            .css_classes(["suggested-action"])
+            .build(),
+        StoreState::Unavailable => gtk::Button::builder()
+            .label(gettext("Unavailable"))
+            .sensitive(false)
+            .build(),
+    };
+    button.set_valign(gtk::Align::Center);
+    if state == StoreState::NotInstalled {
+        let view = view.clone();
+        let t = t.clone();
+        let btn = button.clone();
+        button.connect_clicked(move |_| {
+            let done: Rc<dyn Fn()> = {
+                let view = view.clone();
+                Rc::new(move || render_store_list(&view))
+            };
+            let busy: Rc<dyn Fn(bool)> = {
+                let btn = btn.clone();
+                Rc::new(move |on: bool| {
+                    btn.set_sensitive(!on);
+                    btn.set_label(&if on { gettext("Installing…") } else { gettext("Install") });
+                })
+            };
+            store_install(&view, &t, done, busy);
+        });
+    }
+    line.append(&button);
+    line.append(&gtk::Image::from_icon_name("go-next-symbolic"));
+
+    let row = adw::PreferencesRow::builder()
+        .title(&t.name)
+        .activatable(true)
+        .child(&line)
+        .build();
+    row.set_widget_name(&t.id);
+    row
+}
+
+/// The detail page of one entry, pushed from the list: a header with the
+/// icon, name, author, description and its action, then About, Usage and
+/// Details. Each section is shown only when the catalog has its data.
+fn store_detail_page(view: &StoreView, t: &crate::triggers::RepoTrigger) -> adw::NavigationPage {
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(24)
+        .margin_top(24)
+        .margin_bottom(24)
+        .margin_start(16)
+        .margin_end(16)
+        .build();
+
+    let header = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .halign(gtk::Align::Center)
+        .build();
+    let icon = if !t.icon.is_empty() && has_icon(&t.icon) { t.icon.as_str() } else { "folder-symbolic" };
+    let image = gtk::Image::from_icon_name(icon);
+    image.set_pixel_size(64);
+    header.append(&image);
+    header.append(&gtk::Label::builder().label(&t.name).css_classes(["title-1"]).wrap(true).justify(gtk::Justification::Center).build());
+    if !t.author.is_empty() {
+        let author = crate::search::capitalize(&t.author);
+        header.append(&gtk::Label::builder().label(gettext("by {author}").replace("{author}", &author)).css_classes(["dim-label"]).build());
+    }
+    if !t.description.is_empty() {
+        header.append(&gtk::Label::builder().label(&t.description).wrap(true).justify(gtk::Justification::Center).margin_top(6).build());
+    }
+    let actions = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(12)
+        .halign(gtk::Align::Center)
+        .margin_top(12)
+        .build();
+    header.append(&actions);
+    store_detail_actions(&actions, view, t);
+    content.append(&header);
+
+    if !t.long_description.trim().is_empty() {
+        let about = adw::PreferencesGroup::builder().title(gettext("About")).build();
+        about.add(
+            &gtk::Label::builder()
+                .label(&t.long_description)
+                .wrap(true)
+                .xalign(0.0)
+                .margin_top(12)
+                .margin_bottom(12)
+                .margin_start(12)
+                .margin_end(12)
+                .build(),
+        );
+        content.append(&about);
+    }
+
+    let word = installed_word(t, &view.config.borrow()).unwrap_or_else(|| t.word.clone());
+    let details = adw::PreferencesGroup::builder().title(gettext("Details")).build();
+    let word_label = match (word.is_empty(), word == t.word || t.word.is_empty()) {
+        (true, true) => gettext("None"),
+        (true, false) => gettext("None (default: {word})").replace("{word}", &t.word),
+        (false, true) => word.clone(),
+        (false, false) => gettext("{word} (default: {default})")
+            .replace("{word}", &word)
+            .replace("{default}", &t.word),
+    };
+    details.add(&detail_row(&gettext("Trigger word"), word_label));
+    details.add(&detail_row(&gettext("Default shortcut"), if t.shortcut.is_empty() { gettext("None") } else { t.shortcut.clone() }));
+    details.add(&detail_row(&gettext("Version"), t.version.clone()));
+    details.add(&detail_row(&gettext("Author"), crate::search::capitalize(&t.author)));
+    details.add(&detail_row(&gettext("Category"), gettext("Trigger")));
+    if t.network.trim().is_empty() {
+        details.add(&adw::ActionRow::builder()
+            .title(gettext("Runs on this computer"))
+            .subtitle(gettext("Spotty does not send your searches to a server"))
+            .build());
+    } else {
+        details.add(&adw::ActionRow::builder()
+            .title(gettext("Talks to {network}").replace("{network}", &t.network))
+            .subtitle(gettext("Requests go out from this computer"))
+            .build());
+    }
+    if crate::security::http_uri(&t.homepage).is_ok() {
+        let row = adw::ActionRow::builder()
+            .title(gettext("Homepage"))
+            .subtitle(&t.homepage)
+            .activatable(true)
+            .use_markup(false)
+            .build();
+        row.add_suffix(&gtk::Image::from_icon_name("adw-external-link-symbolic"));
+        let homepage = t.homepage.clone();
+        row.connect_activated(move |_| {
+            let _ = gtk::gio::AppInfo::launch_default_for_uri(&homepage, gtk::gio::AppLaunchContext::NONE);
+        });
+        details.add(&row);
+    }
+    content.append(&details);
+
+    let clamp = adw::Clamp::builder().maximum_size(600).child(&content).build();
+    let scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .child(&clamp)
+        .build();
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&adw::HeaderBar::new());
+    toolbar.set_content(Some(&scroll));
+    adw::NavigationPage::new(&toolbar, &t.name)
+}
+
+/// The word an installed Store entry has in this Spotty (None when it is not
+/// installed, so the catalog's default applies).
+fn installed_word(t: &crate::triggers::RepoTrigger, config: &Config) -> Option<String> {
+    if store_entry_state(t, config) != StoreState::Installed {
+        return None;
+    }
+    if t.native {
+        config.command_keywords.iter().find(|k| k.id == t.id).map(|k| k.word.clone())
+    } else {
+        crate::triggers::by_id(&t.id).map(|m| m.word)
+    }
+}
+
+/// One row of a Details group: a title and its value on the right.
+fn detail_row(title: &str, value: String) -> adw::ActionRow {
+    let row = adw::ActionRow::builder().title(title).use_markup(false).build();
+    row.add_suffix(&gtk::Label::builder().label(&value).css_classes(["dim-label"]).selectable(true).build());
+    row
+}
+
+/// The detail page's buttons for the entry's current state: Install,
+/// Uninstall or Unavailable. After an install or uninstall the list and the
+/// buttons are rebuilt.
+fn store_detail_actions(actions: &gtk::Box, view: &StoreView, t: &crate::triggers::RepoTrigger) {
+    while let Some(child) = actions.first_child() {
+        actions.remove(&child);
+    }
+    let state = store_entry_state(t, &view.config.borrow());
+    let spinner = gtk::Spinner::builder().visible(false).build();
+    let primary = match state {
+        StoreState::Installed => gtk::Button::builder()
+            .label(gettext("Uninstall"))
+            .css_classes(["pill", "destructive-action"])
+            .build(),
+        StoreState::NotInstalled => gtk::Button::builder()
+            .label(gettext("Install"))
+            .css_classes(["pill", "suggested-action"])
+            .build(),
+        StoreState::Unavailable => gtk::Button::builder()
+            .label(gettext("Unavailable"))
+            .css_classes(["pill"])
+            .sensitive(false)
+            .build(),
+    };
+    actions.append(&primary);
+    actions.append(&spinner);
+
+    // Built again after the change, so the list and these buttons agree.
+    let done: Rc<dyn Fn()> = {
+        let actions = actions.clone();
+        let view = view.clone();
+        let t = t.clone();
+        Rc::new(move || {
+            render_store_list(&view);
+            store_detail_actions(&actions, &view, &t);
+        })
+    };
+    match state {
+        StoreState::Installed => {
+            let view = view.clone();
+            let t = t.clone();
+            primary.connect_clicked(move |_| store_uninstall(&view, &t, done.clone()));
+        }
+        StoreState::NotInstalled => {
+            let busy: Rc<dyn Fn(bool)> = {
+                let primary = primary.clone();
+                let spinner = spinner.clone();
+                Rc::new(move |on: bool| {
+                    primary.set_sensitive(!on);
+                    spinner.set_visible(on);
+                    spinner.set_spinning(on);
+                })
+            };
+            let view = view.clone();
+            let t = t.clone();
+            primary.connect_clicked(move |_| store_install(&view, &t, done.clone(), busy.clone()));
+        }
+        StoreState::Unavailable => {}
+    }
+}
+
+/// The Trigger Store, a tab of the settings window: search and filter the
+/// repository index, install an entry from its row or open its detail page to
+/// install, uninstall or read more. Installs go through the shared install
+/// path (validation, shell confirmation, rows + keybinding refresh). The
+/// repository URL is config-only — never shown. The index is fetched the first
+/// time the tab is shown (and again after a failure), never at startup. The
+/// + button opens the create/import dialog for local triggers.
+fn build_store_page(
+    window: &adw::PreferencesWindow,
+    g: &adw::PreferencesGroup,
+    config: &Rc<RefCell<Config>>,
+    rows: &Rc<RefCell<Vec<TriggerRow>>>,
+) -> adw::PreferencesPage {
+    let page = adw::PreferencesPage::builder()
+        .name("store")
+        .title(gettext("Store"))
+        .icon_name(store_icon())
+        .build();
 
     let base = config
         .borrow()
@@ -3098,23 +1981,39 @@ fn store_dialog(
         .trim_end_matches('/')
         .to_string();
 
+    // Search, filter and "add a local trigger" on one line.
+    let bar = gtk::Box::builder().orientation(gtk::Orientation::Horizontal).spacing(8).build();
     let search = gtk::SearchEntry::builder()
-        .placeholder_text(gettext("Search triggers and services"))
+        .placeholder_text(gettext("Search triggers"))
+        .hexpand(true)
         .build();
-    content.append(
-        &adw::Clamp::builder()
-            .maximum_size(600)
-            .child(&search)
-            .build(),
-    );
+    let filter = gtk::DropDown::from_strings(&[
+        &gettext("All"),
+        &gettext("Installed"),
+        &gettext("Not installed"),
+    ]);
+    let add_btn = gtk::Button::builder()
+        .icon_name("list-add-symbolic")
+        .tooltip_text(gettext("Add a local trigger"))
+        .build();
+    bar.append(&search);
+    bar.append(&filter);
+    bar.append(&add_btn);
+    let top = adw::PreferencesGroup::new();
+    top.add(&bar);
+    page.add(&top);
 
-    let list_box = gtk::Box::new(gtk::Orientation::Vertical, 24);
+    let list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .css_classes(["boxed-list"])
+        .build();
     let loading_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(12)
         .halign(gtk::Align::Center)
         .valign(gtk::Align::Center)
         .margin_top(48)
+        .margin_bottom(48)
         .build();
     loading_box.append(&crate::ui::circular_progress::progress_ring(
         24,
@@ -3127,125 +2026,153 @@ fn store_dialog(
             .css_classes(["dim-label", "caption"])
             .build(),
     );
-
     let empty_page = adw::StatusPage::builder()
         .title(gettext("No triggers found"))
         .icon_name("edit-find-symbolic")
         .build();
+    let retry = gtk::Button::builder()
+        .label(gettext("Try Again"))
+        .halign(gtk::Align::Center)
+        .css_classes(["pill"])
+        .build();
     let error_page = adw::StatusPage::builder()
         .title(gettext("Couldn't load the trigger repository"))
         .icon_name("dialog-error-symbolic")
+        .child(&retry)
         .build();
 
     let stack = gtk::Stack::builder().vhomogeneous(false).build();
     stack.add_named(&loading_box, Some("loading"));
-    stack.add_named(&list_box, Some("list"));
+    stack.add_named(&list, Some("list"));
     stack.add_named(&empty_page, Some("empty"));
     stack.add_named(&error_page, Some("error"));
     stack.set_visible_child_name("loading");
-    let clamp = adw::Clamp::builder()
-        .maximum_size(600)
-        .child(&stack)
-        .build();
-    let scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .vexpand(true)
-        .child(&clamp)
-        .build();
-    content.append(&scroll);
+    let results = adw::PreferencesGroup::new();
+    results.add(&stack);
+    page.add(&results);
 
     let items: Rc<RefCell<Vec<crate::triggers::RepoTrigger>>> =
         Rc::new(RefCell::new(Vec::new()));
-
-    // (Re)render the list for the current search text; rows re-render after
-    // install/uninstall through the same free function.
+    let view = StoreView {
+        list: list.clone(),
+        items: items.clone(),
+        search: search.clone(),
+        filter: filter.clone(),
+        empty_page: empty_page.clone(),
+        stack: stack.clone(),
+        base: base.clone(),
+        window: window.clone(),
+        group: g.clone(),
+        config: config.clone(),
+        rows: rows.clone(),
+    };
+    // Rows re-render after install/uninstall through the same free function.
     let render: Rc<dyn Fn()> = {
-        let list_box = list_box.clone();
-        let items = items.clone();
-        let stack = stack.clone();
-        let search = search.clone();
-        let empty_page = empty_page.clone();
-        let base = base.clone();
-        let win = window.clone();
-        let g2 = g.clone();
-        let cfg = config.clone();
-        let rows2 = rows.clone();
+        let view = view.clone();
         Rc::new(move || {
-            render_store_list(
-                &list_box, &items, &search, &empty_page, &stack, &base, &win, &g2, &cfg, &rows2,
-            );
+            // Until the index has loaded (or after it failed) there is no list.
+            if !matches!(view.stack.visible_child_name().as_deref(), Some("loading" | "error")) {
+                render_store_list(&view);
+            }
         })
     };
-
     STORE_SERVICE_REFRESH.with(|refresh| *refresh.borrow_mut() = Some(render.clone()));
-    {
-        dialog.connect_close_request(move |_| {
-            STORE_SERVICE_REFRESH.with(|callback| *callback.borrow_mut() = None);
-            glib::Propagation::Proceed
-        });
-    }
 
     {
-        let render = render.clone();
-        search.connect_changed(move |_| {
-            render();
-        });
-    }
-    {
-        let win = window.clone();
-        let g2 = g.clone();
-        let cfg = config.clone();
-        let rows2 = rows.clone();
-        let d = dialog.clone();
-        add_btn.connect_clicked(move |_| {
-            d.close();
-            create_trigger_dialog(&win, &g2, &cfg, &rows2);
-        });
-    }
-
-    if base.is_empty() {
-        error_page
-            .set_description(Some(&gettext("Set the trigger repository URL in the Trigger Repository row.")));
-        stack.set_visible_child_name("error");
-    } else {
-        let items = items.clone();
-        let render = render.clone();
-        let stack = stack.clone();
-        let error_page = error_page.clone();
-        let base_c = base.clone();
-        let (tx, rx) = futures::channel::oneshot::channel();
-        let url = format!("{base_c}/index.json");
-        std::thread::spawn(move || {
-            let body = crate::triggers::fetch_json_text(&url);
-            let _ = tx.send(body);
-        });
-        glib::MainContext::default().spawn_local(async move {
-            let body = rx
-                .await
-                .unwrap_or_else(|_| Err("fetch aborted".to_string()));
-            match body {
-                Ok(raw) => match serde_json::from_str::<Vec<crate::triggers::RepoTrigger>>(&raw)
-                {
-                    Ok(list) => {
-                        *items.borrow_mut() = list.into_iter().filter(|entry| crate::security::valid_id(&entry.id)).collect();
-                        render();
-                    }
-                    Err(e) => {
-                        error_page.set_description(Some(&format!(
-                            "The repository sent an invalid response: {e}"
-                        )));
-                        stack.set_visible_child_name("error");
-                    }
-                },
-                Err(e) => {
-                    error_page.set_description(Some(&gettext("Couldn't load {url}: {e}").replace("{url}", &base_c).replace("{e}", &e)));
-                    stack.set_visible_child_name("error");
-                }
+        let view = view.clone();
+        list.connect_row_activated(move |_, row| {
+            let id = row.widget_name();
+            let entry = view.items.borrow().iter().find(|t| t.id == id.as_str()).cloned();
+            if let Some(t) = entry {
+                view.window.push_subpage(&store_detail_page(&view, &t));
             }
         });
     }
+    {
+        let render = render.clone();
+        search.connect_changed(move |_| render());
+    }
+    {
+        let render = render.clone();
+        filter.connect_selected_notify(move |_| render());
+    }
+    {
+        let win = window.clone();
+        let g2 = g.clone();
+        let cfg = config.clone();
+        let rows2 = rows.clone();
+        add_btn.connect_clicked(move |_| create_trigger_dialog(&win, &g2, &cfg, &rows2));
+    }
 
-    dialog.present();
+    // 0 = not loaded (or failed), 1 = loading, 2 = loaded.
+    let load_state = Rc::new(std::cell::Cell::new(0u8));
+    let load: Rc<dyn Fn()> = {
+        let items = items.clone();
+        let stack = stack.clone();
+        let error_page = error_page.clone();
+        let view = view.clone();
+        let load_state = load_state.clone();
+        Rc::new(move || {
+            if load_state.get() != 0 {
+                return;
+            }
+            if base.is_empty() {
+                error_page.set_description(Some(&gettext(
+                    "Set the trigger repository URL in the Trigger Repository row.",
+                )));
+                stack.set_visible_child_name("error");
+                return;
+            }
+            load_state.set(1);
+            stack.set_visible_child_name("loading");
+            let (tx, rx) = futures::channel::oneshot::channel();
+            let url = format!("{}/index.json", base);
+            std::thread::spawn(move || {
+                let _ = tx.send(crate::triggers::fetch_json_text(&url));
+            });
+            let (items, stack, error_page, view, load_state, base) = (
+                items.clone(), stack.clone(), error_page.clone(), view.clone(),
+                load_state.clone(), base.clone(),
+            );
+            glib::MainContext::default().spawn_local(async move {
+                let body = rx.await.unwrap_or_else(|_| Err("fetch aborted".to_string()));
+                let failure = match body {
+                    Ok(raw) => match serde_json::from_str::<Vec<crate::triggers::RepoTrigger>>(&raw) {
+                        Ok(list) => {
+                            *items.borrow_mut() = list
+                                .into_iter()
+                                .filter(|entry| crate::security::valid_id(&entry.id))
+                                .collect();
+                            load_state.set(2);
+                            render_store_list(&view);
+                            return;
+                        }
+                        Err(e) => format!("The repository sent an invalid response: {e}"),
+                    },
+                    Err(e) => gettext("Couldn't load {url}: {e}")
+                        .replace("{url}", &base)
+                        .replace("{e}", &e),
+                };
+                load_state.set(0);
+                error_page.set_description(Some(&failure));
+                stack.set_visible_child_name("error");
+            });
+        })
+    };
+    {
+        let load = load.clone();
+        retry.connect_clicked(move |_| load());
+    }
+    // Fetch the index the first time the tab is shown, and again after a failure.
+    {
+        let load = load.clone();
+        window.connect_visible_page_name_notify(move |w| {
+            if w.visible_page_name().as_deref() == Some("store") {
+                load();
+            }
+        });
+    }
+    page
 }
 
 /// Confirm + run a trigger uninstall, then rebuild the trigger list and
@@ -3298,6 +2225,57 @@ fn edit_trigger_dialog(
     id: &str,
     is_installed: bool,
 ) {
+    // A libadwaita preferences dialog, like the result types' popups: every
+    // change saves as it is made, so there is nothing to confirm or cancel.
+    let dialog = adw::PreferencesDialog::builder()
+        .content_width(480)
+        .build();
+    let toast: Rc<dyn Fn(&str)> = {
+        let dialog = dialog.clone();
+        Rc::new(move |message: &str| dialog.add_toast(adw::Toast::new(message)))
+    };
+    let Some((name, groups)) = trigger_settings_groups(dialog.upcast_ref(), toast, config, id, is_installed) else {
+        return;
+    };
+    dialog.set_title(&name);
+    let content = adw::PreferencesPage::new();
+    for group in &groups {
+        content.add(group);
+    }
+    dialog.add(&content);
+
+    // Last: Uninstall. A repository trigger goes through its confirmation;
+    // a built-in one leaves the list and waits in the Store.
+    {
+        let g_c = g.clone();
+        let cfg_c = config.clone();
+        let rows_c = rows.clone();
+        let id_c = id.to_string();
+        content.add(&uninstall_group(&dialog, &name, move |win| {
+            let Some(win) = win else { return };
+            if is_installed {
+                confirm_uninstall(&win, &g_c, &cfg_c, &rows_c, &id_c);
+            } else {
+                uninstall_builtin_from_list(&win, &cfg_c, &id_c);
+            }
+        }));
+    }
+
+    dialog.present(Some(window));
+}
+
+/// A trigger's settings groups: word, enable switch, shortcut and regular
+/// search, plus the clipboard and Find extras. Shared by the trigger edit
+/// dialog. `host` parents the
+/// shortcut capture; `toast` reports a rejected word. Returns the trigger's
+/// name with the groups, or None when the trigger is gone.
+fn trigger_settings_groups(
+    host: &gtk::Widget,
+    toast: Rc<dyn Fn(&str)>,
+    config: &Rc<RefCell<Config>>,
+    id: &str,
+    is_installed: bool,
+) -> Option<(String, Vec<adw::PreferencesGroup>)> {
     let id = id.to_string();
     let is_clipboard = id == "clipboard";
     let is_find = id == "files";
@@ -3305,7 +2283,7 @@ fn edit_trigger_dialog(
         if is_installed {
             match crate::triggers::by_id(&id) {
                 Some(a) => (a.name, a.word, a.shortcut, a.enabled, a.description),
-                None => return,
+                None => return None,
             }
         } else {
             match config
@@ -3321,7 +2299,7 @@ fn edit_trigger_dialog(
                     k.enabled,
                     k.description.clone(),
                 ),
-                None => return,
+                None => return None,
             }
         };
 
@@ -3346,13 +2324,7 @@ fn edit_trigger_dialog(
             .unwrap_or_else(|| word.clone())
     };
 
-    // A libadwaita preferences dialog, like the result types' popups: every
-    // change saves as it is made, so there is nothing to confirm or cancel.
-    let dialog = adw::PreferencesDialog::builder()
-        .title(&name)
-        .content_width(480)
-        .build();
-    let content = adw::PreferencesPage::new();
+    let mut groups: Vec<adw::PreferencesGroup> = Vec::new();
 
     // ── Trigger group ─────────────────────────────────────────────────
     let trigger_group = adw::PreferencesGroup::new();
@@ -3372,7 +2344,7 @@ fn edit_trigger_dialog(
         .use_markup(false)
         .build();
     trigger_group.add(&entry);
-    content.add(&trigger_group);
+    groups.push(trigger_group.clone());
 
     // ── Pending state (auto-saved on every change) ─────────────────────
     let pending_shortcut: Rc<RefCell<String>> = Rc::new(RefCell::new(shortcut.clone()));
@@ -3384,12 +2356,11 @@ fn edit_trigger_dialog(
     let pending_delete_file: Rc<RefCell<String>> = Rc::new(RefCell::new(config.borrow().delete_file_shortcut.clone()));
     let pending_open_location: Rc<RefCell<String>> = Rc::new(RefCell::new(config.borrow().open_location_shortcut.clone()));
 
+    let (regular_row, sync_regular) = regular_search_row(config, &id);
+
     // Apply all pending values to config / manifest immediately.
     let apply: Rc<dyn Fn()> = {
-        let win = window.clone();
         let cfg = config.clone();
-        let g2 = g.clone();
-        let rows2 = rows.clone();
         let id_c = id.clone();
         let entry_c = entry.clone();
         let pending_shortcut_c = pending_shortcut.clone();
@@ -3400,6 +2371,7 @@ fn edit_trigger_dialog(
         let pending_terminal_c = pending_terminal.clone();
         let pending_delete_file_c = pending_delete_file.clone();
         let pending_open_location_c = pending_open_location.clone();
+        let sync_regular = sync_regular.clone();
         Rc::new(move || {
             let new_word = entry_c.text().trim().to_lowercase();
             let new_shortcut = pending_shortcut_c.borrow().clone();
@@ -3435,7 +2407,9 @@ fn edit_trigger_dialog(
                 c.save();
                 std::thread::spawn(crate::keybindings::register_all);
             }
-            rebuild_trigger_rows(&g2, &win, &cfg, &rows2);
+            sync_regular();
+            refresh_trigger_list();
+            crate::app::refresh_search_window();
         })
     };
 
@@ -3457,7 +2431,7 @@ fn edit_trigger_dialog(
         .map(|k| k.shortcut.clone())
         .unwrap_or_else(|| shortcut.clone());
     let (short_row, _) = capture_shortcut_row(
-        &dialog,
+        host,
         &gettext("Shortcut"),
         &name,
         pending_shortcut.clone(),
@@ -3466,14 +2440,16 @@ fn edit_trigger_dialog(
     );
     trigger_group.add(&short_row);
     // Reachable by its word — and, if the user wants, from the regular search.
-    if id != "cmd" {
-        let (regular_row, _) = regular_search_row(config, &id);
-        trigger_group.add(&regular_row);
+    let (regular_row, _) = regular_search_row(config, &id);
+    trigger_group.add(&regular_row);
+
+    if id == "translate" {
+        groups.push(feature_settings::translate_group(config, toast.clone()));
     }
 
     if is_clipboard {
         let clip_group = adw::PreferencesGroup::builder().title(gettext("Clipboard")).build();
-        content.add(&clip_group);
+        groups.push(clip_group.clone());
 
         // History Limit
         let limit_label = gtk::Label::new(Some(
@@ -3560,7 +2536,7 @@ fn edit_trigger_dialog(
 
         // Pin Shortcut
         let (_pin_row, _) = capture_shortcut_row(
-            &dialog,
+            host,
             "Pin / Unpin Shortcut",
             "",
             pending_pin_shortcut.clone(),
@@ -3572,7 +2548,7 @@ fn edit_trigger_dialog(
 
     if is_find {
         let find_group = adw::PreferencesGroup::builder().title(gettext("Find")).build();
-        content.add(&find_group);
+        groups.push(find_group.clone());
 
         let root_row = adw::SwitchRow::builder()
             .title(gettext("Root Path Browsing"))
@@ -3609,7 +2585,7 @@ fn edit_trigger_dialog(
         // Result shortcuts for Find mode: delete and open-location sit with
         // the terminal row — all three save through the dialog's apply.
         let (delete_row, _) = capture_shortcut_row(
-            &dialog,
+            host,
             &gettext("Delete file / folder"),
             "",
             pending_delete_file.clone(),
@@ -3619,7 +2595,7 @@ fn edit_trigger_dialog(
         find_group.add(&delete_row);
 
         let (open_loc_row, _) = capture_shortcut_row(
-            &dialog,
+            host,
             &gettext("Open location in file manager"),
             "",
             pending_open_location.clone(),
@@ -3630,7 +2606,7 @@ fn edit_trigger_dialog(
 
         // Terminal shortcut
         let (terminal_row, _) = capture_shortcut_row(
-            &dialog,
+            host,
             &gettext("Open location in terminal"),
             "",
             pending_terminal.clone(),
@@ -3639,8 +2615,6 @@ fn edit_trigger_dialog(
         );
         find_group.add(&terminal_row);
     }
-
-    dialog.add(&content);
 
     // Trigger word: reset button appears only once the word differs from
     // the default; auto-save, debounced so intermediate keystrokes ("f"
@@ -3671,7 +2645,7 @@ fn edit_trigger_dialog(
         let entry_cl = entry.clone();
         let entry_changed = entry.clone();
         let apply_c = apply.clone();
-        let win_c = dialog.clone();
+        let toast_c = toast.clone();
         let id_c = id.clone();
         let cfg_c = config.clone();
         let reset_c = reset_btn.clone();
@@ -3685,7 +2659,7 @@ fn edit_trigger_dialog(
             }
             let entry_d = entry_cl.clone();
             let apply_d = apply_c.clone();
-            let win_d = win_c.clone();
+            let toast_d = toast_c.clone();
             let id_d = id_c.clone();
             let cfg_d = cfg_c.clone();
             let last_d = last_valid.clone();
@@ -3697,14 +2671,14 @@ fn edit_trigger_dialog(
                     // SourceId so a later `changed` can't remove it again.
                     *debounce_d.borrow_mut() = None;
                     let new_word = entry_d.text().trim().to_lowercase();
-                    if new_word.is_empty() {
-                        win_d.add_toast(adw::Toast::new(&gettext("Trigger word cannot be empty")));
+                    if new_word.len() > 128 || new_word.chars().any(|c| c.is_whitespace() || c.is_control()) {
+                        toast_d(&gettext("Trigger word must be empty or one word (at most 128 bytes)"));
                         entry_d.set_text(&last_d.borrow());
                         return;
                     }
                     if new_word != *last_d.borrow() && word_taken(&id_d, &new_word, &cfg_d) {
                         let msg = gettext("Trigger word \"{word}\" is already in use").replace("{word}", &new_word);
-                        win_d.add_toast(adw::Toast::new(&msg));
+                        toast_d(&msg);
                         entry_d.set_text(&last_d.borrow());
                         return;
                     }
@@ -3716,28 +2690,12 @@ fn edit_trigger_dialog(
         });
     }
 
-    // Last: Uninstall. A repository trigger goes through its confirmation;
-    // a built-in one leaves the list and waits in the Store.
-    if id != "cmd" {
-        let g_c = g.clone();
-        let cfg_c = config.clone();
-        let rows_c = rows.clone();
-        let id_c = id.clone();
-        content.add(&uninstall_group(&dialog, &name, move |win| {
-            let Some(win) = win else { return };
-            if is_installed {
-                confirm_uninstall(&win, &g_c, &cfg_c, &rows_c, &id_c);
-            } else {
-                uninstall_builtin_from_list(&win, &cfg_c, &id_c);
-            }
-        }));
-    }
-
-    dialog.present(Some(window));
+    Some((name, groups))
 }
 
 /// True when another trigger (built-in or trigger) already uses `word`.
 fn word_taken(id: &str, word: &str, config: &Rc<RefCell<Config>>) -> bool {
+    if word.is_empty() { return false; }
     let c = config.borrow();
     c.command_keywords
         .iter()
@@ -3991,7 +2949,6 @@ fn shortcut_capture_dialog(
     on_accept: Rc<dyn Fn(Option<String>)>,
 ) {
     let mut builder = adw::Window::builder()
-        .modal(true)
         .resizable(false)
         .default_width(404);
     if let Some(host) = parent_window(parent) {
@@ -4495,57 +3452,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires a native desktop display; run with --ignored --test-threads=1"]
-    fn bridge_popup_reuses_window_and_drains_embedded_controller_on_close() {
-        adw::init().unwrap();
-        let app = adw::Application::new(None, gtk::gio::ApplicationFlags::NON_UNIQUE);
-        app.register(None::<&gtk::gio::Cancellable>).unwrap();
-        let parent = adw::ApplicationWindow::builder().application(&app).build();
-        parent.present();
-
-        let bridge_window = adw::ApplicationWindow::builder()
-            .application(&app)
-            .transient_for(&parent)
-            .modal(true)
-            .build();
-        let popup = Rc::new(RefCell::new(None));
-        let close_count = Rc::new(std::cell::Cell::new(0));
-        {
-            let close_count = close_count.clone();
-            *popup.borrow_mut() = Some(BridgePopup {
-                window: bridge_window.clone(),
-                close_bridge: Some(Box::new(move || {
-                    close_count.set(close_count.get() + 1);
-                })),
-            });
-        }
-        connect_bridge_popup_close(&bridge_window, &popup);
-
-        assert!(present_existing_bridge_popup(&popup));
-        assert!(present_existing_bridge_popup(&popup));
-        assert_eq!(
-            close_count.get(),
-            0,
-            "reopening reuses the active controller"
-        );
-
-        bridge_window.close();
-        let context = glib::MainContext::default();
-        for _ in 0..100 {
-            while context.pending() {
-                context.iteration(false);
-            }
-            if popup.borrow().is_none() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        assert!(popup.borrow().is_none(), "closed popup state is released");
-        assert_eq!(close_count.get(), 1, "close drains exactly once");
-        parent.close();
-    }
-
-    #[test]
     fn install_gate_confirms_shell_and_allows_web_files_and_native() {
         let parse = |body: &str| -> crate::triggers::TriggerManifest {
             serde_json::from_str(body).expect("valid fixture")
@@ -4553,7 +3459,7 @@ mod tests {
         let shell = parse(r#"{"id":"x","name":"X","word":"x","description":"d","action":{"type":"shell","command":"rm -rf ~"}}"#);
         let web = parse(r#"{"id":"y","name":"Y","word":"y","description":"d","action":{"type":"web","url":"https://e/{query}"}}"#);
         let files = parse(r#"{"id":"z","name":"Z","word":"z","description":"d","action":{"type":"files","extensions":["pdf"]}}"#);
-        let native = parse(include_str!("../../trigger-backends/triggers/proton-bridge.json"));
+        let native = parse(r#"{"id":"emoji","name":"Emoji","word":"emoji","description":"d","action":{"type":"native"}}"#);
         match install_preview(&shell) {
             InstallPreview::Confirm { body, destructive, .. } => {
                 assert!(destructive);
