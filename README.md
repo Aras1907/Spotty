@@ -2,6 +2,18 @@
 
 A Raycast-style launcher for GNOME Linux.
 
+## Install
+
+With Flatpak, on x86_64 and ARM (aarch64), from Spotty's own repository:
+
+```sh
+flatpak install --user https://aras1907.github.io/Spotty/com.spotty.Spotty.flatpakref
+```
+
+Updates then arrive with `flatpak update` or in GNOME Software. Bundles and
+`.deb`, `.rpm`, Arch, snap and AppImage packages are on the
+[releases page](https://github.com/Aras1907/Spotty/releases).
+
 ## Build from source
 
 The trigger and result implementations live in

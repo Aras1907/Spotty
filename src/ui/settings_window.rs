@@ -2614,6 +2614,55 @@ fn trigger_settings_groups(
             &Config::default().terminal_shortcut,
         );
         find_group.add(&terminal_row);
+
+        // What the preview pane and the result icons render. A type that is
+        // off shows the file-info card (name, size, dates) instead.
+        let preview_group = adw::PreferencesGroup::builder()
+            .title(gettext("Previews"))
+            .description(gettext("File types switched off show only the file's details."))
+            .build();
+        groups.push(preview_group.clone());
+
+        let thumbs_row = adw::SwitchRow::builder()
+            .title(gettext("Thumbnails in results"))
+            .subtitle(gettext("Show a page, slide, picture or 3D model overview as the result icon"))
+            .active(config.borrow().row_thumbnails)
+            .use_markup(false)
+            .build();
+        {
+            let cfg = config.clone();
+            thumbs_row.connect_active_notify(move |r| {
+                let mut c = cfg.borrow_mut();
+                c.row_thumbnails = r.is_active();
+                c.save();
+                crate::preview::apply_settings(&c);
+                drop(c);
+                crate::app::refresh_search_window();
+            });
+        }
+        preview_group.add(&thumbs_row);
+
+        for kind in crate::preview::PreviewKind::ALL {
+            let row = adw::SwitchRow::builder()
+                .title(kind.title())
+                .subtitle(kind.subtitle())
+                .active(!config.borrow().preview_off.iter().any(|id| id == kind.id()))
+                .use_markup(false)
+                .build();
+            let cfg = config.clone();
+            row.connect_active_notify(move |r| {
+                let mut c = cfg.borrow_mut();
+                c.preview_off.retain(|id| id != kind.id());
+                if !r.is_active() {
+                    c.preview_off.push(kind.id().to_string());
+                }
+                c.save();
+                crate::preview::apply_settings(&c);
+                drop(c);
+                crate::app::refresh_search_window();
+            });
+            preview_group.add(&row);
+        }
     }
 
     // Trigger word: reset button appears only once the word differs from

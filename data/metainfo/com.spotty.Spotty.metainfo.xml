@@ -12,13 +12,14 @@
     <p>Spotty is a keyboard-driven launcher for GNOME desktops. It runs in the background and provides quick access to applications, indexed files, clipboard history, calculations, web searches, settings panels, and power actions.</p>
   </description>
   <launchable type="desktop-id">com.spotty.Spotty.desktop</launchable>
-  <url type="homepage">https://github.com/spotty/spotty</url>
+  <url type="homepage">https://github.com/Aras1907/Spotty</url>
   <branding>
     <color type="primary" scheme_preference="light">#1c71d8</color>
     <color type="primary" scheme_preference="dark">#99c1f1</color>
   </branding>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.6.2" date="2026-10-23" />
     <release version="0.6.1" date="2026-10-18" />
     <release version="0.6.0" date="2026-10-18" />
   </releases>

@@ -32,6 +32,9 @@ finish-args:
   - --filesystem=/usr/share/applications:ro
   - --filesystem=/usr/local/share/applications:ro
   - --filesystem=/var/lib/flatpak/exports/share/applications:ro
+  # Flathub's AppStream catalog for "install …": read in place instead of
+  # running `flatpak remote-ls`, which needs ~450 MB per call.
+  - --filesystem=/var/lib/flatpak/appstream:ro
   - --filesystem=/var/lib/snapd/desktop/applications:ro
   - --talk-name=org.freedesktop.Flatpak
   - --talk-name=org.gnome.Shell
@@ -90,6 +93,10 @@ modules:
     buildsystem: cmake-ninja
     builddir: true
     config-opts:
+      # OCR dlopens libtesseract.so.5.5: without these it was built as a
+      # static lib in /app/lib64, so OCR was off in the Flatpak.
+      - -DBUILD_SHARED_LIBS=ON
+      - -DCMAKE_INSTALL_LIBDIR=lib
       - -DBUILD_TRAINING_TOOLS=OFF
       - -DGRAPHICS_DISABLED=ON
       - -DOPENMP_BUILD=OFF

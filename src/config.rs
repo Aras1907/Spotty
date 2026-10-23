@@ -310,6 +310,14 @@ pub struct Config {
     /// Allow browsing absolute paths (/ and ~/) in the main search box.
     #[serde(default = "dt")]
     pub enable_root_browsing: bool,
+    /// File types whose content Find does not preview (Settings → Find →
+    /// Previews): ids from `preview::PreviewKind`. Empty = preview them all.
+    #[serde(default)]
+    pub preview_off: Vec<String>,
+    /// Result rows show a rendered overview (page, slide, picture, 3D model)
+    /// instead of the plain file-type icon.
+    #[serde(default = "dt")]
+    pub row_thumbnails: bool,
     #[serde(default = "ds")]
     pub shortcut: String,
     #[serde(default = "dc")]
@@ -454,19 +462,9 @@ pub struct Config {
     /// empty = follow the system language.
     #[serde(default)]
     pub translate_target: String,
-    /// LibreTranslate endpoint. Left at the default, the translate trigger
-    /// uses Google Translate's free endpoint; any other value (e.g.
-    /// `http://127.0.0.1:5000`) sends the typed text and any API key to that
-    /// server instead (HTTPS unless it is on this computer).
-    #[serde(default = "default_translate_endpoint")]
-    pub translate_endpoint: String,
-    /// Optional API key for that endpoint (self-hosted instances normally
-    /// don't need one).
-    #[serde(default)]
-    pub translate_api_key: String,
     /// Translation service for the translate trigger (an id from
-    /// `translate_api::PROVIDERS`); empty = Google, or LibreTranslate when
-    /// `translate_endpoint` was changed. API keys live in the keyring.
+    /// `translate_api::PROVIDERS`); empty = Google. API keys live in the
+    /// keyring.
     #[serde(default)]
     pub translate_provider: String,
     /// Azure Translator resource region (empty = global).
@@ -496,11 +494,6 @@ pub struct Config {
 /// read straight from raw GitHub — no server involved.
 pub fn default_trigger_repo_url() -> String {
     "https://raw.githubusercontent.com/Aras1907/spotty-triggers/main".into()
-}
-
-/// LibreTranslate's own default: a local-only instance on 127.0.0.1:5000.
-pub fn default_translate_endpoint() -> String {
-    "http://localhost:5000".into()
 }
 
 /// Background update check cadence: once a day.
@@ -620,6 +613,8 @@ impl Default for Config {
             show_recent_file_searches: true,
             visible_result_limit: default_visible_result_limit(),
             enable_root_browsing: true,
+            preview_off: Vec::new(),
+            row_thumbnails: true,
             shortcut: ds(),
             clipboard_history_limit: dc(),
             clipboard_retention_days: None,
@@ -666,8 +661,6 @@ impl Default for Config {
             allow_network_icons: false,
             save_search_history: false,
             translate_target: String::new(),
-            translate_endpoint: default_translate_endpoint(),
-            translate_api_key: String::new(),
             translate_provider: String::new(),
             translate_region: String::new(),
             enable_updates: true,
@@ -707,8 +700,16 @@ impl Config {
         // Pre-filter: drop pinned_results entries referencing the removed
         // `PlayMusic` and Proton actions so old configs don't fail to deserialize.
         let raw = fs::read_to_string(path).ok();
+        // LibreTranslate was removed: its server address and API key (kept
+        // in plain text) are dropped from the file, not just ignored.
+        let mut dropped = false;
         let mut cfg: Config = raw.as_deref().and_then(|s| {
             let mut v: serde_json::Value = serde_json::from_str(s).ok()?;
+            if let Some(map) = v.as_object_mut() {
+                for key in ["translate_endpoint", "translate_api_key"] {
+                    dropped |= map.remove(key).is_some();
+                }
+            }
             if let Some(arr) = v.get_mut("pinned_results").and_then(|x| x.as_array_mut()) {
                 arr.retain(|r| {
                     let action = r.get("action");
@@ -728,12 +729,13 @@ impl Config {
         let before = serde_json::to_string(&cfg).unwrap_or_default();
         cfg.migrate_keywords();
         cfg.purge_proton();
+        cfg.purge_libretranslate();
         cfg.migrate_converter_switch();
         cfg.migrate_resource_defaults();
         cfg.migrate_app_sources();
         cfg.migrate_search_engine();
         let after = serde_json::to_string(&cfg).unwrap_or_default();
-        if before != after {
+        if before != after || dropped {
             if let Err(error) = cfg.save_to_path(path) {
                 log::warn!("config: migration save failed: {error}");
             }
@@ -845,6 +847,14 @@ impl Config {
         self.regular_search_on.retain(|id| !is_proton(id));
         self.regular_search_off.retain(|id| !is_proton(id));
         self.result_order.retain(|id| !is_proton(id));
+    }
+
+    /// LibreTranslate is no longer a translation service: a config that
+    /// picked it goes back to the default (Google's free endpoint).
+    fn purge_libretranslate(&mut self) {
+        if self.translate_provider.trim() == "libretranslate" {
+            self.translate_provider.clear();
+        }
     }
 
     /// The converter used to live under the calculator's switch: keep whatever
@@ -1471,6 +1481,24 @@ mod service_persistence_tests {
             assert!(list.iter().all(|id| !id.starts_with("proton-")), "{list:?}");
         }
         assert!(loaded.keyword_for_word("vpn").is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn old_libretranslate_settings_are_dropped_when_a_config_loads() {
+        let (root, path) = isolated_config_path();
+        let mut v = serde_json::to_value(Config::default()).unwrap();
+        v["translate_endpoint"] = "http://localhost:5000".into();
+        v["translate_api_key"] = "secret".into();
+        v["translate_provider"] = "libretranslate".into();
+        Config::default().save_to_path(&path).expect("create the config directory");
+        std::fs::write(&path, v.to_string()).unwrap();
+
+        let loaded = Config::load_from_path(&path);
+        assert!(loaded.translate_provider.is_empty());
+        let saved = std::fs::read_to_string(&path).unwrap();
+        assert!(!saved.contains("translate_endpoint"), "{saved}");
+        assert!(!saved.contains("secret"), "{saved}");
         let _ = std::fs::remove_dir_all(root);
     }
 

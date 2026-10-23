@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spotty Flatpak Repository</title>
+<link rel="icon" href="com.spotty.Spotty.png">
+<style>
+  :root { --bg: #fafafa; --fg: #1d1d20; --muted: #5e5c64; --card: #ffffff; --line: #deddda; --accent: #3584e4; --code: #f2f2f2; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1d1d20; --fg: #f6f5f4; --muted: #b0aeb5; --card: #2a2a2e; --line: #3d3d42; --accent: #78aeed; --code: #333338; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, "Cantarell", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 16px 64px; }
+  header { display: flex; gap: 16px; align-items: center; margin-bottom: 28px; }
+  header img { width: 72px; height: 72px; }
+  h1 { margin: 0; font-size: 1.8rem; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin: 16px 0; }
+  h2 { margin: 0 0 8px; font-size: 1.15rem; }
+  p { margin: 8px 0; }
+  pre { background: var(--code); border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 10px 0; }
+  code { font: 0.92rem/1.5 ui-monospace, "Source Code Pro", monospace; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); font-size: 0.95rem; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="com.spotty.Spotty.png" alt="">
+    <div>
+      <h1>Spotty</h1>
+      <p>Fast launcher for apps, files, clipboard history and system actions</p>
+    </div>
+  </header>
+
+  <section>
+    <h2>Install</h2>
+    <p>One command adds this repository and installs Spotty. It works on <strong>x86_64</strong> and <strong>ARM (aarch64)</strong>; Flatpak picks the right one.</p>
+    <pre><code>flatpak install --user @URL@/com.spotty.Spotty.flatpakref</code></pre>
+    <p class="muted">Or open <a href="com.spotty.Spotty.flatpakref">com.spotty.Spotty.flatpakref</a> in GNOME Software or KDE Discover. The GNOME runtime comes from Flathub.</p>
+  </section>
+
+  <section>
+    <h2>Add the repository yourself</h2>
+    <pre><code>flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak remote-add --user --if-not-exists spotty @URL@/spotty.flatpakrepo
+flatpak install --user spotty com.spotty.Spotty</code></pre>
+  </section>
+
+  <section>
+    <h2>Updates</h2>
+    <p>New releases arrive with your normal updates, in GNOME Software or with:</p>
+    <pre><code>flatpak update</code></pre>
+  </section>
+
+  <section>
+    <h2>Start</h2>
+    <p>Click <strong>Spotty</strong> in your app grid to open its settings, then summon it with its shortcut (Super+Space by default).</p>
+  </section>
+
+  <p class="muted">Signed with the key in <a href="spotty-repo.asc">spotty-repo.asc</a>. Source, other packages and release notes: <a href="https://github.com/Aras1907/Spotty">github.com/Aras1907/Spotty</a>.</p>
+</main>
+</body>
+</html>

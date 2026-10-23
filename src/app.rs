@@ -534,6 +534,7 @@ pub fn on_startup(app: &adw::Application) {
         }
     }
     let config = Rc::new(RefCell::new(Config::load()));
+    crate::preview::apply_settings(&config.borrow());
     crate::search::cmd::preload_install_cache_async(config.borrow().app_sources());
     // Background update check: once shortly after startup, then hourly
     // ticks that honour the user-configured interval (Settings → Updates).
