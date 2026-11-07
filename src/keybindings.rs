@@ -106,6 +106,41 @@ fn array_value(paths: &[String]) -> String {
     )
 }
 
+/// Whether `gtk` (e.g. "<Control>space") is one of the bindings in a
+/// gsettings dump (`list-recursively`, or a single `get` value).
+fn binding_listed(dump: &str, gtk: &str) -> bool {
+    let norm = |s: &str| s.to_lowercase().replace("<primary>", "<control>").replace("<ctrl>", "<control>");
+    norm(dump).contains(&format!("'{}'", norm(gtk)))
+}
+
+/// Whether a GNOME binding outside Spotty already uses `gtk`.
+fn accel_taken(gtk: &str) -> bool {
+    // list-recursively skips relocatable schemas, so custom keybindings are read one by one.
+    binding_listed(&gsettings(&["list-recursively"]), gtk)
+        || current_keybindings()
+            .iter()
+            .filter(|p| !p.contains("/spotty"))
+            .any(|p| binding_listed(&gsettings(&["get", &format!("{ENTRY_SCHEMA}:{p}"), "binding"]), gtk))
+}
+
+/// Mutter keeps an accelerator that a window-manager binding holds, so Alt+Space
+/// is taken off GNOME's window menu; its other bindings stay.
+fn free_alt_space() {
+    const WM: &str = "org.gnome.desktop.wm.keybindings";
+    let menu = gsettings(&["get", WM, "activate-window-menu"]);
+    if !binding_listed(&menu, "<Alt>space") {
+        return;
+    }
+    let rest: Vec<&str> = menu
+        .trim_start_matches("@as ")
+        .trim_matches(|c| c == '[' || c == ']')
+        .split(", ")
+        .filter(|b| !b.is_empty() && !binding_listed(b, "<Alt>space"))
+        .collect();
+    let value = if rest.is_empty() { "@as []".to_string() } else { format!("[{}]", rest.join(", ")) };
+    gsettings(&["set", WM, "activate-window-menu", &value]);
+}
+
 // ── public API ─────────────────────────────────────────────────────────
 
 /// Register all Spotty shortcuts as GNOME custom keybindings.
@@ -114,7 +149,19 @@ fn array_value(paths: &[String]) -> String {
 /// installed trigger manifests. Each shortcut gets its own gsettings slot.
 /// Old spotty slots are cleaned up first.
 pub fn register_all() {
-    let config = crate::config::Config::load();
+    let mut config = crate::config::Config::load();
+
+    // Ctrl+Space is the default; when something else owns it, use Alt+Space.
+    // shortcut: a running Settings window keeps its old copy of the config and
+    // may save Ctrl+Space back; the next registration falls back again.
+    if to_gtk_accel(&config.shortcut) == "<Control>space" && accel_taken("<Control>space") {
+        log::info!("keybindings: Ctrl+Space is taken, using Alt+Space");
+        config.shortcut = "Alt+Space".into();
+        config.save();
+    }
+    if to_gtk_accel(&config.shortcut) == "<Alt>space" {
+        free_alt_space();
+    }
 
     // Collect (keyword_id, display_name, shortcut)
     let mut shortcuts: Vec<(String, String, String)> = Vec::new();
@@ -214,3 +261,20 @@ pub fn unregister_all() {
     log::info!("keybindings: unregistered all spotty shortcuts");
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn finds_bindings_in_gsettings_output() {
+        let dump = "org.freedesktop.ibus.general.hotkey triggers ['<Primary>space']\n\
+                    org.gnome.desktop.wm.keybindings activate-window-menu ['<Alt>space']";
+        assert!(binding_listed(dump, "<Control>space"));
+        assert!(binding_listed(dump, "<Alt>space"));
+        assert!(!binding_listed(dump, "<Super>space"));
+        assert!(!binding_listed("['<Shift><Control>space']", "<Control>space"));
+        assert_eq!(to_gtk_accel("Ctrl+Space"), "<Control>space");
+        assert_eq!(to_gtk_accel("Alt+Space"), "<Alt>space");
+    }
+}

@@ -524,7 +524,7 @@ fn dt() -> bool {
     true
 }
 fn ds() -> String {
-    "Super+Space".into()
+    "Ctrl+Space".into()
 }
 fn dc() -> usize {
     1000
@@ -584,7 +584,8 @@ fn default_redo_shortcut() -> String {
     "<Control><Shift>z".into()
 }
 fn default_delete_word_shortcut() -> String {
-    "<Control>space".into()
+    // Ctrl+Space is the global launcher shortcut now.
+    "<Control>BackSpace".into()
 }
 impl Default for Config {
     fn default() -> Self {

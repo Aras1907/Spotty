@@ -24,8 +24,9 @@ Not sure which one you have? Run `uname -m`.
 | Snap | `spotty_@VER@_amd64.snap` | `spotty_@VER@_arm64.snap` | Any distro with snapd |
 | AppImage | `Spotty-@VER@-x86_64.AppImage` | `Spotty-@VER@-aarch64.AppImage` | Any recent distro, no install |
 
-Click **Spotty** in your app grid to open its settings. After that, summon the
-launcher with its shortcut (Super+Space by default).
+Click **Spotty** in your app grid to start it. It stays in the background:
+summon the launcher with **Ctrl+Space** (or **Alt+Space** if another app
+already uses Ctrl+Space). Change it in Settings (`spotty --settings`).
 
 ### Flatpak
 
@@ -34,7 +35,7 @@ If the GNOME runtime is missing, it is downloaded from Flathub automatically.
 
 ```sh
 flatpak install --user Spotty-@VER@-x86_64.flatpak   # or the aarch64 file on ARM
-flatpak run com.spotty.Spotty --settings
+flatpak run com.spotty.Spotty            # starts in the background; Ctrl+Space opens it
 ```
 
 ### Debian / Ubuntu
@@ -82,20 +83,11 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
-- **Spotty now has its own Flatpak repository**, for x86_64 and ARM. Install once
-  and updates come with `flatpak update` or GNOME Software:
+- **Spotty starts in the background.** Opening it from the app grid (or
+  running the AppImage) no longer opens Settings; it waits for its shortcut.
+- **New default shortcut: Ctrl+Space.** If another app already uses
+  Ctrl+Space, Spotty takes Alt+Space instead (and removes Alt+Space from
+  GNOME's window menu so it works). Existing shortcuts are kept.
+- Delete-previous-word in the search box is now Ctrl+Backspace by default.
+- Flatpak builds for x86_64 and ARM, also in the Flatpak repository:
   `flatpak install --user https://aras1907.github.io/Spotty/com.spotty.Spotty.flatpakref`
-- **Much lower memory use.** Spotty used to start up to four `flatpak` helper
-  processes of ~450 MB each to read Flathub's app list and check for updates.
-  It now reads Flathub's app list directly (~30 MB) and checks for updates with
-  lightweight queries; heavy package-manager checks run one at a time.
-- **Previews settings for Find:** switch result thumbnails and each preview type
-  (images, PDF, Office, videos, audio, text, archives, 3D models) on or off.
-- **3D model previews and thumbnails:** STL, OBJ, PLY, OFF, glTF, 3MF and Blender
-  files.
-- **Images saved with the wrong extension** (a JPEG named `.png`) now preview.
-- **Text search inside images now works in the Flatpak.**
-- **LibreTranslate was removed.** Translation uses web services only (Google
-  Translate's free service by default, MyMemory, DeepL and others in Settings).
-- **Fixed the Flatpak doing nothing when launched** on installs built from the
-  main branch.
