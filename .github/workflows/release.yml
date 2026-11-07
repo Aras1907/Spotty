@@ -156,11 +156,16 @@ jobs:
           printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --import
           KEY=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
           sh packaging/build-flatpak-repo.sh bundles site "$KEY"
+      # One artifact name per attempt: a re-run otherwise finds the failed
+      # attempt's "github-pages" too and deploy-pages refuses to pick one.
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
+          name: github-pages-${{ github.run_attempt }}
       - id: deploy
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
 
   release:
     needs: build
