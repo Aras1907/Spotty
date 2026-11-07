@@ -1,6 +1,6 @@
 #!/bin/sh
-# Smoke test for an installed Spotty: a click on the app icon starts it in
-# the background, --settings opens Settings, --quit stops it.
+# Smoke test for an installed Spotty: --daemon starts it in the background,
+# --settings (what the app icon runs) opens Settings, --quit stops it.
 # Usage: smoke.sh COMMAND...   (e.g. `smoke.sh spotty`, `smoke.sh flatpak run com.spotty.Spotty`)
 # Needs xvfb-run, dbus-run-session and xwininfo. Never run it on a desktop
 # you care about: Spotty registers GNOME shortcuts and autostart on start.
@@ -14,8 +14,9 @@ settings_windows() { xwininfo -root -tree | grep -c '"Spotty Settings"'; }
 # Counted by executable: AppImage and snap processes are named AppRun.wrapped.
 running() { for p in /proc/[0-9]*; do readlink "$p/exe"; done 2>/dev/null | grep -c '/spotty$'; }
 
-echo "== first launch: $* (stays in the background)"
-"$@" >/tmp/spotty-smoke.log 2>&1 &
+# --daemon, not a bare launch: the AppImage and snap turn a bare launch into --settings.
+echo "== first launch: $* --daemon (stays in the background)"
+"$@" --daemon >/tmp/spotty-smoke.log 2>&1 &
 i=0
 until [ "$(running)" -ge 1 ]; do
   i=$((i + 1)); [ $i -gt 60 ] && fail "Spotty not running 60 s after launch"
