@@ -519,6 +519,8 @@ fn install_actions(app: &adw::Application, cfg: &Config) {
 ///   see the module docs for why
 pub fn on_startup(app: &adw::Application) {
     log::info!("=== SPOTTY v6 STARTING ===");
+    // Only the running instance needs OCR; a launch that hands off to it exits.
+    std::thread::spawn(crate::ocr::probe_availability);
     let css = gtk::CssProvider::new();
     css.load_from_string(include_str!("../data/style.css"));
     if let Some(d) = gtk::gdk::Display::default() {

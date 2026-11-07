@@ -29,7 +29,6 @@ finish-args:
   # The trigger catalog, currency rates, translation and icon downloads.
   - --share=network
   - --filesystem=xdg-cache/thumbnails:create
-  - --filesystem=/usr/share/applications:ro
   - --filesystem=/usr/local/share/applications:ro
   - --filesystem=/var/lib/flatpak/exports/share/applications:ro
   # Flathub's AppStream catalog for "install …": read in place instead of

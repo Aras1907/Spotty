@@ -35,7 +35,7 @@ If the GNOME runtime is missing, it is downloaded from Flathub automatically.
 
 ```sh
 flatpak install --user Spotty-@VER@-x86_64.flatpak   # or the aarch64 file on ARM
-flatpak run com.spotty.Spotty            # starts in the background; Ctrl+Space opens it
+flatpak run com.spotty.Spotty            # starts in the background; run again or press Ctrl+Space to open it
 ```
 
 ### Debian / Ubuntu
@@ -83,6 +83,10 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Launching Spotty again while it runs opens the launcher.** The first
+  launch still stays in the background; before, a second launch (for example
+  `flatpak run com.spotty.Spotty`) silently did nothing.
+- Removed two harmless warnings printed by `flatpak run`.
 - **Spotty starts in the background.** Opening it from the app grid (or
   running the AppImage) no longer opens Settings; it waits for its shortcut.
 - **New default shortcut: Ctrl+Space.** If another app already uses

@@ -19,7 +19,8 @@
 //!
 //! Plain `spotty` (no args, not daemonized) spawns a detached child with
 //! `SPOTTY_DAEMON=1` and returns to the shell; the child itself runs the
-//! daemon below. The app launcher entry runs `spotty --settings`.
+//! daemon below. The app launcher entry runs plain `spotty`: the first launch
+//! stays hidden, a launch while it runs opens the search window.
 //!
 //! Inside a Flatpak or an AppImage the PID file can't identify the daemon,
 //! so the app is a unique GApplication there: a second launch forwards its
@@ -154,6 +155,9 @@ fn main() -> glib::ExitCode {
             if unsafe { libc::kill(pid, 0) } == 0 {
                 if args.get(1).is_some_and(|arg| arg == "--quit") {
                     unsafe { libc::kill(pid, libc::SIGTERM); }
+                } else if args.len() == 1 {
+                    // Launching Spotty again while it runs opens the launcher.
+                    unsafe { libc::kill(pid, libc::SIGUSR1); }
                 }
                 return glib::ExitCode::SUCCESS;
             }
@@ -205,7 +209,6 @@ fn main() -> glib::ExitCode {
         return glib::ExitCode::SUCCESS;
     }
 
-    std::thread::spawn(|| ocr::probe_availability());
     // Force the cairo (CPU) renderer so the first frame after idle doesn't
     // depend on NVIDIA GL/EGL wake-up or GBM buffer allocation.  The launcher
     // is small enough that software rendering is negligible; revert if preview
@@ -267,6 +270,9 @@ fn main() -> glib::ExitCode {
         } else if get("toggle") {
             app::toggle_search(app);
         } else if get("daemon") {
+        } else if cmd.is_remote() {
+            // Launching Spotty again while it runs opens the launcher.
+            app::show_search(app);
         } else {
             // default: daemon mode — start without window, summon via shortcut
         }
