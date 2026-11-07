@@ -24,9 +24,9 @@ Not sure which one you have? Run `uname -m`.
 | Snap | `spotty_@VER@_amd64.snap` | `spotty_@VER@_arm64.snap` | Any distro with snapd |
 | AppImage | `Spotty-@VER@-x86_64.AppImage` | `Spotty-@VER@-aarch64.AppImage` | Any recent distro, no install |
 
-Click **Spotty** in your app grid to start it. It stays in the background:
-summon the launcher with **Ctrl+Space** (or **Alt+Space** if another app
-already uses Ctrl+Space). Change it in Settings (`spotty --settings`).
+Click **Spotty** in your app grid to open its Settings. Spotty keeps running
+in the background after you close them: summon the launcher with
+**Ctrl+Space** (or **Alt+Space** if another app already uses Ctrl+Space).
 
 ### Flatpak
 
@@ -35,7 +35,7 @@ If the GNOME runtime is missing, it is downloaded from Flathub automatically.
 
 ```sh
 flatpak install --user Spotty-@VER@-x86_64.flatpak   # or the aarch64 file on ARM
-flatpak run com.spotty.Spotty            # starts in the background; run again or press Ctrl+Space to open it
+flatpak run com.spotty.Spotty --settings   # opens Settings; Spotty stays in the background
 ```
 
 ### Debian / Ubuntu
@@ -83,12 +83,12 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
-- **Launching Spotty again while it runs opens the launcher.** The first
-  launch still stays in the background; before, a second launch (for example
-  `flatpak run com.spotty.Spotty`) silently did nothing.
+- **Clicking the Spotty icon opens Settings again**, and Spotty keeps running
+  in the background after you close them. (In 0.6.3 and 0.6.4 a click started
+  it hidden, which looked like nothing happened.)
+- **Running `spotty` (or `flatpak run com.spotty.Spotty`) while Spotty runs
+  opens the launcher**; before, it silently did nothing.
 - Removed two harmless warnings printed by `flatpak run`.
-- **Spotty starts in the background.** Opening it from the app grid (or
-  running the AppImage) no longer opens Settings; it waits for its shortcut.
 - **New default shortcut: Ctrl+Space.** If another app already uses
   Ctrl+Space, Spotty takes Alt+Space instead (and removes Alt+Space from
   GNOME's window menu so it works). Existing shortcuts are kept.

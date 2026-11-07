@@ -52,6 +52,11 @@ export PATH="$APPDIR/usr/bin:$PATH"
 unset GSETTINGS_SCHEMA_DIR
 # Keep GNOME's native Wayland session.
 unset GDK_BACKEND
+# Opening the AppImage (or the snap's launcher) shows Settings, like the
+# desktop entry does; Spotty keeps running in the background after it closes.
+if [ $# -eq 0 ]; then
+  set -- --settings
+fi
 EOF
 
 export DEPLOY_GTK_VERSION=4 LINUXDEPLOY_OUTPUT_VERSION=$VER OUTPUT=Spotty-$VER-$ARCH.AppImage

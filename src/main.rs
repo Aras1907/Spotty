@@ -19,8 +19,9 @@
 //!
 //! Plain `spotty` (no args, not daemonized) spawns a detached child with
 //! `SPOTTY_DAEMON=1` and returns to the shell; the child itself runs the
-//! daemon below. The app launcher entry runs plain `spotty`: the first launch
-//! stays hidden, a launch while it runs opens the search window.
+//! daemon below. The app launcher entry runs `spotty --settings`: Settings opens
+//! and Spotty stays in the background after it closes. A plain launch while
+//! Spotty runs opens the search window.
 //!
 //! Inside a Flatpak or an AppImage the PID file can't identify the daemon,
 //! so the app is a unique GApplication there: a second launch forwards its
