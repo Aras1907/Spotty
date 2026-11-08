@@ -106,6 +106,13 @@ fn array_value(paths: &[String]) -> String {
     )
 }
 
+/// Whether this is a GNOME Shell session (not Phosh, which reports GNOME too).
+fn gnome_shell_session() -> bool {
+    let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+    crate::de::detect() == crate::de::Desktop::Gnome
+        && !desktop.split(':').any(|d| d.eq_ignore_ascii_case("phosh"))
+}
+
 /// Whether `gtk` (e.g. "<Control>space") is one of the bindings in a
 /// gsettings dump (`list-recursively`, or a single `get` value).
 fn binding_listed(dump: &str, gtk: &str) -> bool {
@@ -207,6 +214,15 @@ pub fn register_all() {
             format!("Spotty: {}", trigger.id),
             trigger.shortcut.clone(),
         ));
+    }
+
+    // Only GNOME Shell runs GNOME's custom keybindings. Elsewhere (Plasma,
+    // Phosh, Hyprland, …) bind through the GlobalShortcuts portal when the
+    // desktop offers it, and drop old slots so nothing fires twice.
+    if !gnome_shell_session() && crate::global_shortcuts::available() {
+        unregister_all();
+        glib::MainContext::default().invoke(move || crate::global_shortcuts::bind(shortcuts));
+        return;
     }
 
     // Read existing keybindings, remove old spotty slots

@@ -83,6 +83,10 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Keyboard shortcuts now work outside GNOME Shell.** On Plasma (desktop and
+  Mobile), Hyprland, postmarketOS and other desktops, Spotty registers its
+  shortcuts through the desktop's Global Shortcuts portal; the desktop may
+  ask you once to confirm them. GNOME keeps using its custom shortcuts.
 - **Clicking the Spotty icon opens Settings again**, and Spotty keeps running
   in the background after you close them. (In 0.6.3 and 0.6.4 a click started
   it hidden, which looked like nothing happened.)

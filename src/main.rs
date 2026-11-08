@@ -66,6 +66,7 @@ mod search;
 #[path = "../trigger-backends/src/defaults.rs"]
 mod trigger_defaults;
 mod keybindings;
+mod global_shortcuts;
 #[path = "../trigger-backends/src/features/ocr.rs"]
 mod ocr;
 #[path = "../trigger-backends/src/features/opprogress.rs"]

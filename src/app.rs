@@ -761,6 +761,10 @@ thread_local! {
 
 /// The latest summon's activation token, once; "" when there is none. Set as
 /// the window's startup id, it lets GNOME raise and focus the launcher.
+pub(crate) fn set_activation_token(token: Option<String>) {
+    ACTIVATION_TOKEN.with(|t| *t.borrow_mut() = token);
+}
+
 pub fn take_activation_token() -> String {
     ACTIVATION_TOKEN.with(|t| t.borrow_mut().take()).unwrap_or_default()
 }
