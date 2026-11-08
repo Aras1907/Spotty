@@ -83,6 +83,12 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Install, update and uninstall distro packages on any distro with
+  PackageKit**, not only Fedora, Debian/Ubuntu, Arch and openSUSE: Alpine and
+  postmarketOS (apk), Gentoo, Solus and others now work too. Uninstalling a
+  distro app goes through PackageKit instead of a root password prompt.
+- **Security:** Bluetooth device addresses are validated before Spotty runs
+  `bluetoothctl`, so a crafted device name can no longer inject commands.
 - **Keyboard shortcuts now work outside GNOME Shell.** On Plasma (desktop and
   Mobile), Hyprland, postmarketOS and other desktops, Spotty registers its
   shortcuts through the desktop's Global Shortcuts portal; the desktop may
