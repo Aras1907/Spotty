@@ -83,6 +83,15 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Security hardening for hostile files.** Previews and content search now
+  refuse oversized or zip-bomb Office files, CSVs and HEIC/AVIF images
+  instead of reading them whole, and OCR skips images over 64 MiB. The
+  spreadsheet parser (calamine) is updated to 0.38, fixing a crash and
+  memory exhaustion on malformed `.xls` files (RUSTSEC-2026-0436).
+- **Security:** snap and Flatpak names taken from `.desktop` files can no
+  longer be read as command-line options when uninstalling, notifications
+  can't be turned into `notify-send` options, and the currency cache is
+  written owner-only like the rest of Spotty's state.
 - **Install, update and uninstall distro packages on any distro with
   PackageKit**, not only Fedora, Debian/Ubuntu, Arch and openSUSE: Alpine and
   postmarketOS (apk), Gentoo, Solus and others now work too. Uninstalling a

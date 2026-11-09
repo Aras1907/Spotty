@@ -151,6 +151,13 @@ Two affected versions were updated:
 Their vulnerable functions were not proven reachable from hostile input in
 Spotty. Updating avoids retaining known affected code regardless.
 
+In 0.6.10 (2026-11-09) a `cargo audit` run found
+[RUSTSEC-2026-0436](https://rustsec.org/advisories/RUSTSEC-2026-0436.html)
+in `calamine` 0.36 (malformed `.xls` crash/OOM, reachable from previews and
+content search); it was updated to 0.38. The `zip` 0.6 extraction advisories
+(RUSTSEC-2026-0367/0368/0369/0429) affect `extract()`, which Spotty never
+calls: it only reads selected entries with size caps.
+
 Remaining maintenance advisories apply to transitive `paste`, `rustybuzz` and
 `ttf-parser` dependencies:
 [RUSTSEC-2024-0436](https://rustsec.org/advisories/RUSTSEC-2024-0436.html),

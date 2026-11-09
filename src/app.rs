@@ -1031,7 +1031,7 @@ pub fn is_search_window_hidden() -> bool {
 pub fn send_desktop_notification(summary: &str, body: &str) {
     let summary = summary.replace('\'', "'\\''");
     let body = body.replace('\'', "'\\''");
-    let cmd = format!("notify-send -a Spotty '{}' '{}'", summary, body);
+    let cmd = format!("notify-send -a Spotty -- '{}' '{}'", summary, body);
     let _ = spawn_host_shell_command(&cmd);
 }
 /// Open the search window directly in the mode of a configured trigger

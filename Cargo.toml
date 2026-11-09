@@ -1,6 +1,6 @@
 [package]
 name = "spotty"
-version = "0.6.9"
+version = "0.6.10"
 edition = "2021"
 [[bin]]
 name = "spotty"
@@ -36,7 +36,7 @@ quick-xml = "0.41"
 cairo-rs = { version = "0.20", features = ["png"] }
 pangocairo = "0.20"
 cfb = "0.7"
-calamine = { version = "0.36", features = ["picture"] }
+calamine = { version = "0.38", features = ["picture"] }
 image = { version = "0.25", features = ["avif-native"] }
 resvg = "0.44"
 tiny-skia = "0.11"
