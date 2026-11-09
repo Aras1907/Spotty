@@ -428,7 +428,33 @@ pub(crate) fn host_signal_command(keyword: &str) -> String {
             }
         }
     }
+    if is_own_flatpak() {
+        return flatpak_signal_command(keyword, &arg);
+    }
     host_command_for_launch(&arg)
+}
+
+/// Flatpak shortcut: activate the running daemon's GAction over D-Bus with
+/// the host's `gdbus` (~10 ms) instead of `flatpak run`, which builds a whole
+/// sandbox per keypress (~330 ms). Falls back to `flatpak run` when no daemon
+/// owns the name or the action is missing (keyword enabled after startup).
+fn flatpak_signal_command(keyword: &str, arg: &str) -> String {
+    let action = match keyword {
+        "" => "toggle".to_string(),
+        "clipboard" => "clipboard".to_string(),
+        kw => format!("keyword-{kw}"),
+    };
+    // The compositor's activation token lets the window take focus; one
+    // that would break the GVariant text just fails over to `flatpak run`.
+    let script = format!(
+        "t=${{XDG_ACTIVATION_TOKEN:-$DESKTOP_STARTUP_ID}}; p='{{}}'; \
+         [ -n \"$t\" ] && p=\"{{'activation-token': <'$t'>, 'desktop-startup-id': <'$t'>}}\"; \
+         gdbus call --session --dest {APP_ID} --object-path /com/spotty/Spotty \
+         --method org.freedesktop.Application.ActivateAction \"$1\" '[]' \"$p\" >/dev/null 2>&1 \
+         || exec /usr/bin/flatpak run {APP_ID} \"$2\""
+    );
+    let esc = crate::triggers::shell_escape;
+    format!("sh -c {} spotty {} {}", esc(&script), esc(&action), esc(arg))
 }
 
 /// The base invocation for Spotty itself (no CLI args): the absolute binary
@@ -1132,4 +1158,48 @@ where
     F: FnOnce(&AppState) -> R,
 {
     STATE.with(|s| f(s.borrow().as_ref().expect("not init")))
+}
+
+#[cfg(test)]
+mod tests {
+    /// Run the Flatpak shortcut through `sh` with stub `gdbus`/`flatpak`
+    /// that log their argv; `gdbus_ok` picks the D-Bus or the fallback path.
+    fn run(keyword: &str, arg: &str, gdbus_ok: bool, token: &str) -> String {
+        let dir = std::env::temp_dir().join(format!("spotty-sc-{}-{gdbus_ok}-{}", std::process::id(), keyword.len()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let log = dir.join("log");
+        let stub = |name: &str, code: i32| {
+            let p = dir.join(name);
+            std::fs::write(&p, format!("#!/bin/sh\necho {name} \"$@\" >> '{}'\nexit {code}\n", log.display())).unwrap();
+            std::fs::set_permissions(&p, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        };
+        stub("gdbus", if gdbus_ok { 0 } else { 1 });
+        stub("flatpak", 0);
+        // /usr/bin/flatpak is absolute in the command; point it at the stub.
+        let cmd = super::flatpak_signal_command(keyword, arg).replace("/usr/bin/flatpak", &dir.join("flatpak").to_string_lossy());
+        let status = std::process::Command::new("sh")
+            .args(["-c", &cmd])
+            .env("PATH", format!("{}:/usr/bin:/bin", dir.display()))
+            .env("XDG_ACTIVATION_TOKEN", token)
+            .env_remove("DESKTOP_STARTUP_ID")
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let out = std::fs::read_to_string(&log).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        out
+    }
+
+    #[test]
+    fn flatpak_shortcut_uses_dbus_then_falls_back() {
+        let out = run("", "--toggle", true, "");
+        assert!(out.contains("ActivateAction toggle [] {}"), "{out}");
+        assert!(!out.contains("flatpak run"), "{out}");
+
+        let out = run("files", "--keyword=files", true, "abc_1");
+        assert!(out.contains("ActivateAction keyword-files [] {'activation-token': <'abc_1'>"), "{out}");
+
+        let out = run("files", "--keyword=files", false, "");
+        assert!(out.contains("flatpak run com.spotty.Spotty --keyword=files"), "{out}");
+    }
 }

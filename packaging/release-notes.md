@@ -83,6 +83,10 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Instant shortcut in the Flatpak.** Ctrl+Space no longer starts a new
+  Flatpak sandbox on every press: it tells the running Spotty over D-Bus,
+  about 10 ms instead of a third of a second. Spotty re-registers the
+  shortcut on its next start.
 - **Security hardening for hostile files.** Previews and content search now
   refuse oversized or zip-bomb Office files, CSVs and HEIC/AVIF images
   instead of reading them whole, and OCR skips images over 64 MiB. The
