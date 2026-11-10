@@ -83,6 +83,9 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Search finds what you typed.** An app whose name starts with your query
+  now comes first, closest match on top: typing "librewolf" offers to install
+  LibreWolf before LibreOffice apps that only looked similar.
 - **Less memory.** Large decoded images and OCR buffers go straight back to
   the system when Spotty is done with them, and memory freed by background
   work (OCR, indexing) is returned once a minute while Spotty is hidden.
