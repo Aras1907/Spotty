@@ -161,6 +161,17 @@ impl AppSources {
             appimage,
         }
     }
+
+    /// Whether an update/package `source` ("flatpak", "snap", "appimage", or
+    /// a distro package manager) is one of these.
+    pub fn includes(&self, source: &str) -> bool {
+        match source {
+            "flatpak" => self.flatpak,
+            "snap" => self.snap,
+            "appimage" => self.appimage,
+            _ => self.distro,
+        }
+    }
 }
 
 fn default_custom_web_search_url() -> String {
@@ -360,6 +371,12 @@ pub struct Config {
     /// so the bar disappears — the popovers stay reachable by shortcut.
     #[serde(default = "dt")]
     pub show_footer_icons: bool,
+    /// Footer bar: show the Operations button at all (Settings → General).
+    #[serde(default = "dt")]
+    pub show_operations_button: bool,
+    /// Footer bar: show the Hints button at all (Settings → General).
+    #[serde(default = "dt")]
+    pub show_hints_button: bool,
     #[serde(default = "default_copy_shortcut")]
     pub copy_shortcut: String,
     #[serde(default = "default_cut_shortcut")]
@@ -477,6 +494,15 @@ pub struct Config {
     /// Badge + banner near the orb when updates are available.
     #[serde(default = "dt")]
     pub update_notification: bool,
+    /// What "Update" covers (Settings → System Updates → Update Sources).
+    #[serde(default = "dt")]
+    pub update_flatpak: bool,
+    #[serde(default = "dt")]
+    pub update_distro: bool,
+    #[serde(default = "dt")]
+    pub update_snap: bool,
+    #[serde(default = "dt")]
+    pub update_appimage: bool,
     /// How often the background update check runs, in hours.
     #[serde(default = "default_update_check_hours")]
     pub update_check_interval_hours: u32,
@@ -629,6 +655,8 @@ impl Default for Config {
             show_operations_shortcut_label: true,
             show_hints_shortcut_label: true,
             show_footer_icons: true,
+            show_operations_button: true,
+            show_hints_button: true,
             copy_shortcut: default_copy_shortcut(),
             cut_shortcut: default_cut_shortcut(),
             paste_shortcut: default_paste_shortcut(),
@@ -666,6 +694,10 @@ impl Default for Config {
             translate_region: String::new(),
             enable_updates: true,
             update_notification: true,
+            update_flatpak: true,
+            update_distro: true,
+            update_snap: true,
+            update_appimage: true,
             update_check_interval_hours: default_update_check_hours(),
             update_snooze_until: 0,
             update_dismissed_sig: String::new(),
@@ -680,6 +712,11 @@ impl Config {
 
     /// The active app sources (post-migration; any missing switch falls back
     /// to the fresh-install default).
+    /// The sources "Update" covers.
+    pub fn update_sources(&self) -> AppSources {
+        AppSources::new(self.update_flatpak, self.update_distro, self.update_snap, self.update_appimage)
+    }
+
     pub fn app_sources(&self) -> AppSources {
         AppSources::new(
             self.pm_flatpak.unwrap_or(true),

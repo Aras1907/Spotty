@@ -83,6 +83,14 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **One Update.** Typing update offers a single Update that installs
+  everything at once. Choose what it covers in Settings → System Updates →
+  Update Sources (Flatpak, system packages, Snap, AppImages). Pressing it
+  hides Spotty and runs the update in Operations.
+- **No update badge without the updates trigger.** The update and restart
+  icons only appear when System Updates is installed and switched on.
+- **Footer settings.** Settings → General → Footer shows the Operations and
+  Hints buttons with their shortcuts, and lets you hide or show each one.
 - **Window focus in every package.** The .deb, .rpm, Arch and snap builds
   can now use the Spotty Focus extension too, not only the Flatpak and
   AppImage. If you installed it with 0.6.16, log out and back in once.

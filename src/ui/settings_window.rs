@@ -189,6 +189,49 @@ fn build_general_page(window: &adw::PreferencesWindow, config: &Rc<RefCell<Confi
         behavior.add(&limit);
     }
 
+    // The two footer buttons, drawn as they look in the search window (icon
+    // and shortcut), each with a switch to hide or show it again.
+    {
+        let footer = adw::PreferencesGroup::builder()
+            .title(gettext("Footer"))
+            .description(gettext("The buttons along the bottom of the search window. Their shortcuts work even when a button is hidden."))
+            .build();
+        general.add(&footer);
+        let c = config.borrow();
+        let rows: [(String, String, &str, String, bool, fn(&mut Config, bool)); 2] = [
+            (gettext("Operations"), gettext("Running installs, updates and downloads, with their progress"),
+                "view-list-symbolic", c.operations_shortcut.clone(), c.show_operations_button,
+                |c, on| c.show_operations_button = on),
+            (gettext("Hints"), gettext("Keyboard shortcuts for the selected result"),
+                "dialog-question-symbolic", c.hints_shortcut.clone(), c.show_hints_button,
+                |c, on| c.show_hints_button = on),
+        ];
+        drop(c);
+        for (title, subtitle, icon, accel, active, set) in rows {
+            let row = adw::ActionRow::builder()
+                .title(title)
+                .subtitle(subtitle)
+                .use_markup(false)
+                .build();
+            row.add_prefix(&gtk::Image::from_icon_name(icon));
+            if !accel.is_empty() {
+                row.add_suffix(&gtk::ShortcutLabel::builder()
+                    .accelerator(accel.as_str())
+                    .valign(gtk::Align::Center)
+                    .build());
+            }
+            let switch = gtk::Switch::builder().active(active).valign(gtk::Align::Center).build();
+            row.add_suffix(&switch);
+            row.set_activatable_widget(Some(&switch));
+            let cfg = config.clone();
+            switch.connect_active_notify(move |sw| {
+                let on = sw.is_active();
+                save_and_refresh(&cfg, |c| set(c, on));
+            });
+            footer.add(&row);
+        }
+    }
+
     // About — single row opening the native AboutDialog
     let ag = adw::PreferencesGroup::new();
     general.add(&ag);

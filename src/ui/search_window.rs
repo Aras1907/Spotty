@@ -460,6 +460,9 @@ fn apply_footer_settings(
         hints_icon_visible,
         hints_label_visible,
     );
+    // Settings → General → Footer can hide either button outright.
+    let ops_button_visible = ops_button_visible && config.show_operations_button;
+    let hints_button_visible = hints_button_visible && config.show_hints_button;
 
     ops_icon.set_visible(ops_icon_visible);
     hints_icon.set_visible(hints_icon_visible);
@@ -2557,6 +2560,17 @@ impl SearchWindow {
                         args,
                     } = &res.action
                     {
+                        if crate::search::cmd::is_update_run(title, args) {
+                            // Update: no question. It runs in Operations and Spotty gets out of the way.
+                            let (t, so, ic, a) = (title.clone(), source.clone(), icon.clone(), args.clone());
+                            drop(rs);
+                            crate::operations::start(t.clone(), so, ic, a);
+                            if !query.is_empty() {
+                                crate::history::record(&query, &t);
+                            }
+                            dismiss(&w, &shown_click, false);
+                            return;
+                        }
                         let plan = crate::search::uninstall::Plan {
                             title: title.clone(),
                             source: source.clone(),
@@ -3590,6 +3604,17 @@ impl SearchWindow {
                                     args,
                                 } = &res.action
                                 {
+                                    if crate::search::cmd::is_update_run(title, args) {
+                                        // Update: no question. It runs in Operations and Spotty gets out of the way.
+                                        let (t, so, ic, a) = (title.clone(), source.clone(), icon.clone(), args.clone());
+                                        drop(rs);
+                                        crate::operations::start(t.clone(), so, ic, a);
+                                        if !query.is_empty() {
+                                            crate::history::record(&query, &t);
+                                        }
+                                        dismiss(&w, &shown_kc, false);
+                                        return glib::Propagation::Stop;
+                                    }
                                     let plan = crate::search::uninstall::Plan {
                                         title: title.clone(),
                                         source: source.clone(),
@@ -4100,9 +4125,12 @@ impl SearchWindow {
     /// No expansion under the search bar — typing "update" reveals the
     /// options, per design.
     fn sync_update_notification(&self) {
-        let notice =
-            crate::app::with_state(|st| crate::search::cmd::update_notice(&st.config.borrow()));
-        let reboot = crate::search::cmd::reboot_pending();
+        let (notice, installed) = crate::app::with_state(|st| {
+            let c = st.config.borrow();
+            (crate::search::cmd::update_notice(&c), c.result_enabled("updates"))
+        });
+        // No updates trigger installed (or it is off): no badge at all.
+        let reboot = installed && crate::search::cmd::reboot_pending();
 
         // The badge shares the orb slot — only when the orb itself is idle.
         let orb_busy = self.busy_revealer.reveals_child();
