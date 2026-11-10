@@ -547,6 +547,16 @@ pub fn on_startup(app: &adw::Application) {
     log::info!("=== SPOTTY v6 STARTING ===");
     // Only the running instance needs OCR; a launch that hands off to it exits.
     std::thread::spawn(crate::ocr::probe_availability);
+    // Background threads (OCR, indexing) free memory the hide-time trim never
+    // sees; hand it back once a minute while no Spotty window is on screen.
+    let app_weak = app.downgrade();
+    glib::timeout_add_seconds_local(60, move || {
+        let Some(app) = app_weak.upgrade() else { return glib::ControlFlow::Break };
+        if !app.windows().iter().any(|w| w.is_visible()) {
+            unsafe { libc::malloc_trim(0); }
+        }
+        glib::ControlFlow::Continue
+    });
     let css = gtk::CssProvider::new();
     css.load_from_string(include_str!("../data/style.css"));
     if let Some(d) = gtk::gdk::Display::default() {

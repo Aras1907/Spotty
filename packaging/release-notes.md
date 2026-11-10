@@ -83,6 +83,9 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Less memory.** Large decoded images and OCR buffers go straight back to
+  the system when Spotty is done with them, and memory freed by background
+  work (OCR, indexing) is returned once a minute while Spotty is hidden.
 - **Instant shortcut in the Flatpak.** Ctrl+Space no longer starts a new
   Flatpak sandbox on every press: it tells the running Spotty over D-Bus,
   about 10 ms instead of a third of a second. Spotty re-registers the

@@ -80,6 +80,10 @@ fn main() -> glib::ExitCode {
     // freed memory resident. Must run before any thread starts.
     unsafe {
         libc::mallopt(libc::M_ARENA_MAX, 2);
+        // Fixed 1 MiB mmap threshold: glibc's default grows to 32 MiB after
+        // the first big free, so decoded images/OCR buffers then land on the
+        // heap and their freed pages stay resident (~20-45 MB measured).
+        libc::mallopt(libc::M_MMAP_THRESHOLD, 1024 * 1024);
     }
     if let Err(e) = security::protect_state_dirs() {
         eprintln!("Cannot secure Spotty's private state directories: {e}");
