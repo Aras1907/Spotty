@@ -83,6 +83,11 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Switch to apps that are already open.** GNOME only lets its own shell
+  bring another app's window forward, so Spotty can now install a small,
+  optional GNOME Shell extension (Settings → Apps → Window Focus). With it,
+  picking an open app such as Files focuses its window instead of opening a
+  new one. Log out and back in once after installing. Remove it there too.
 - **Running apps come to the front.** Picking an app that is already open
   brings its window forward instead of showing "… is ready".
 - **Search finds what you typed.** An app whose name starts with your query

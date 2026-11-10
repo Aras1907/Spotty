@@ -42,6 +42,7 @@ mod dnf5daemon;
 mod de;
 #[path = "../trigger-backends/src/features/fileops.rs"]
 mod fileops;
+mod focus_ext;
 #[path = "../trigger-backends/src/features/history.rs"]
 mod history;
 mod i18n;

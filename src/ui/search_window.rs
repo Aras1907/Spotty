@@ -6583,6 +6583,32 @@ if [ -n "$t" ] && grep -qix 'DBusActivatable=true' "$f" && gdbus call --session 
 [ -n "$t" ] && export XDG_ACTIVATION_TOKEN="$t" DESKTOP_STARTUP_ID="$t"
 exec gio launch "$f""#;
 
+fn launch_desktop_file(p: &std::path::Path, window: &gtk::Window) {
+    // The launch needs an activation token from our focused window:
+    // without one GNOME won't raise the app, so an app that is already
+    // running shows "… is ready" instead of coming to the front.
+    // WidgetExt:: — RootExt also has display() with newer GTK features.
+    let display = gtk::prelude::WidgetExt::display(window);
+    let ctx = display.app_launch_context();
+    if std::env::var("FLATPAK_ID").is_ok() {
+        // Host apps can't be spawned from the sandbox, and host
+        // gtk-launch would swap our token for its own windowless one.
+        // So the host gets our token: over D-Bus Activate for
+        // DBusActivatable apps (what GLib does), else in the env.
+        let token = (display.type_().name() == "GdkWaylandDisplay")
+            .then(|| ctx.startup_notify_id(None::<&gio::AppInfo>, &[]))
+            .flatten()
+            .unwrap_or_default();
+        let _ = crate::app::host_process("sh")
+            .args(["-c", HOST_LAUNCH, "sh"])
+            .arg(p)
+            .arg(token.as_str())
+            .spawn();
+    } else if let Some(i) = gio::DesktopAppInfo::from_filename(p) {
+        let _ = i.launch(&[], Some(&ctx));
+    }
+}
+
 fn activate(
     result: &SearchResult,
     results: &[SearchResult],
@@ -6592,30 +6618,16 @@ fn activate(
 ) {
     match &result.action {
         Action::LaunchDesktopFile(p) => {
-            // The launch needs an activation token from our focused window:
-            // without one GNOME won't raise the app, so an app that is already
-            // running shows "… is ready" instead of coming to the front.
-            // WidgetExt:: — RootExt also has display() with newer GTK features.
-            let display = gtk::prelude::WidgetExt::display(window);
-            let ctx = display.app_launch_context();
-            if std::env::var("FLATPAK_ID").is_ok() {
-                // Host apps can't be spawned from the sandbox, and host
-                // gtk-launch would swap our token for its own windowless one.
-                // So the host gets our token: over D-Bus Activate for
-                // DBusActivatable apps (what GLib does), else in the env.
-                let token = (display.type_().name() == "GdkWaylandDisplay")
-                    .then(|| ctx.startup_notify_id(None::<&gio::AppInfo>, &[]))
-                    .flatten()
-                    .unwrap_or_default();
-                let _ = crate::app::host_process("sh")
-                    .args(["-c", HOST_LAUNCH, "sh"])
-                    .arg(p)
-                    .arg(token.as_str())
-                    .spawn();
-            } else if let Some(i) = gio::DesktopAppInfo::from_filename(p) {
-                let _ = i.launch(&[], Some(&ctx));
-            }
-            dismiss(window, shown, false);
+            // Already open? The optional Spotty Focus extension raises its
+            // window; otherwise (or without the extension) launch it.
+            let id = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+            let (p, window, shown) = (p.clone(), window.clone(), shown.clone());
+            crate::focus_ext::focus_running(id, move |focused| {
+                if !focused {
+                    launch_desktop_file(&p, &window);
+                }
+                dismiss(&window, &shown, false);
+            });
         }
         Action::LaunchAppImage(p) => {
             // Detached host run (chmod + extract-and-run fallback live in

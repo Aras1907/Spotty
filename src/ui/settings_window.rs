@@ -1888,6 +1888,77 @@ fn installed_word(t: &crate::triggers::RepoTrigger, config: &Config) -> Option<S
 }
 
 /// One row of a Details group: a title and its value on the right.
+/// Settings → Apps: install or remove the optional Spotty Focus extension,
+/// which lets a search for an open app switch to its window.
+fn focus_extension_group(toast: Rc<dyn Fn(&str)>) -> adw::PreferencesGroup {
+    use crate::focus_ext::{self, Status};
+    let group = adw::PreferencesGroup::builder()
+        .title(gettext("Window Focus"))
+        .description(gettext(
+            "GNOME only lets its own shell bring another app's window to the front. \
+             With this small GNOME Shell extension, picking an app that is already \
+             open switches to it instead of starting it again.",
+        ))
+        .build();
+    let row = adw::ActionRow::builder()
+        .title(gettext("Focus Open Apps"))
+        .subtitle(gettext("Checking…"))
+        .build();
+    row.add_prefix(&gtk::Image::from_icon_name("focus-windows-symbolic"));
+    let button = gtk::Button::builder().valign(gtk::Align::Center).sensitive(false).build();
+    row.add_suffix(&button);
+    group.add(&row);
+
+    let show: Rc<dyn Fn(Status)> = {
+        let (row, button) = (row.clone(), button.clone());
+        Rc::new(move |st: Status| {
+            let (sub, installed) = match st {
+                Status::NotInstalled => (gettext("Not installed"), false),
+                Status::Active => (gettext("On"), true),
+                Status::NeedsRelogin => (gettext("Installed. Log out and back in to turn it on."), true),
+                Status::Off => (gettext("Turned off in the Extensions app"), true),
+                Status::Failed => (gettext("GNOME Shell could not load it"), true),
+            };
+            row.set_subtitle(&sub);
+            button.set_label(&if installed { gettext("Remove") } else { gettext("Install") });
+            button.set_css_classes(&[if installed { "destructive-action" } else { "suggested-action" }]);
+            button.set_sensitive(true);
+        })
+    };
+    let refresh = {
+        let show = show.clone();
+        move || {
+            let show = show.clone();
+            glib::MainContext::default().spawn_local(async move {
+                if let Ok(st) = gtk::gio::spawn_blocking(focus_ext::status).await {
+                    show(st);
+                }
+            });
+        }
+    };
+    refresh();
+
+    button.connect_clicked(move |b| {
+        let install = b.has_css_class("suggested-action");
+        b.set_sensitive(false);
+        let (toast, refresh) = (toast.clone(), refresh.clone());
+        glib::MainContext::default().spawn_local(async move {
+            let res = gtk::gio::spawn_blocking(move || {
+                if install { focus_ext::install() } else { focus_ext::remove() }
+            })
+            .await
+            .unwrap_or_else(|_| Err("worker panicked".into()));
+            match (res, install) {
+                (Ok(()), true) => toast(&gettext("Spotty Focus installed")),
+                (Ok(()), false) => toast(&gettext("Spotty Focus removed")),
+                (Err(e), _) => toast(&gettext("Spotty Focus: {e}").replace("{e}", &e)),
+            }
+            refresh();
+        });
+    });
+    group
+}
+
 fn detail_row(title: &str, value: String) -> adw::ActionRow {
     let row = adw::ActionRow::builder().title(title).use_markup(false).build();
     row.add_suffix(&gtk::Label::builder().label(&value).css_classes(["dim-label"]).selectable(true).build());
@@ -2445,6 +2516,9 @@ fn trigger_settings_groups(
 
     if id == "translate" {
         groups.push(feature_settings::translate_group(config, toast.clone()));
+    }
+    if id == "apps" {
+        groups.push(focus_extension_group(toast.clone()));
     }
 
     if is_clipboard {

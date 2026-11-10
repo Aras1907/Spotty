@@ -1,0 +1,7 @@
+{
+  "uuid": "spotty-focus@aras1907.github.io",
+  "name": "Spotty Focus",
+  "description": "Lets Spotty bring an app that is already open to the front instead of starting it again. Installed and removed from Spotty's Settings.",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "url": "https://github.com/Aras1907/Spotty"
+}
