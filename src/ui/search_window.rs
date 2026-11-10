@@ -6595,13 +6595,15 @@ fn activate(
             // The launch needs an activation token from our focused window:
             // without one GNOME won't raise the app, so an app that is already
             // running shows "… is ready" instead of coming to the front.
-            let ctx = window.display().app_launch_context();
+            // WidgetExt:: — RootExt also has display() with newer GTK features.
+            let display = gtk::prelude::WidgetExt::display(window);
+            let ctx = display.app_launch_context();
             if std::env::var("FLATPAK_ID").is_ok() {
                 // Host apps can't be spawned from the sandbox, and host
                 // gtk-launch would swap our token for its own windowless one.
                 // So the host gets our token: over D-Bus Activate for
                 // DBusActivatable apps (what GLib does), else in the env.
-                let token = (window.display().type_().name() == "GdkWaylandDisplay")
+                let token = (display.type_().name() == "GdkWaylandDisplay")
                     .then(|| ctx.startup_notify_id(None::<&gio::AppInfo>, &[]))
                     .flatten()
                     .unwrap_or_default();
