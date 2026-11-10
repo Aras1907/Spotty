@@ -19,7 +19,10 @@ const IFACE = `<node>
 
 export default class SpottyFocus extends Extension {
     enable() {
-        this._checker = new DBusSenderChecker(['com.spotty.Spotty']);
+        this._checker = new DBusSenderChecker([
+            'com.spotty.Spotty', // Flatpak and AppImage
+            'com.spotty.Spotty.Launcher', // native packages
+        ]);
         this._dbus = Gio.DBusExportedObject.wrapJSObject(IFACE, this);
         this._dbus.export(Gio.DBus.session, '/com/spotty/Focus');
     }

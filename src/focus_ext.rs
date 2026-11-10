@@ -87,7 +87,7 @@ fn set_enabled(on: bool) -> Result<(), String> {
     if on {
         list.push(UUID.to_string());
     }
-    // GVariant text, never a bare string (see AGENTS.md).
+    // GVariant text, never a bare string (see CLAUDE.md).
     let value = list.to_variant().print(true);
     let ok = crate::app::host_process("gsettings")
         .args(["set", "org.gnome.shell", "enabled-extensions", value.as_str()])

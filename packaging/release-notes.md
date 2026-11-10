@@ -83,6 +83,9 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Window focus in every package.** The .deb, .rpm, Arch and snap builds
+  can now use the Spotty Focus extension too, not only the Flatpak and
+  AppImage. If you installed it with 0.6.16, log out and back in once.
 - **Switch to apps that are already open.** GNOME only lets its own shell
   bring another app's window forward, so Spotty can now install a small,
   optional GNOME Shell extension (Settings → Apps → Window Focus). With it,

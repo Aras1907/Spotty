@@ -300,6 +300,16 @@ fn main() -> glib::ExitCode {
         if let Err(e) = write_instance_pid(std::process::id() as i32) {
             log::warn!("failed to write PID file: {e}");
         }
+        // The PID-file daemon has no D-Bus name; the Spotty Focus extension
+        // only answers callers that own one of Spotty's names.
+        let _ = gio::bus_own_name(
+            gio::BusType::Session,
+            "com.spotty.Spotty.Launcher",
+            gio::BusNameOwnerFlags::NONE,
+            |_, _| {},
+            |_, _| {},
+            |_, _| {},
+        );
     }
 
     let exit = app.run_with_args(&args);

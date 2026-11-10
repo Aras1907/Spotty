@@ -1,15 +1,17 @@
-# AGENTS.md
+# CLAUDE.md
 
 Spotty — a Raycast-style launcher for GNOME Linux, in Rust with GTK4/libadwaita.
 
 ## Rules: no third-party extensions or CLIs, never LibreOffice
 
-- **No GNOME Shell extensions and no third-party CLI tools, ever.** Don't add,
-  rely on, or propose a GNOME Shell extension (Spotty's own included), and
-  don't add a dependency on an external command-line tool that isn't already
-  bundled or part of the base system. Solve window behavior (placement,
-  animation, focus) inside the app with GTK/libadwaita and its own code;
-  if that can't do it, say so instead of reaching for an extension.
+- **No GNOME Shell extensions and no third-party CLI tools**, with one
+  exception: the optional **Spotty Focus** extension
+  (`data/gnome-shell-extension/`, `src/focus_ext.rs`), which the user installs
+  and removes in Settings → Apps. GNOME only lets Shell code raise another
+  app's window, so with it a search for an app that is already open focuses
+  that window. Spotty must work the same without it. Don't add any other
+  extension, rely on a third-party one, or add a dependency on a command-line
+  tool that isn't bundled or part of the base system.
 - **No LibreOffice, ever.** Office previews and thumbnails must stay
   native/pure Rust (zip/cfb/calamine/cairo) or use the bundled tools in
   `flatpak/com.spotty.Spotty.yaml`. Never add a dependency on LibreOffice or
@@ -17,15 +19,14 @@ Spotty — a Raycast-style launcher for GNOME Linux, in Rust with GTK4/libadwait
 
 ## Build & Run
 
-```bash
-cargo build              # dev build
-cargo run                # opens the search window
-cargo run -- --toggle    # toggle search window (uses PID file + SIGUSR1 IPC)
-cargo run -- --daemon    # start hidden in background
-cargo build --release    # release build (LTO, single codegen unit, stripped)
-```
+Never install a local `cargo build`. Releases are built by CI
+(`.github/workflows/release.yml`) when a `v*` tag is pushed, and the machine
+runs the Flatpak from the GitHub release (`flatpak install --user`).
 
-No test suite, no linter config, no formatter config. `cargo build` is the only verification.
+```bash
+cargo check --release --bin spotty   # compile check before tagging
+cargo test --bin spotty              # unit tests (plain `cargo test` hits a broken example)
+```
 
 ### Dev dependencies
 
@@ -46,6 +47,8 @@ Flatpak bundles dav1d, so no host package is needed for the Flatpak build.
 ## IPC: daemon toggle
 
 `main.rs` implements a single-instance daemon using a PID file (`~/.config/spotty/spotty.pid`). When `--toggle` is passed, it sends `SIGUSR1` to the existing process instead of launching a new one; the daemon handles it with `glib::unix_signal_add_local` (no polling). The global shortcuts run `spotty-toggle` (`src/toggle.rs`, a second binary that links only libc) instead of `spotty --toggle`: same identity check and signal, ~2 ms instead of ~50 ms spent loading GTK. Each show maps a window pre-built in the background (`fresh_window` in `app.rs`).
+
+The PID-file daemon also owns `com.spotty.Spotty.Launcher` on the session bus, only so the Spotty Focus extension can tell it is Spotty (Flatpak and AppImage own `com.spotty.Spotty`).
 
 ## Flatpak & host bridging
 
