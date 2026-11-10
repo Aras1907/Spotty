@@ -83,6 +83,8 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Running apps come to the front.** Picking an app that is already open
+  brings its window forward instead of showing "… is ready".
 - **Search finds what you typed.** An app whose name starts with your query
   now comes first, closest match on top: typing "librewolf" offers to install
   LibreWolf before LibreOffice apps that only looked similar.

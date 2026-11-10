@@ -6573,6 +6573,16 @@ fn trigger_help_image(
     Some(cache)
 }
 
+/// Host side of a Flatpak app launch: `$1` desktop file, `$2` activation
+/// token (may be empty). A running DBusActivatable app presents its window on
+/// Activate; anything else gets the token through XDG_ACTIVATION_TOKEN.
+const HOST_LAUNCH: &str = r#"f=$1 t=$2 id=$(basename "$f" .desktop)
+if [ -n "$t" ] && grep -qix 'DBusActivatable=true' "$f" && gdbus call --session --dest "$id" \
+    --object-path "/$(printf %s "$id" | tr .- /_)" --method org.freedesktop.Application.Activate \
+    "{'activation-token': <'$t'>, 'desktop-startup-id': <'$t'>}" >/dev/null 2>&1; then exit 0; fi
+[ -n "$t" ] && export XDG_ACTIVATION_TOKEN="$t" DESKTOP_STARTUP_ID="$t"
+exec gio launch "$f""#;
+
 fn activate(
     result: &SearchResult,
     results: &[SearchResult],
@@ -6582,14 +6592,26 @@ fn activate(
 ) {
     match &result.action {
         Action::LaunchDesktopFile(p) => {
-            if let Some(i) = gio::DesktopAppInfo::from_filename(p) {
-                let _ = i.launch(&[], Some(&gio::AppLaunchContext::new()));
-            } else if std::env::var("FLATPAK_ID").is_ok() {
-                if let Some(id) = p.file_stem().and_then(|s| s.to_str()) {
-                    let _ = std::process::Command::new("flatpak-spawn")
-                        .args(["--host", "gtk-launch", id])
-                        .spawn();
-                }
+            // The launch needs an activation token from our focused window:
+            // without one GNOME won't raise the app, so an app that is already
+            // running shows "… is ready" instead of coming to the front.
+            let ctx = window.display().app_launch_context();
+            if std::env::var("FLATPAK_ID").is_ok() {
+                // Host apps can't be spawned from the sandbox, and host
+                // gtk-launch would swap our token for its own windowless one.
+                // So the host gets our token: over D-Bus Activate for
+                // DBusActivatable apps (what GLib does), else in the env.
+                let token = (window.display().type_().name() == "GdkWaylandDisplay")
+                    .then(|| ctx.startup_notify_id(None::<&gio::AppInfo>, &[]))
+                    .flatten()
+                    .unwrap_or_default();
+                let _ = crate::app::host_process("sh")
+                    .args(["-c", HOST_LAUNCH, "sh"])
+                    .arg(p)
+                    .arg(token.as_str())
+                    .spawn();
+            } else if let Some(i) = gio::DesktopAppInfo::from_filename(p) {
+                let _ = i.launch(&[], Some(&ctx));
             }
             dismiss(window, shown, false);
         }
