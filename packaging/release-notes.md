@@ -93,12 +93,11 @@ Checksums are in `SHA256SUMS`.
 - **Installed apps first.** An installed app whose description matches what
   you type now ranks above Install rows: "mail" shows your email client
   before "Install: Mailspring".
-- **One update row.** Typing update shows a single row, never a list. With
-  updates pending it says Update and runs in the background. With nothing
-  known it says "Press Enter to check for updates". Once an update has
-  finished and needs a restart, the only row is the restart. The separate
-  "Update" trigger suggestion, Remind tomorrow, Dismiss and Disable rows are
-  gone from search (update checks can still be turned off in Settings).
+- **One update row.** Typing update shows a single row called Update. When
+  updates are waiting, pressing Enter installs all of them in the background.
+  When there are none, the row says so, and Enter checks again. After an
+  update that needs a restart, the row offers the restart instead. Update
+  checks can still be turned off in Settings.
 - **Restart installs the update.** If an update was downloaded but not yet
   scheduled, Restart now schedules it first, so the reboot actually installs
   it. If scheduling fails, Spotty cancels the restart and tells you why.
