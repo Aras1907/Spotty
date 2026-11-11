@@ -120,14 +120,61 @@ fn binding_listed(dump: &str, gtk: &str) -> bool {
     norm(dump).contains(&format!("'{}'", norm(gtk)))
 }
 
+/// Schemas whose bindings GNOME Shell, Mutter or gsd grab ahead of custom
+/// keybindings.
+const GRAB_SCHEMAS: &[&str] = &[
+    "org.gnome.desktop.wm.keybindings",
+    "org.gnome.shell.keybindings",
+    "org.gnome.mutter.keybindings",
+    "org.gnome.mutter.wayland.keybindings",
+    "org.gnome.settings-daemon.plugins.media-keys",
+];
+
+/// Whether one of GNOME's own bindings (`GRAB_SCHEMAS`) uses `gtk`.
+fn grabbed_by_gnome(gtk: &str) -> bool {
+    GRAB_SCHEMAS.iter().any(|&schema| binding_listed(&gsettings(&["list-recursively", schema]), gtk))
+}
+
 /// Whether a GNOME binding outside Spotty already uses `gtk`.
 fn accel_taken(gtk: &str) -> bool {
-    // list-recursively skips relocatable schemas, so custom keybindings are read one by one.
+    // A bare `list-recursively` can list only some schemas (GLib 2.88 lists
+    // just ~/.local/share/glib-2.0/schemas once that exists), so the schemas
+    // that grab keys are read one by one too. It skips relocatable schemas,
+    // so custom keybindings are read one by one as well.
     binding_listed(&gsettings(&["list-recursively"]), gtk)
+        || grabbed_by_gnome(gtk)
+        || binding_listed(&gsettings(&["get", "org.freedesktop.ibus.general.hotkey", "triggers"]), gtk)
         || current_keybindings()
             .iter()
             .filter(|p| !p.contains("/spotty"))
             .any(|p| binding_listed(&gsettings(&["get", &format!("{ENTRY_SCHEMA}:{p}"), "binding"]), gtk))
+}
+
+/// Number of keyboard layouts / input methods in a `sources` value.
+fn input_source_count(sources: &str) -> usize {
+    sources.matches("('").count()
+}
+
+/// Some distros bind Ctrl+Space to switching input sources (postmarketOS
+/// ships it for Chromebooks), and Mutter takes that key before the custom
+/// shortcut. With at most one input source there is nothing to switch, so
+/// input switching moves to GNOME's own default, Super+Space. Returns whether
+/// it moved.
+fn free_ctrl_space() -> bool {
+    const WM: &str = "org.gnome.desktop.wm.keybindings";
+    if !binding_listed(&gsettings(&["get", WM, "switch-input-source"]), "<Control>space") {
+        return false;
+    }
+    let sources = gsettings(&["get", "org.gnome.desktop.input-sources", "sources"]);
+    if input_source_count(&sources) > 1 || grabbed_by_gnome("<Super>space") {
+        return false;
+    }
+    gsettings(&["set", WM, "switch-input-source", "['<Super>space']"]);
+    if binding_listed(&gsettings(&["get", WM, "switch-input-source-backward"]), "<Shift><Control>space") {
+        gsettings(&["set", WM, "switch-input-source-backward", "['<Shift><Super>space']"]);
+    }
+    log::info!("keybindings: input source switching moved to Super+Space to free Ctrl+Space");
+    true
 }
 
 /// Mutter keeps an accelerator that a window-manager binding holds, so Alt+Space
@@ -161,10 +208,15 @@ pub fn register_all() {
     // Ctrl+Space is the default; when something else owns it, use Alt+Space.
     // shortcut: a running Settings window keeps its old copy of the config and
     // may save Ctrl+Space back; the next registration falls back again.
-    if to_gtk_accel(&config.shortcut) == "<Control>space" && accel_taken("<Control>space") {
-        log::info!("keybindings: Ctrl+Space is taken, using Alt+Space");
-        config.shortcut = "Alt+Space".into();
-        config.save();
+    if to_gtk_accel(&config.shortcut) == "<Control>space" {
+        if gnome_shell_session() {
+            free_ctrl_space();
+        }
+        if accel_taken("<Control>space") {
+            log::info!("keybindings: Ctrl+Space is taken, using Alt+Space");
+            config.shortcut = "Alt+Space".into();
+            config.save();
+        }
     }
     if to_gtk_accel(&config.shortcut) == "<Alt>space" {
         free_alt_space();
@@ -292,5 +344,12 @@ mod tests {
         assert!(!binding_listed("['<Shift><Control>space']", "<Control>space"));
         assert_eq!(to_gtk_accel("Ctrl+Space"), "<Control>space");
         assert_eq!(to_gtk_accel("Alt+Space"), "<Alt>space");
+    }
+
+    #[test]
+    fn counts_input_sources() {
+        assert_eq!(input_source_count("@a(ss) []"), 0);
+        assert_eq!(input_source_count("[('xkb', 'pt')]"), 1);
+        assert_eq!(input_source_count("[('xkb', 'us'), ('ibus', 'anthy')]"), 2);
     }
 }

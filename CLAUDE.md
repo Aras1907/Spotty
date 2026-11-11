@@ -25,7 +25,7 @@ runs the Flatpak from the GitHub release (`flatpak install --user`).
 
 ```bash
 cargo check --release --bin spotty   # compile check before tagging
-cargo test --bin spotty              # unit tests (plain `cargo test` hits a broken example)
+cargo test --bin spotty              # unit tests
 ```
 
 ### Dev dependencies
