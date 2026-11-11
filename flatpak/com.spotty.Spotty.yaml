@@ -78,6 +78,9 @@ modules:
     sources:
       - type: archive
         url: https://ffmpeg.org/releases/ffmpeg-7.0.tar.xz
+        # ffmpeg.org timed out from GitHub's x86_64 runners (v0.6.23); same file.
+        mirror-urls:
+          - https://downloads.yoctoproject.org/mirror/sources/ffmpeg-7.0.tar.xz
         sha256: 4426a94dd2c814945456600c8adfc402bee65ec14a70e8c531ec9a2cd651da7b
 
   # ---- Tesseract OCR engine --------------------------------------------
