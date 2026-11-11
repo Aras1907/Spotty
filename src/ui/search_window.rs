@@ -2609,7 +2609,7 @@ impl SearchWindow {
                         dialog.connect_response(None, move |_, resp| {
                             po.set(false);
                             if resp == "confirm" {
-                                let _ = crate::app::spawn_host_shell_command(&c);
+                                crate::search::cmd::run_confirmed(c.clone());
                                 dismiss(&w2, &s2, false);
                             }
                         });
@@ -3684,7 +3684,7 @@ impl SearchWindow {
                                     dialog.connect_response(None, move |_, resp| {
                                         po.set(false);
                             if resp == "confirm" {
-                                            let _ = crate::app::spawn_host_shell_command(&c);
+                                            crate::search::cmd::run_confirmed(c.clone());
                                             dismiss(&w2, &s2, false);
                                         }
                                     });

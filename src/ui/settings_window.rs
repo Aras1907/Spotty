@@ -1930,7 +1930,6 @@ fn installed_word(t: &crate::triggers::RepoTrigger, config: &Config) -> Option<S
     }
 }
 
-/// One row of a Details group: a title and its value on the right.
 /// Settings → Apps: install or remove the optional Spotty Focus extension,
 /// which lets a search for an open app switch to its window.
 fn focus_extension_group(toast: Rc<dyn Fn(&str)>) -> adw::PreferencesGroup {
@@ -2002,6 +2001,7 @@ fn focus_extension_group(toast: Rc<dyn Fn(&str)>) -> adw::PreferencesGroup {
     group
 }
 
+/// One row of a Details group: a title and its value on the right.
 fn detail_row(title: &str, value: String) -> adw::ActionRow {
     let row = adw::ActionRow::builder().title(title).use_markup(false).build();
     row.add_suffix(&gtk::Label::builder().label(&value).css_classes(["dim-label"]).selectable(true).build());
@@ -2560,7 +2560,8 @@ fn trigger_settings_groups(
     if id == "translate" {
         groups.push(feature_settings::translate_group(config, toast.clone()));
     }
-    if id == "apps" {
+    // Only GNOME Shell can load the extension.
+    if id == "apps" && crate::de::detect() == crate::de::Desktop::Gnome {
         groups.push(focus_extension_group(toast.clone()));
     }
 

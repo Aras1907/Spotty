@@ -83,6 +83,14 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Restart installs the update.** If an update was downloaded but not yet
+  scheduled, Restart now schedules it first, so the reboot actually installs
+  it. If scheduling fails, Spotty cancels the restart and tells you why.
+  Spotty's own Update also schedules the download (dnf5 5.4 stopped doing it
+  automatically).
+- **Window Focus only on GNOME.** The Spotty Focus install/remove option in
+  the Apps trigger settings now shows only under GNOME Shell, the only
+  desktop that can load it.
 - **One Update.** Typing update offers a single Update that installs
   everything at once. Choose what it covers in Settings → System Updates →
   Update Sources (Flatpak, system packages, Snap, AppImages). Pressing it
