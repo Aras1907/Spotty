@@ -33,14 +33,14 @@ jobs:
 
       - name: Test tools
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb xauth x11-utils dbus libfuse2t64
+          sudo apt-get -o Acquire::Retries=5 update -qq
+          sudo apt-get -o Acquire::Retries=5 install -y -qq xvfb xauth x11-utils dbus libfuse2t64
 
       # ── Flatpak ──────────────────────────────────────────────────────────
       - name: Build Flatpak
         if: matrix.kind == 'flatpak'
         run: |
-          sudo apt-get install -y -qq flatpak flatpak-builder
+          sudo apt-get -o Acquire::Retries=5 install -y -qq flatpak flatpak-builder
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y --noninteractive flathub \
             org.gnome.Platform//50 org.gnome.Sdk//50 \
@@ -149,8 +149,8 @@ jobs:
             echo "::error::The FLATPAK_GPG_PRIVATE_KEY secret is not set (see packaging/build-flatpak-repo.sh). Set it, then re-run this job."
             exit 1
           fi
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq flatpak ostree
+          sudo apt-get -o Acquire::Retries=5 update -qq
+          sudo apt-get -o Acquire::Retries=5 install -y -qq flatpak ostree
           export GNUPGHOME="$RUNNER_TEMP/gnupg"
           mkdir -m 700 "$GNUPGHOME"
           printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --import
