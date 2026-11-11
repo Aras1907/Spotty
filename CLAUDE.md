@@ -48,6 +48,8 @@ Flatpak bundles dav1d, so no host package is needed for the Flatpak build.
 
 `main.rs` implements a single-instance daemon using a PID file (`~/.config/spotty/spotty.pid`). When `--toggle` is passed, it sends `SIGUSR1` to the existing process instead of launching a new one; the daemon handles it with `glib::unix_signal_add_local` (no polling). The global shortcuts run `spotty-toggle` (`src/toggle.rs`, a second binary that links only libc) instead of `spotty --toggle`: same identity check and signal, ~2 ms instead of ~50 ms spent loading GTK. Each show maps a window pre-built in the background (`fresh_window` in `app.rs`).
 
+The Flatpak's PID is hidden from the host, so its shortcuts run the Flatpak's own `spotty-toggle` from the host path (`<install>/active/files/bin/spotty-toggle`, probed once with `--probe`). It sends one datagram (`keyword\ntoken`) to `$XDG_RUNTIME_DIR/app/com.spotty.Spotty/spotty-toggle.sock`, which the daemon reads on the main loop (~3 ms per keypress). If the probe fails, the shortcut falls back to `sh` + `gdbus` ActivateAction (~30 ms). Show and hide have no fade.
+
 The PID-file daemon also owns `com.spotty.Spotty.Launcher` on the session bus, only so the Spotty Focus extension can tell it is Spotty (Flatpak and AppImage own `com.spotty.Spotty`).
 
 ## Flatpak & host bridging

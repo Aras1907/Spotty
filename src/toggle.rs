@@ -61,8 +61,26 @@ fn activation_token() -> Option<String> {
     })
 }
 
+/// A Flatpak daemon listens on a socket in the app's runtime folder (the
+/// sandbox hides its PID). One datagram, `keyword\ntoken`, summons it.
+fn send_to_flatpak_daemon(keyword: &str) -> bool {
+    let run = match std::env::var_os("XDG_RUNTIME_DIR") {
+        Some(d) if Path::new(&d).is_absolute() => PathBuf::from(d),
+        _ => PathBuf::from(format!("/run/user/{}", unsafe { libc::geteuid() })),
+    };
+    let sock = run.join("app/com.spotty.Spotty/spotty-toggle.sock");
+    let msg = format!("{keyword}\n{}", activation_token().unwrap_or_default());
+    std::os::unix::net::UnixDatagram::unbound()
+        .and_then(|s| s.send_to(msg.as_bytes(), &sock))
+        .is_ok()
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Spotty checks at registration that this host can run us at all.
+    if args.first().map(String::as_str) == Some("--probe") {
+        return;
+    }
     let keyword = match args.first().map(String::as_str) {
         Some("--toggle") | None => "",
         Some("--clipboard") => "clipboard",
@@ -70,9 +88,20 @@ fn main() {
         Some("--keyword") => args.get(1).map(String::as_str).unwrap_or(""),
         Some(_) => "",
     };
-    let spotty = std::env::current_exe()
-        .ok()
-        .and_then(|p| fs::canonicalize(p).ok())
+    if send_to_flatpak_daemon(keyword) {
+        return;
+    }
+    let exe = std::env::current_exe().ok().and_then(|p| fs::canonicalize(p).ok());
+    // Run from a Flatpak install: its `spotty` only works inside the sandbox.
+    if exe.as_deref().is_some_and(|p| p.to_string_lossy().contains("/app/com.spotty.Spotty/")) {
+        let err = std::process::Command::new("flatpak")
+            .args(["run", "com.spotty.Spotty"])
+            .args(&args)
+            .exec();
+        eprintln!("spotty-toggle: cannot run flatpak: {err}");
+        std::process::exit(1);
+    }
+    let spotty = exe
         .map(|p| p.with_file_name("spotty"))
         .unwrap_or_else(|| PathBuf::from("spotty"));
     if let Some(dir) = config_dir() {

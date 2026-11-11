@@ -429,9 +429,53 @@ pub(crate) fn host_signal_command(keyword: &str) -> String {
         }
     }
     if is_own_flatpak() {
+        // Fastest: run the Flatpak's own `spotty-toggle` straight from its
+        // host path, no `sh` or `gdbus` start-up in between.
+        if let Some(toggle) = flatpak_host_toggle() {
+            return format!(
+                "{} {}",
+                crate::triggers::shell_escape(&toggle),
+                crate::triggers::shell_escape(&arg)
+            );
+        }
         return flatpak_signal_command(keyword, &arg);
     }
     host_command_for_launch(&arg)
+}
+
+/// `spotty-toggle` of this Flatpak as the host sees it, through the install's
+/// `active` link so an update keeps it valid; `None` unless the host can run
+/// it (checked once: the binary is built against the runtime's libc).
+fn flatpak_host_toggle() -> Option<String> {
+    static PATH: OnceLock<Option<String>> = OnceLock::new();
+    PATH.get_or_init(|| {
+        let info = std::fs::read_to_string("/.flatpak-info").ok()?;
+        let path = host_toggle_path(&info)?;
+        let ok = std::process::Command::new("flatpak-spawn")
+            .args(["--host", &path, "--probe"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+        if !ok {
+            log::warn!("{path} does not run on the host; shortcuts use gdbus");
+        }
+        ok.then_some(path)
+    })
+    .clone()
+}
+
+/// `…/<arch>/<branch>/<commit>/files` from `/.flatpak-info` → the same
+/// install's `…/<arch>/<branch>/active/files/bin/spotty-toggle`.
+fn host_toggle_path(flatpak_info: &str) -> Option<String> {
+    let app_path = flatpak_info
+        .lines()
+        .find_map(|l| l.strip_prefix("app-path="))?
+        .trim();
+    let files = std::path::Path::new(app_path);
+    let branch = files.parent()?.parent()?;
+    let path = branch.join("active/files/bin/spotty-toggle");
+    path.is_absolute().then(|| path.to_string_lossy().into_owned())
 }
 
 /// Flatpak shortcut: activate the running daemon's GAction over D-Bus with
@@ -755,38 +799,92 @@ pub fn on_startup(app: &adw::Application) {
     }
     let app_weak = app.downgrade();
     glib::unix_signal_add_local(libc::SIGUSR1, move || {
-        // Record mark: timestamp + major page-fault count at signal arrival.
-        SIGNAL_MARK.with(|m| {
-            let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
-            unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru); }
-            *m.borrow_mut() = Some((Instant::now(), ru.ru_majflt));
-        });
-        // The token the shortcut's launch came with, used by the next show.
+        // The keyword and token come through private files next to the PID file.
         let token_path = keyword_signal_file().with_file_name("spotty_activation.txt");
         let token = std::fs::read_to_string(&token_path).ok();
         let _ = std::fs::remove_file(&token_path);
-        log::info!("summoned; activation token: {}", if token.is_some() { "yes" } else { "none" });
-        ACTIVATION_TOKEN.with(|t| *t.borrow_mut() = token.map(|t| t.trim().to_string()));
+        let kw_path = keyword_signal_file();
+        let kw = std::fs::read_to_string(&kw_path).ok();
+        if kw.is_some() {
+            let _ = std::fs::remove_file(&kw_path);
+        }
         if let Some(app) = app_weak.upgrade() {
-            let kw_path = keyword_signal_file();
-            if let Ok(kw) = std::fs::read_to_string(&kw_path) {
-                let _ = std::fs::remove_file(&kw_path);
-                if kw.trim() == "__spotty_settings__" {
-                    open_settings(&app);
-                } else {
-                    show_keyword_search(&app, kw.trim());
-                }
-            } else {
-                toggle_search(&app);
-            }
+            summon(&app, kw, token);
         }
         glib::ControlFlow::Continue
     });
+    if is_own_flatpak() {
+        listen_for_toggles(app);
+    }
 
     let start_at_login = config.borrow().behavior.start_at_login;
     std::thread::spawn(move || {
         setup_autostart(start_at_login);
         crate::keybindings::register_all();
+    });
+}
+
+/// A shortcut press: show the keyword's mode, open Settings, or toggle.
+fn summon(app: &adw::Application, keyword: Option<String>, token: Option<String>) {
+    // Record mark: timestamp + major page-fault count at summon arrival.
+    SIGNAL_MARK.with(|m| {
+        let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+        unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru); }
+        *m.borrow_mut() = Some((Instant::now(), ru.ru_majflt));
+    });
+    log::info!("summoned; activation token: {}", if token.is_some() { "yes" } else { "none" });
+    ACTIVATION_TOKEN.with(|t| *t.borrow_mut() = token.map(|t| t.trim().to_string()));
+    match keyword.as_deref().map(str::trim) {
+        Some("__spotty_settings__") => open_settings(app),
+        Some(kw) if !kw.is_empty() => show_keyword_search(app, kw),
+        _ => toggle_search(app),
+    }
+}
+
+/// The socket a Flatpak daemon's shortcuts write to: in the app's runtime
+/// folder, which the host sees at the same path and only this user can open.
+pub(crate) fn toggle_socket_path() -> Option<std::path::PathBuf> {
+    let run = std::env::var_os("XDG_RUNTIME_DIR")?;
+    Some(std::path::Path::new(&run).join("app").join(APP_ID).join("spotty-toggle.sock"))
+}
+
+/// Parse one toggle datagram: `keyword\ntoken`, both optional, printable.
+fn parse_toggle(msg: &[u8]) -> Option<(Option<String>, Option<String>)> {
+    let text = std::str::from_utf8(msg).ok()?;
+    let (kw, token) = text.split_once('\n').unwrap_or((text, ""));
+    let ok = |s: &str| s.len() <= 256 && s.bytes().all(|b| b.is_ascii_graphic());
+    if !ok(kw) || !ok(token) {
+        return None;
+    }
+    let some = |s: &str| (!s.is_empty()).then(|| s.to_string());
+    Some((some(kw), some(token)))
+}
+
+/// Flatpak: the sandbox hides the daemon's PID from the host, so the
+/// shortcuts' `spotty-toggle` sends one datagram here instead of a signal,
+/// which skips the `sh` + `gdbus` start-up (~30 ms) per keypress.
+fn listen_for_toggles(app: &adw::Application) {
+    use std::os::fd::AsRawFd;
+    let Some(path) = toggle_socket_path() else { return };
+    let _ = std::fs::remove_file(&path);
+    let sock = match std::os::unix::net::UnixDatagram::bind(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("toggle socket {}: {e}", path.display());
+            return;
+        }
+    };
+    let _ = sock.set_nonblocking(true);
+    let fd = sock.as_raw_fd();
+    let app_weak = app.downgrade();
+    glib::unix_fd_add_local(fd, glib::IOCondition::IN, move |_, _| {
+        let mut buf = [0u8; 600];
+        while let Ok(n) = sock.recv(&mut buf) {
+            if let (Some((kw, token)), Some(app)) = (parse_toggle(&buf[..n]), app_weak.upgrade()) {
+                summon(&app, kw, token);
+            }
+        }
+        glib::ControlFlow::Continue
     });
 }
 
@@ -1198,6 +1296,29 @@ mod tests {
         let out = std::fs::read_to_string(&log).unwrap();
         std::fs::remove_dir_all(&dir).ok();
         out
+    }
+
+    #[test]
+    fn flatpak_toggle_path_uses_the_active_link() {
+        let info = "[Application]\nname=com.spotty.Spotty\n\n[Instance]\n\
+            app-path=/home/u/.local/share/flatpak/app/com.spotty.Spotty/x86_64/master/8d34ab/files\n";
+        assert_eq!(
+            super::host_toggle_path(info).as_deref(),
+            Some("/home/u/.local/share/flatpak/app/com.spotty.Spotty/x86_64/master/active/files/bin/spotty-toggle")
+        );
+        assert_eq!(super::host_toggle_path("[Instance]\n"), None);
+    }
+
+    #[test]
+    fn toggle_datagrams_carry_keyword_and_token() {
+        assert_eq!(super::parse_toggle(b"\n"), Some((None, None)));
+        assert_eq!(
+            super::parse_toggle(b"files\nabc_1"),
+            Some((Some("files".into()), Some("abc_1".into())))
+        );
+        assert_eq!(super::parse_toggle(b"\ntok"), Some((None, Some("tok".into()))));
+        assert_eq!(super::parse_toggle(b"bad word\n"), None, "spaces are rejected");
+        assert_eq!(super::parse_toggle(&[0xff, b'\n']), None, "not UTF-8");
     }
 
     #[test]

@@ -83,6 +83,13 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Instant Ctrl+Space.** In the Flatpak, every shortcut press used to start a
+  shell and gdbus, which took 18 to 30 ms before Spotty got the key. Now the
+  shortcut runs a small helper from the Flatpak's own files, and it passes
+  the press to Spotty over a private socket in about 3 ms. Show and hide
+  don't fade anymore: the window appears on the next frame and disappears on
+  the next one. On a system that can't run the helper, Spotty keeps the old
+  shortcut.
 - **Installed apps first.** An installed app whose description matches what
   you type now ranks above Install rows: "mail" shows your email client
   before "Install: Mailspring".

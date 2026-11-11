@@ -2568,7 +2568,7 @@ impl SearchWindow {
                             if !query.is_empty() {
                                 crate::history::record(&query, &t);
                             }
-                            dismiss(&w, &shown_click, false);
+                            dismiss(&w, &shown_click);
                             return;
                         }
                         let plan = crate::search::uninstall::Plan {
@@ -2610,7 +2610,7 @@ impl SearchWindow {
                             po.set(false);
                             if resp == "confirm" {
                                 crate::search::cmd::run_confirmed(c.clone());
-                                dismiss(&w2, &s2, false);
+                                dismiss(&w2, &s2);
                             }
                         });
                         dialog.present();
@@ -2827,7 +2827,7 @@ impl SearchWindow {
                             crate::search::browser_launch::private_window_argv(&url)
                         {
                             crate::search::browser_launch::spawn_private_window(&argv);
-                            dismiss(&w, &shown_kc, false);
+                            dismiss(&w, &shown_kc);
                         } else {
                             log::info!(
                                 "private search: the default browser has no known private mode"
@@ -2971,7 +2971,7 @@ impl SearchWindow {
                                         dir.display()
                                     );
                                     crate::app::open_in_file_manager(&dir);
-                                    dismiss(&w, &shown_kc, false);
+                                    dismiss(&w, &shown_kc);
                                     return glib::Propagation::Stop;
                                 }
                                 log::info!("open-location shortcut pressed but no location resolved");
@@ -3058,7 +3058,7 @@ impl SearchWindow {
                                     if let Some(p) = terminal_path.filter(|path| path.is_dir()) {
                                         log::info!("terminal shortcut: opening terminal at {}", p.display());
                                         crate::app::open_terminal_at(&p);
-                                        dismiss(&w, &shown_kc, false);
+                                        dismiss(&w, &shown_kc);
                                         return glib::Propagation::Stop;
                                     } else {
                                         log::info!("terminal shortcut pressed but no existing file or folder is selected");
@@ -3375,7 +3375,7 @@ impl SearchWindow {
                         if escape == EscapeIntent::ClosePopovers {
                             close_popovers_kc();
                         } else {
-                            dismiss(&w, &shown_kc, true);
+                            dismiss(&w, &shown_kc);
                         }
                         glib::Propagation::Stop
                     }
@@ -3612,7 +3612,7 @@ impl SearchWindow {
                                         if !query.is_empty() {
                                             crate::history::record(&query, &t);
                                         }
-                                        dismiss(&w, &shown_kc, false);
+                                        dismiss(&w, &shown_kc);
                                         return glib::Propagation::Stop;
                                     }
                                     let plan = crate::search::uninstall::Plan {
@@ -3685,7 +3685,7 @@ impl SearchWindow {
                                         po.set(false);
                             if resp == "confirm" {
                                             crate::search::cmd::run_confirmed(c.clone());
-                                            dismiss(&w2, &s2, false);
+                                            dismiss(&w2, &s2);
                                         }
                                     });
                                     dialog.present();
@@ -3793,7 +3793,7 @@ impl SearchWindow {
                         progress2.get(),
                         closed_a_popover,
                     ) {
-                        dismiss(&w2, &shown2, true);
+                        dismiss(&w2, &shown2);
                     }
                 });
             }));
@@ -4005,7 +4005,7 @@ impl SearchWindow {
     /// window is dropped on next show (replaced by a fresh one); this instance
     /// is left for the caller's replacement to destroy.
     pub fn hide(&self) {
-        dismiss(&self.window, &self.shown, true);
+        dismiss(&self.window, &self.shown);
     }
 
     /// Tear this instance down for good — it's being replaced by a fresh
@@ -4387,7 +4387,7 @@ fn apply_ops_ring(
 /// unmapped: the Shell's animation then plays on an empty, transparent window
 /// and shows nothing. Action launches skip the shrink but still blank the
 /// panel for a frame first.
-fn dismiss(window: &gtk::Window, shown: &Rc<Cell<bool>>, animate: bool) {
+fn dismiss(window: &gtk::Window, shown: &Rc<Cell<bool>>) {
     // Stop Bluetooth scan on hide (cancel = restore power if it was off).
     crate::search::bluetooth::stop_scan(crate::search::bluetooth::ScanStop::Cancelled);
     if !shown.get() {
@@ -4398,14 +4398,9 @@ fn dismiss(window: &gtk::Window, shown: &Rc<Cell<bool>>, animate: bool) {
         window.set_visible(false);
         return;
     };
-    let wait = if animate && super::animations_enabled() {
-        panel.remove_css_class("spotty-anim-in");
-        panel.add_css_class("spotty-anim-out");
-        CLOSE_MS
-    } else {
-        panel.set_opacity(0.0);
-        BLANK_MS
-    };
+    // Gone on the next frame: no close fade, the toggle has to feel instant.
+    panel.set_opacity(0.0);
+    let wait = BLANK_MS;
     // Keep the keyboard until the key that closed us is let go. GNOME grabs
     // the shortcut's press (Space in Super+Space) but hands its release to
     // whichever window has focus then: unmapping first gave that release to
@@ -4466,24 +4461,16 @@ const KEY_RELEASE_MS: u64 = 400;
 /// Time for the panel's blank frame to reach the compositor before unmapping.
 const BLANK_MS: u64 = 40;
 
-/// Start the open: the panel fades in where it is, right away. GNOME's own
-/// open animation for the (modal) window unfolds it around its centre line,
-/// which is where the bar sits, so nothing moves up or down.
+/// Start the open: the panel is fully there on its first frame (no fade, so
+/// the toggle feels instant).
 fn animate_open(window: &gtk::Window) {
-    // Already on screen: a repeated show must not restart the fade.
     if window.is_mapped() {
         return;
     }
     center_bar(window);
     let Some(outer) = panel(window) else { return };
-    outer.remove_css_class("spotty-anim-out");
-    outer.remove_css_class("spotty-anim-in");
     outer.set_opacity(1.0);
-    outer.add_css_class("spotty-anim-in");
 }
-
-/// Length of the close animation (`spotty-close` in style.css).
-const CLOSE_MS: u64 = 110;
 
 /// The panel inside the toplevel (see the frame in `SearchWindow::new`).
 fn panel(window: &gtk::Window) -> Option<gtk::Widget> {
@@ -6654,14 +6641,14 @@ fn activate(
                 if !focused {
                     launch_desktop_file(&p, &window);
                 }
-                dismiss(&window, &shown, false);
+                dismiss(&window, &shown);
             });
         }
         Action::LaunchAppImage(p) => {
             // Detached host run (chmod + extract-and-run fallback live in
             // the appimage module) — the window closes right away.
             crate::search::appimage::launch(p);
-            dismiss(window, shown, false);
+            dismiss(window, shown);
         }
         Action::RemoveAppImage(_) => {
             // Handled in the row-activation / key paths (which own popover_open).
@@ -6672,19 +6659,19 @@ fn activate(
                 &gio::File::for_path(p).uri(),
                 gio::AppLaunchContext::NONE,
             );
-            dismiss(window, shown, false);
+            dismiss(window, shown);
         }
         Action::OpenInFileManager(p) | Action::BrowseInto(p) => {
             crate::recent_paths::record(p);
             // Enter always opens folders in the file manager, regardless of
             // which one is configured as default.
             crate::app::open_in_file_manager(p);
-            dismiss(window, shown, false);
+            dismiss(window, shown);
         }
         Action::OpenUrl(u) => {
             if crate::security::http_uri(u).is_err() { return; }
             let _ = gio::AppInfo::launch_default_for_uri(u, gio::AppLaunchContext::NONE);
-            dismiss(window, shown, false);
+            dismiss(window, shown);
         }
         Action::OpenUrlPrivate(u) => {
             if crate::security::http_uri(u).is_err() { return; }
@@ -6693,14 +6680,14 @@ fn activate(
             // window that quietly isn't private.
             if let Some(argv) = crate::search::browser_launch::private_window_argv(&u) {
                 crate::search::browser_launch::spawn_private_window(&argv);
-                dismiss(window, shown, false);
+                dismiss(window, shown);
             } else {
                 log::info!("private window: no private mode known for this browser");
             }
         }
         Action::CopyToClipboard(t) => {
             crate::clipboard::set_text(t);
-            dismiss(window, shown, false);
+            dismiss(window, shown);
             // Clip entries: don't auto-paste — re-copying already moves the
             // entry to the front of the clipboard history (watcher's push_text).
             if result.kind == crate::search::ResultKind::Clipboard {
@@ -6733,7 +6720,7 @@ fn activate(
         }
         Action::CopyImageToClipboard(p) => {
                 crate::clipboard::set_image(p);
-                dismiss(window, shown, false);
+                dismiss(window, shown);
                 // Clip entries: don't auto-paste.
                 if result.kind == crate::search::ResultKind::Clipboard {
                     return;
@@ -6749,11 +6736,11 @@ fn activate(
             // The clipboard watcher skips our own content (is_local), so move
             // the entry to the front explicitly to preserve re-copy recency.
             crate::app::with_state(|st| st.clipboard.borrow_mut().push_file(p.clone()));
-            dismiss(window, shown, false);
+            dismiss(window, shown);
         }
         Action::InsertCalculatorResult(t) => {
             crate::clipboard::set_text(t);
-            dismiss(window, shown, false);
+            dismiss(window, shown);
             // Optional auto-paste (calculator settings): the same 75 ms +
             // Ctrl+V dance as the copy actions, so Spotty is gone by then.
             let paste = crate::app::with_state(|st| st.config.borrow().calc_paste);
@@ -6766,14 +6753,14 @@ fn activate(
         }
         Action::RunCommand(cmd) => {
             let _ = crate::app::spawn_host_shell_command(cmd);
-            dismiss(window, shown, false);
+            dismiss(window, shown);
         }
         Action::ConfirmRunCommand(_) => {
             // Handled in the row-activation / key paths (which own popover_open).
         }
         Action::RunInTerminal(cmd) => {
             crate::app::run_in_terminal(cmd);
-            dismiss(window, shown, false);
+            dismiss(window, shown);
         }
         Action::RunWithProgress { .. } => {
             // Handled in the row-activation path (run_fn closure), not here.
