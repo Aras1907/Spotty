@@ -24,7 +24,7 @@ jobs:
         arch: [x86_64, aarch64]
         kind: [flatpak, deb, rpm, arch, appimage-snap]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -120,7 +120,7 @@ jobs:
           grep '^Exec=' /var/lib/snapd/desktop/applications/spotty_spotty.desktop
           HOME=/tmp/smoke-snap sh packaging/smoke.sh /snap/bin/spotty
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: pkg-${{ matrix.kind }}-${{ matrix.arch }}
           path: dist/*
@@ -141,8 +141,8 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
         with:
           pattern: pkg-flatpak-*
           path: bundles
@@ -163,12 +163,12 @@ jobs:
           sh packaging/build-flatpak-repo.sh bundles site "$KEY"
       # One artifact name per attempt: a re-run otherwise finds the failed
       # attempt's "github-pages" too and deploy-pages refuses to pick one.
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
           name: github-pages-${{ github.run_attempt }}
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
         with:
           artifact_name: github-pages-${{ github.run_attempt }}
 
@@ -179,8 +179,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
         with:
           pattern: pkg-*
           path: dist
