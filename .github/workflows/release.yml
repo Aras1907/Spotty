@@ -109,11 +109,15 @@ jobs:
       - name: Test snap
         if: matrix.kind == 'appimage-snap'
         run: |
-          # The base snap comes from the Snap Store, which runners sometimes
-          # time out on (v0.6.21); retry before giving up.
+          # The base snap comes from the Snap Store, which runners could not
+          # reach for hours (v0.6.21, v0.6.22). The snap itself is already
+          # built; without the store only this install test is skipped.
           for try in 1 2 3 4; do
             sudo snap install core24 && break
-            [ "$try" = 4 ] && exit 1
+            if [ "$try" = 4 ]; then
+              echo "::warning::Snap Store unreachable; snap built but its install test was skipped"
+              exit 0
+            fi
             echo "::warning::core24 install attempt $try failed; retrying in 30s"; sleep 30
           done
           sudo snap install --dangerous --classic dist/spotty_${VER}_*.snap
