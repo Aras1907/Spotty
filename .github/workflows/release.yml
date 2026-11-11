@@ -109,6 +109,13 @@ jobs:
       - name: Test snap
         if: matrix.kind == 'appimage-snap'
         run: |
+          # The base snap comes from the Snap Store, which runners sometimes
+          # time out on (v0.6.21); retry before giving up.
+          for try in 1 2 3 4; do
+            sudo snap install core24 && break
+            [ "$try" = 4 ] && exit 1
+            echo "::warning::core24 install attempt $try failed; retrying in 30s"; sleep 30
+          done
           sudo snap install --dangerous --classic dist/spotty_${VER}_*.snap
           grep '^Exec=' /var/lib/snapd/desktop/applications/spotty_spotty.desktop
           HOME=/tmp/smoke-snap sh packaging/smoke.sh /snap/bin/spotty

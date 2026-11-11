@@ -83,6 +83,9 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **Installed apps first.** An installed app whose description matches what
+  you type now ranks above Install rows: "mail" shows your email client
+  before "Install: Mailspring".
 - **One update row.** Typing update shows a single row, never a list. With
   updates pending it says Update and runs in the background. With nothing
   known it says "Press Enter to check for updates". Once an update has
