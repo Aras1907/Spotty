@@ -83,6 +83,12 @@ Checksums are in `SHA256SUMS`.
 
 ## What's new
 
+- **One update row.** Typing update shows a single row, never a list. With
+  updates pending it says Update and runs in the background. With nothing
+  known it says "Press Enter to check for updates". Once an update has
+  finished and needs a restart, the only row is the restart. The separate
+  "Update" trigger suggestion, Remind tomorrow, Dismiss and Disable rows are
+  gone from search (update checks can still be turned off in Settings).
 - **Restart installs the update.** If an update was downloaded but not yet
   scheduled, Restart now schedules it first, so the reboot actually installs
   it. If scheduling fails, Spotty cancels the restart and tells you why.
