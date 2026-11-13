@@ -2172,6 +2172,7 @@ impl SearchWindow {
                         &scroll_cb_results,
                         new.len(),
                         visible_limit(&config.borrow()),
+                        preview_box.is_visible(),
                     );
                     return;
                 }
@@ -2459,18 +2460,27 @@ impl SearchWindow {
                 // fewer results the list (and window) shrink
                 // to fit exactly that many rows, with the rest scrollable.
                 {
-                    let visible_rows = new.len().min(visible_limit(&config.borrow())).max(1);
+                    let with_preview = preview_box.is_visible();
+                    let visible_rows =
+                        rows_to_show(new.len(), visible_limit(&config.borrow()), with_preview);
+                    // Release the canonical min set before map so the window
+                    // can shrink to fit the actual content (and so the max
+                    // below may drop under the old min: GTK refuses that).
+                    scroll_cb_results.set_min_content_height(0);
                     if let Some(first) = list.row_at_index(0) {
                         let (_, natural, _, _) = first.measure(gtk::Orientation::Vertical, -1);
                         if natural > 0 {
-                            scroll_cb_results.set_max_content_height(natural * visible_rows as i32);
+                            let height = natural * visible_rows as i32;
+                            scroll_cb_results.set_max_content_height(height);
+                            // With a preview the panel keeps that height even
+                            // for one result, so the preview has room.
+                            if with_preview {
+                                scroll_cb_results.set_min_content_height(height);
+                            }
                             // The overview on the right fits the list's height.
-                            preview_fit.fit_to(natural * visible_rows as i32);
+                            preview_fit.fit_to(height);
                         }
                     }
-                    // Release the canonical min set before map so the window
-                    // can shrink to fit the actual content.
-                    scroll_cb_results.set_min_content_height(0);
                 }
                 // Restore selection across rebuilds (BT scan or same-query refresh).
                 rebuild_flag.set(false);
@@ -6450,17 +6460,39 @@ fn size_results_to_limit(
     scroll: &gtk::ScrolledWindow,
     result_count: usize,
     configured_limit: usize,
+    with_preview: bool,
 ) {
-    let visible_rows = result_count.min(configured_limit.clamp(1, 20)).max(1);
+    let visible_rows = rows_to_show(result_count, configured_limit.clamp(1, 20), with_preview);
+    // Release the canonical minimum so fewer results let the window shrink
+    // (first: GTK refuses a max under the current min).
+    scroll.set_min_content_height(0);
     if let Some(first) = list.row_at_index(0) {
         let (_, natural, _, _) = first.measure(gtk::Orientation::Vertical, -1);
         if natural > 0 {
             scroll.set_max_content_height(natural * visible_rows as i32);
+            // With a preview, keep room for it even for a single result.
+            if with_preview {
+                scroll.set_min_content_height(natural * visible_rows as i32);
+            }
         }
     }
-    // Release the canonical minimum so fewer results let the window shrink.
-    scroll.set_min_content_height(0);
 }
+
+/// Rows of height the results area takes. Without a preview it fits the
+/// results; with the preview pane on the right it is at least
+/// `PREVIEW_MIN_ROWS` (held to the user's limit) so a single result doesn't
+/// squash the preview.
+fn rows_to_show(result_count: usize, limit: usize, with_preview: bool) -> usize {
+    let rows = if with_preview {
+        result_count.max(PREVIEW_MIN_ROWS)
+    } else {
+        result_count
+    };
+    rows.min(limit).max(1)
+}
+
+/// Height, in result rows, the panel keeps while the preview pane shows.
+const PREVIEW_MIN_ROWS: usize = 5;
 
 fn upd_preview(row: &gtk::ListBoxRow, rs: &[SearchResult], p: &PreviewPane) {
     let Some(r) = rs.get(row.index() as usize) else {
@@ -7353,6 +7385,16 @@ mod previewable_tests {
 #[cfg(test)]
 mod swipe_tests {
     use super::*;
+
+    #[test]
+    fn preview_keeps_five_rows_of_room() {
+        assert_eq!(rows_to_show(1, 8, true), 5);
+        assert_eq!(rows_to_show(1, 8, false), 1);
+        assert_eq!(rows_to_show(1, 3, true), 3, "held to the user's limit");
+        assert_eq!(rows_to_show(7, 8, true), 7);
+        assert_eq!(rows_to_show(12, 8, true), 8);
+        assert_eq!(rows_to_show(0, 8, false), 1);
+    }
 
     #[test]
     fn hidden_rows_park_by_their_own_width() {
