@@ -2884,7 +2884,7 @@ fn present_about_dialog(parent: &impl IsA<gtk::Window>) {
         .version(env!("CARGO_PKG_VERSION"))
         .developer_name("The Spotty Project")
         .comments("A Raycast-style launcher for GNOME Linux")
-        .license_type(gtk::License::MitX11)
+        .license_type(gtk::License::Apache20)
         .website("https://github.com/Aras1907/Spotty")
         .issue_url("https://github.com/Aras1907/Spotty/issues")
         .build();

@@ -7,7 +7,7 @@
     <name>Spotty</name>
   </developer>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>MIT</project_license>
+  <project_license>Apache-2.0</project_license>
   <description>
     <p>Spotty is a keyboard-driven launcher for GNOME desktops. It runs in the background and provides quick access to applications, indexed files, clipboard history, calculations, web searches, settings panels, and power actions.</p>
   </description>

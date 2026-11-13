@@ -2470,7 +2470,11 @@ impl SearchWindow {
                     if let Some(first) = list.row_at_index(0) {
                         let (_, natural, _, _) = first.measure(gtk::Orientation::Vertical, -1);
                         if natural > 0 {
-                            let height = natural * visible_rows as i32;
+                            let height = if with_preview {
+                                rows_height(&list, visible_rows).unwrap_or(natural)
+                            } else {
+                                natural * visible_rows as i32
+                            };
                             scroll_cb_results.set_max_content_height(height);
                             // With a preview the panel keeps that height even
                             // for one result, so the preview has room.
@@ -6469,10 +6473,14 @@ fn size_results_to_limit(
     if let Some(first) = list.row_at_index(0) {
         let (_, natural, _, _) = first.measure(gtk::Orientation::Vertical, -1);
         if natural > 0 {
-            scroll.set_max_content_height(natural * visible_rows as i32);
-            // With a preview, keep room for it even for a single result.
             if with_preview {
-                scroll.set_min_content_height(natural * visible_rows as i32);
+                // With a preview, exactly `visible_rows` rows of room, even
+                // for a single result.
+                let height = rows_height(list, visible_rows).unwrap_or(natural);
+                scroll.set_max_content_height(height);
+                scroll.set_min_content_height(height);
+            } else {
+                scroll.set_max_content_height(natural * visible_rows as i32);
             }
         }
     }
@@ -6489,6 +6497,35 @@ fn rows_to_show(result_count: usize, limit: usize, with_preview: bool) -> usize 
         result_count
     };
     rows.min(limit).max(1)
+}
+
+/// Height of the first `rows` rows of `list`: the rows that exist, each at
+/// its own height (a translation card is much taller than a plain row), and
+/// a plain row's height for each slot past the last result. None when no
+/// row can be measured yet.
+fn rows_height(list: &gtk::ListBox, rows: usize) -> Option<i32> {
+    let mut heights = Vec::new();
+    let mut i = 0;
+    while let Some(row) = list.row_at_index(i) {
+        if heights.len() >= rows {
+            break;
+        }
+        let (_, natural, _, _) = row.measure(gtk::Orientation::Vertical, -1);
+        if natural > 0 {
+            heights.push(natural);
+        }
+        i += 1;
+    }
+    // A plain row: the shortest one shown, unless every row is a tall card.
+    let shortest = heights.iter().copied().min()?;
+    let plain = if shortest > 2 * ROW_HEIGHT { ROW_HEIGHT } else { shortest };
+    Some(padded_rows_height(&heights, rows, plain))
+}
+
+/// The measured `heights`, plus `plain` for every missing row up to `rows`.
+fn padded_rows_height(heights: &[i32], rows: usize, plain: i32) -> i32 {
+    let shown: i32 = heights.iter().take(rows).sum();
+    shown + plain * rows.saturating_sub(heights.len()) as i32
 }
 
 /// Height, in result rows, the panel keeps while the preview pane shows.
@@ -7394,6 +7431,15 @@ mod swipe_tests {
         assert_eq!(rows_to_show(7, 8, true), 7);
         assert_eq!(rows_to_show(12, 8, true), 8);
         assert_eq!(rows_to_show(0, 8, false), 1);
+    }
+
+    #[test]
+    fn preview_room_is_five_rows_not_five_cards() {
+        // A tall translation card and two plain rows: two plain slots are
+        // added, the card is not counted five times.
+        assert_eq!(padded_rows_height(&[240, 70, 70], 5, 70), 240 + 4 * 70);
+        assert_eq!(padded_rows_height(&[54], 5, 54), 5 * 54);
+        assert_eq!(padded_rows_height(&[54; 7], 5, 54), 5 * 54);
     }
 
     #[test]
